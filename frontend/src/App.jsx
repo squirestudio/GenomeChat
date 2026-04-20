@@ -1,0 +1,444 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+const API = "http://localhost:8000";
+
+const SUGGESTIONS = [
+  { label: "BRCA1 pathogenic variants", icon: "🧬" },
+  { label: "What genes cause hereditary breast cancer?", icon: "🔬" },
+  { label: "TP53 variants and cancer", icon: "🧬" },
+  { label: "Alzheimer's disease genes", icon: "🔬" },
+  { label: "EGFR variants in lung cancer", icon: "🧬" },
+  { label: "Which genes are linked to Parkinson's?", icon: "🔬" },
+];
+
+// ─── Markdown Renderer ───────────────────────────────────────────────────────
+
+function renderInline(text) {
+  const parts = [];
+  const re = /(\*\*(.+?)\*\*|`(.+?)`|\*(.+?)\*)/g;
+  let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m[2]) parts.push(<strong key={m.index} style={{ color: "#e2e8f0", fontWeight: 600 }}>{m[2]}</strong>);
+    else if (m[3]) parts.push(<code key={m.index} style={{ fontFamily: "monospace", fontSize: "0.78em", background: "#1e293b", color: "#7dd3fc", padding: "0.1em 0.35em", borderRadius: 3 }}>{m[3]}</code>);
+    else if (m[4]) parts.push(<em key={m.index} style={{ color: "#cbd5e1" }}>{m[4]}</em>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+function Markdown({ content }) {
+  if (!content) return null;
+  const lines = content.split("\n");
+  const elements = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith("## ")) {
+      elements.push(
+        <h2 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "#f1f5f9", margin: "1.25rem 0 0.5rem", paddingBottom: "0.375rem", borderBottom: "1px solid #1e293b" }}>
+          {renderInline(line.slice(3))}
+        </h2>
+      );
+    } else if (line.startsWith("### ")) {
+      elements.push(
+        <h3 key={i} style={{ fontSize: "0.8rem", fontWeight: 600, color: "#cbd5e1", margin: "0.875rem 0 0.25rem" }}>
+          {renderInline(line.slice(4))}
+        </h3>
+      );
+    } else if (line.startsWith("- ") || line.startsWith("• ")) {
+      const items = [];
+      while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("• "))) {
+        items.push(<li key={i} style={{ color: "#94a3b8", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].slice(2))}</li>);
+        i++;
+      }
+      elements.push(<ul key={`ul${i}`} style={{ paddingLeft: "1.25rem", listStyle: "disc", margin: "0.5rem 0" }}>{items}</ul>);
+      continue;
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} style={{ height: "0.375rem" }} />);
+    } else {
+      elements.push(<p key={i} style={{ color: "#94a3b8", fontSize: "0.875rem", lineHeight: 1.7, margin: "0.25rem 0" }}>{renderInline(line)}</p>);
+    }
+    i++;
+  }
+  return <div>{elements}</div>;
+}
+
+// ─── Data Cards ──────────────────────────────────────────────────────────────
+
+const SIG_COLORS = {
+  "Pathogenic": { bg: "rgba(127,29,29,0.4)", color: "#fca5a5", border: "rgba(185,28,28,0.3)" },
+  "Likely pathogenic": { bg: "rgba(124,45,18,0.4)", color: "#fdba74", border: "rgba(194,65,12,0.3)" },
+  "Benign": { bg: "rgba(5,46,22,0.4)", color: "#86efac", border: "rgba(21,128,61,0.3)" },
+  "Likely benign": { bg: "rgba(4,47,46,0.4)", color: "#5eead4", border: "rgba(15,118,110,0.3)" },
+  "Uncertain significance": { bg: "rgba(66,32,6,0.4)", color: "#fde68a", border: "rgba(161,98,7,0.3)" },
+};
+
+function VariantCard({ variant }) {
+  const sig = variant.clinical_significance || "Unknown";
+  const c = SIG_COLORS[sig] || { bg: "rgba(30,41,59,0.6)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" };
+  return (
+    <div style={{ background: "rgba(30,41,59,0.35)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 10, padding: "0.75rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#7dd3fc", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.variant_id}</p>
+          {variant.condition && <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.condition}</p>}
+          {variant.consequence && <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 2 }}>{variant.consequence}</p>}
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <span style={{ fontSize: "0.7rem", padding: "0.2em 0.55em", borderRadius: 5, background: c.bg, color: c.color, border: `1px solid ${c.border}`, display: "inline-block" }}>{sig}</span>
+          {variant.frequency != null && (
+            <p style={{ fontSize: "0.7rem", color: "#475569", marginTop: 3 }}>
+              AF {variant.frequency < 0.0001 ? variant.frequency.toExponential(1) : variant.frequency.toFixed(5)}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneCard({ gene }) {
+  return (
+    <div style={{ background: "rgba(30,41,59,0.35)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 10, padding: "0.75rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <p style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "#c4b5fd", fontWeight: 700 }}>{gene.gene_symbol}</p>
+          {gene.description && <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{gene.description}</p>}
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          {gene.chromosome && <span style={{ fontSize: "0.7rem", padding: "0.2em 0.55em", borderRadius: 5, background: "rgba(30,41,59,0.7)", color: "#64748b", border: "1px solid rgba(51,65,85,0.4)", display: "inline-block" }}>Chr {gene.chromosome}</span>}
+          {gene.publication_count > 0 && <p style={{ fontSize: "0.7rem", color: "#475569", marginTop: 3 }}>{gene.publication_count.toLocaleString()} pubs</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
+  if (!geneInfo) return null;
+  return (
+    <div style={{ background: "rgba(8,47,73,0.4)", border: "1px solid rgba(14,116,144,0.25)", borderRadius: 10, padding: "0.75rem", marginBottom: "1rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <p style={{ fontFamily: "monospace", fontWeight: 700, color: "#7dd3fc", fontSize: "0.875rem" }}>{geneInfo.symbol}</p>
+          {geneInfo.description && <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 3 }}>{geneInfo.description}</p>}
+          {proteinInfo?.protein_name && <p style={{ fontSize: "0.72rem", color: "#0ea5e9", opacity: 0.7, marginTop: 4 }}>Protein: {proteinInfo.protein_name}</p>}
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          {geneInfo.chromosome && <p style={{ fontSize: "0.72rem", color: "#475569" }}>Chr {geneInfo.chromosome}</p>}
+          {pubCount > 0 && <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 3 }}>{pubCount.toLocaleString()} publications</p>}
+        </div>
+      </div>
+      {proteinInfo?.function && <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{proteinInfo.function}</p>}
+    </div>
+  );
+}
+
+function DataSection({ data, queryType }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!data) return null;
+  const isGene = queryType === "gene_query";
+  const items = isGene ? (data.variants || []) : (data.genes || []);
+  const shown = expanded ? items : items.slice(0, 6);
+  if (items.length === 0) return null;
+  return (
+    <div style={{ marginTop: "1rem" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {isGene ? `${items.length} Variants` : `${items.length} Associated Genes`}
+        </p>
+        {items.length > 6 && (
+          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.75rem", color: "#38bdf8", background: "none", border: "none", cursor: "pointer" }}>
+            {expanded ? "Show less" : `Show all ${items.length}`}
+          </button>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
+        {shown.map((item, i) =>
+          isGene ? <VariantCard key={item.variant_id || i} variant={item} /> : <GeneCard key={item.gene_symbol || i} gene={item} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Messages ────────────────────────────────────────────────────────────────
+
+const SOURCE_COLORS = {
+  ClinVar: { color: "#fca5a5", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
+  Ensembl: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
+  gnomAD: { color: "#93c5fd", bg: "rgba(23,37,84,0.4)", border: "rgba(29,78,216,0.25)" },
+  UniProt: { color: "#fde68a", bg: "rgba(66,32,6,0.3)", border: "rgba(161,98,7,0.25)" },
+  NCBI: { color: "#d8b4fe", bg: "rgba(59,7,100,0.3)", border: "rgba(126,34,206,0.25)" },
+  PubMed: { color: "#fdba74", bg: "rgba(124,45,18,0.3)", border: "rgba(194,65,12,0.25)" },
+};
+
+function AssistantMessage({ msg }) {
+  return (
+    <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {msg.target && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700, color: "#38bdf8" }}>{msg.target}</span>
+            <span style={{ color: "#1e293b" }}>·</span>
+            <span style={{ fontSize: "0.72rem", color: "#475569", textTransform: "capitalize" }}>{(msg.query_type || "").replace("_", " ")}</span>
+            {msg.result_count > 0 && <><span style={{ color: "#1e293b" }}>·</span><span style={{ fontSize: "0.72rem", color: "#475569" }}>{msg.result_count} results</span></>}
+            {msg.cached && <span style={{ fontSize: "0.68rem", padding: "0.15em 0.5em", borderRadius: 4, background: "#0f172a", color: "#475569", border: "1px solid #1e293b" }}>cached</span>}
+          </div>
+        )}
+        {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} />}
+        <Markdown content={msg.content} />
+        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} />}
+        {msg.sources?.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>
+            {msg.sources.map(s => {
+              const c = SOURCE_COLORS[s] || { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" };
+              return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UserMessage({ content }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", animation: "fadeSlideIn 0.2s ease-out" }}>
+      <div style={{ maxWidth: "60%", background: "rgba(14,165,233,0.12)", border: "1px solid rgba(14,165,233,0.2)", borderRadius: "16px 16px 4px 16px", padding: "0.625rem 1rem" }}>
+        <p style={{ fontSize: "0.875rem", color: "#e2e8f0", lineHeight: 1.6 }}>{content}</p>
+      </div>
+    </div>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <div style={{ display: "flex", gap: 12 }}>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0 }}>G</div>
+      <div style={{ background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.35)", borderRadius: 12, padding: "0.75rem 1rem", display: "flex", alignItems: "center", gap: 6 }}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#38bdf8", animation: `pulse-dot 1.2s ${i * 0.2}s infinite` }} />
+        ))}
+        <span style={{ fontSize: "0.75rem", color: "#475569", marginLeft: 4 }}>Querying databases…</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+
+function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat }) {
+  const [newName, setNewName] = useState("");
+  return (
+    <aside style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(30,41,59,0.8)", background: "rgba(15,23,42,0.6)" }}>
+      <div style={{ padding: "1rem", borderBottom: "1px solid rgba(30,41,59,0.6)" }}>
+        <button onClick={onNewChat} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0.5rem 0.75rem", borderRadius: 10, background: "#0284c7", color: "white", fontSize: "0.8rem", fontWeight: 600, border: "none", cursor: "pointer" }}>
+          + New Chat
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
+        {chatHistory.length > 0 && (
+          <div style={{ marginBottom: "1.25rem" }}>
+            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Recent</p>
+            {chatHistory.slice(0, 8).map((item, i) => (
+              <p key={i} style={{ fontSize: "0.75rem", color: "#64748b", padding: "0.35rem 0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</p>
+            ))}
+          </div>
+        )}
+        <div>
+          <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Projects</p>
+          <form onSubmit={e => { e.preventDefault(); if (newName.trim()) { onCreateProject(newName.trim()); setNewName(""); } }} style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New project…" style={{ flex: 1, fontSize: "0.72rem", background: "rgba(30,41,59,0.6)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.35rem 0.5rem", color: "#94a3b8", outline: "none" }} />
+            <button type="submit" style={{ padding: "0.35rem 0.6rem", background: "rgba(51,65,85,0.6)", border: "1px solid rgba(71,85,105,0.4)", borderRadius: 6, color: "#94a3b8", cursor: "pointer", fontSize: "0.8rem" }}>+</button>
+          </form>
+          <button onClick={() => onSelectProject(null)} style={{ width: "100%", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === null ? "#38bdf8" : "#64748b", background: activeProjectId === null ? "rgba(14,165,233,0.1)" : "transparent", border: "none", cursor: "pointer", marginBottom: 2 }}>
+            All queries
+          </button>
+          {projects.map(p => (
+            <button key={p.id} onClick={() => onSelectProject(p.id)} style={{ width: "100%", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === p.id ? "#38bdf8" : "#64748b", background: activeProjectId === p.id ? "rgba(14,165,233,0.1)" : "transparent", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", marginBottom: 2 }}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(null);
+  const [apiStatus, setApiStatus] = useState("checking");
+  const [chatHistory, setChatHistory] = useState([]);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => { checkHealth(); loadProjects(); }, []);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+
+  const checkHealth = async () => {
+    try { const r = await fetch(`${API}/health`); setApiStatus(r.ok ? "online" : "error"); }
+    catch { setApiStatus("offline"); }
+  };
+
+  const loadProjects = async () => {
+    try { const r = await fetch(`${API}/projects`); if (r.ok) setProjects(await r.json()); }
+    catch {}
+  };
+
+  const buildHistory = useCallback(() =>
+    messages.map(m => ({ role: m.role, content: m.content })),
+    [messages]
+  );
+
+  const sendMessage = useCallback(async (text) => {
+    const msg = (text || input).trim();
+    if (!msg || loading) return;
+    setInput("");
+    const userMsg = { role: "user", content: msg };
+    setMessages(prev => [...prev, userMsg]);
+    setLoading(true);
+
+    try {
+      const r = await fetch(`${API}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg, history: buildHistory(), project_id: activeProjectId }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        setMessages(prev => [...prev, { role: "assistant", content: `**Error:** ${data.detail || "Something went wrong."}` }]);
+        return;
+      }
+      const assistantMsg = { role: "assistant", ...data };
+      setMessages(prev => [...prev, assistantMsg]);
+      setChatHistory(prev => [{ label: msg.slice(0, 50) }, ...prev.filter(h => h.label !== msg.slice(0, 50)).slice(0, 19)]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: "assistant", content: `**Connection error:** ${err.message}\n\nMake sure the backend is running: \`docker-compose up -d\`` }]);
+    } finally {
+      setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [input, loading, buildHistory, activeProjectId]);
+
+  const exportChat = () => {
+    const blob = new Blob([JSON.stringify(messages, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `genomechat-${Date.now()}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const statusColor = { online: "#34d399", offline: "#f87171", checking: "#fbbf24", error: "#f87171" }[apiStatus];
+
+  return (
+    <>
+      <style>{`
+        @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse-dot { 0%,80%,100% { opacity:.2; transform:scale(.8); } 40% { opacity:1; transform:scale(1); } }
+      `}</style>
+      <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+        <Sidebar
+          projects={projects} activeProjectId={activeProjectId}
+          onSelectProject={setActiveProjectId} onCreateProject={async name => { try { const r = await fetch(`${API}/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); if (r.ok) { const p = await r.json(); setActiveProjectId(p.id); loadProjects(); } } catch {} }}
+          onDeleteProject={async id => { try { await fetch(`${API}/projects/${id}`, { method: "DELETE" }); if (activeProjectId === id) setActiveProjectId(null); loadProjects(); } catch {} }}
+          chatHistory={chatHistory} onNewChat={() => setMessages([])}
+        />
+
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          {/* Header */}
+          <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", borderBottom: "1px solid rgba(30,41,59,0.6)", background: "rgba(15,23,42,0.4)", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
+              <div>
+                <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>GenomeChat</p>
+                <p style={{ fontSize: "0.7rem", color: "#334155", margin: 0 }}>Genomics research · Powered by Claude AI</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {messages.length > 0 && (
+                <button onClick={exportChat} style={{ fontSize: "0.72rem", color: "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer" }}>Export</button>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
+                <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
+              </div>
+            </div>
+          </header>
+
+          {/* Messages */}
+          <div style={{ flex: 1, overflowY: "auto", padding: messages.length === 0 ? 0 : "1.5rem 1.5rem 1rem" }}>
+            {messages.length === 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "2rem" }}>
+                <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, marginBottom: 20, boxShadow: "0 8px 32px rgba(14,165,233,0.2)" }}>🧬</div>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#f1f5f9", margin: "0 0 8px" }}>What would you like to research?</h2>
+                <p style={{ fontSize: "0.875rem", color: "#475569", marginBottom: 28, textAlign: "center", maxWidth: 420, lineHeight: 1.6 }}>
+                  Ask about genes, variants, or genetic diseases. I'll query live databases and explain the relationships.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, maxWidth: 560, width: "100%" }}>
+                  {SUGGESTIONS.map(s => (
+                    <button key={s.label} onClick={() => sendMessage(s.label)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.35)"}>
+                      <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
+                      <span style={{ fontSize: "0.78rem", color: "#64748b", lineHeight: 1.5 }}>{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                {messages.map((msg, i) =>
+                  msg.role === "user"
+                    ? <UserMessage key={i} content={msg.content} />
+                    : <AssistantMessage key={i} msg={msg} />
+                )}
+                {loading && <TypingIndicator />}
+                <div ref={bottomRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <div style={{ flexShrink: 0, padding: "0.875rem 1.5rem 1.25rem", borderTop: "1px solid rgba(30,41,59,0.5)", background: "rgba(15,23,42,0.3)" }}>
+            <div style={{ maxWidth: 820, margin: "0 auto" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgba(30,41,59,0.55)", border: "1px solid rgba(51,65,85,0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  placeholder="Ask about a gene (BRCA1 variants) or disease (Alzheimer's genes)…"
+                  rows={1}
+                  style={{ flex: 1, resize: "none", background: "transparent", color: "#e2e8f0", fontSize: "0.875rem", border: "none", outline: "none", lineHeight: 1.6, minHeight: 24, maxHeight: 160, overflowY: "auto", fontFamily: "inherit" }}
+                  onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
+                />
+                <button
+                  onClick={() => sendMessage()}
+                  disabled={loading || !input.trim()}
+                  style={{ width: 32, height: 32, borderRadius: 10, background: loading || !input.trim() ? "rgba(51,65,85,0.4)" : "#0284c7", border: "none", cursor: loading || !input.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="white" width={14} height={14}>
+                    <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+                  </svg>
+                </button>
+              </div>
+              <p style={{ textAlign: "center", fontSize: "0.68rem", color: "#1e293b", marginTop: 8 }}>
+                Ensembl · ClinVar · gnomAD · UniProt · PubMed · Claude AI
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
 
 
 class Settings(BaseSettings):
@@ -11,6 +12,13 @@ class Settings(BaseSettings):
     request_timeout: int = 30
     max_retries: int = 3
     log_level: str = "INFO"
+
+    def get_database_url(self) -> str:
+        # Railway provides DATABASE_URL as postgres:// but SQLAlchemy needs postgresql://
+        url = self.database_url
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        return url
 
     class Config:
         env_file = ".env"

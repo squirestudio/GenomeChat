@@ -6,7 +6,7 @@ import os
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
     database_url: str = "postgresql://genomechat:genomechat@localhost:5432/genomechat"
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173", "*"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:5174", "https://genomechat.vercel.app", "*"]
     cache_ttl_hours: int = 24
     cache_max_size: int = 1000
     request_timeout: int = 30

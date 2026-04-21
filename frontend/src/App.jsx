@@ -326,25 +326,59 @@ const SIG_COLORS = {
 };
 
 function VariantCard({ variant }) {
+  const [expanded, setExpanded] = useState(false);
   const sig = variant.clinical_significance || "Unknown";
   const c = SIG_COLORS[sig] || { bg: "rgba(30,41,59,0.6)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" };
+  const hasDetail = variant.condition || variant.consequence || variant.frequency != null || variant.review_status || variant.hgvs;
   return (
-    <div style={{ background: "rgba(30,41,59,0.35)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 10, padding: "0.75rem" }}>
+    <div
+      onClick={() => hasDetail && setExpanded(e => !e)}
+      style={{ background: "rgba(30,41,59,0.35)", border: `1px solid ${expanded ? "rgba(14,165,233,0.35)" : "rgba(51,65,85,0.4)"}`, borderRadius: 10, padding: "0.75rem", cursor: hasDetail ? "pointer" : "default", transition: "border-color 0.15s" }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#7dd3fc", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.variant_id}</p>
-          {variant.condition && <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.condition}</p>}
-          {variant.consequence && <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 2 }}>{variant.consequence}</p>}
+          {!expanded && variant.condition && <p style={{ fontSize: "0.72rem", color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.condition}</p>}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <span style={{ fontSize: "0.7rem", padding: "0.2em 0.55em", borderRadius: 5, background: c.bg, color: c.color, border: `1px solid ${c.border}`, display: "inline-block" }}>{sig}</span>
-          {variant.frequency != null && (
+          {!expanded && variant.frequency != null && (
             <p style={{ fontSize: "0.7rem", color: "#475569", marginTop: 3 }}>
               AF {variant.frequency < 0.0001 ? variant.frequency.toExponential(1) : variant.frequency.toFixed(5)}
             </p>
           )}
+          {hasDetail && <p style={{ fontSize: "0.6rem", color: "#334155", marginTop: 3 }}>{expanded ? "▲ less" : "▼ more"}</p>}
         </div>
       </div>
+      {expanded && (
+        <div style={{ marginTop: "0.6rem", paddingTop: "0.6rem", borderTop: "1px solid rgba(51,65,85,0.3)", display: "flex", flexDirection: "column", gap: 4 }}>
+          {variant.condition && <Row label="Condition" value={variant.condition} />}
+          {variant.consequence && <Row label="Consequence" value={variant.consequence} mono />}
+          {variant.hgvs && <Row label="HGVS" value={variant.hgvs} mono />}
+          {variant.frequency != null && <Row label="Allele frequency" value={variant.frequency < 0.0001 ? variant.frequency.toExponential(3) : variant.frequency.toFixed(6)} mono />}
+          {variant.review_status && <Row label="Review status" value={variant.review_status} />}
+          {variant.gene && <Row label="Gene" value={variant.gene} mono />}
+          {variant.source && (
+            <a
+              href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${variant.variant_id?.replace(/[^0-9]/g, "")}/`}
+              target="_blank" rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{ fontSize: "0.68rem", color: "#38bdf8", marginTop: 2 }}
+            >
+              View in ClinVar ↗
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, mono }) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+      <span style={{ fontSize: "0.65rem", color: "#334155", flexShrink: 0, width: 110 }}>{label}</span>
+      <span style={{ fontSize: mono ? "0.68rem" : "0.72rem", color: "#94a3b8", fontFamily: mono ? "monospace" : "inherit", wordBreak: "break-all" }}>{value}</span>
     </div>
   );
 }
@@ -547,6 +581,98 @@ function InteractionNetwork({ interactions, centerGene }) {
   );
 }
 
+// ─── Drug Panel (Open Targets) ───────────────────────────────────────────────
+
+const PHASE_LABEL = { 4: "Approved", 3: "Phase III", 2: "Phase II", 1: "Phase I", 0: "Preclinical" };
+const PHASE_COLOR = {
+  4: { bg: "rgba(5,46,22,0.4)", color: "#86efac", border: "rgba(21,128,61,0.3)" },
+  3: { bg: "rgba(8,47,73,0.4)", color: "#7dd3fc", border: "rgba(3,105,161,0.3)" },
+  2: { bg: "rgba(23,37,84,0.4)", color: "#93c5fd", border: "rgba(29,78,216,0.25)" },
+  1: { bg: "rgba(49,46,129,0.4)", color: "#c4b5fd", border: "rgba(109,40,217,0.3)" },
+  0: { bg: "rgba(30,41,59,0.5)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" },
+};
+
+function DrugPanel({ drugs }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!drugs?.length) return null;
+  const shown = expanded ? drugs : drugs.slice(0, 6);
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(134,239,172,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(134,239,172,0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#86efac" }}>Drug Interactions</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Open Targets · {drugs.length} compounds</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {shown.map((drug, i) => {
+          const phase = drug.phase ?? 0;
+          const pc = PHASE_COLOR[Math.min(phase, 4)] || PHASE_COLOR[0];
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.5rem 0.6rem", background: "rgba(30,41,59,0.3)", borderRadius: 8, border: "1px solid rgba(51,65,85,0.25)" }}>
+              <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: pc.bg, color: pc.color, border: `1px solid ${pc.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                {PHASE_LABEL[Math.min(phase, 4)] || `Phase ${phase}`}
+              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#e2e8f0", fontWeight: 600 }}>{drug.name}</p>
+                {drug.mechanism && <p style={{ fontSize: "0.7rem", color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drug.mechanism}</p>}
+                {drug.indication && <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 1 }}>{drug.indication}</p>}
+              </div>
+              {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "#334155", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
+            </div>
+          );
+        })}
+      </div>
+      {drugs.length > 6 && (
+        <div style={{ padding: "0 0.875rem 0.625rem" }}>
+          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#86efac", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            {expanded ? "Show less" : `+ ${drugs.length - 6} more compounds`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── gnomAD Population Frequency Chart ───────────────────────────────────────
+
+const POP_COLORS = {
+  afr: "#f97316", amr: "#eab308", asj: "#a855f7",
+  eas: "#06b6d4", fin: "#3b82f6", nfe: "#6366f1",
+  sas: "#ec4899", mid: "#14b8a6",
+};
+
+function PopulationFrequencyChart({ populations }) {
+  if (!populations?.length) return null;
+  const max = Math.max(...populations.map(p => p.allele_frequency));
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(99,102,241,0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a5b4fc" }}>Population Frequencies</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>gnomAD r4 · aggregated AF by ancestry</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {populations.map((pop) => {
+          const pct = max > 0 ? (pop.allele_frequency / max) * 100 : 0;
+          const color = POP_COLORS[pop.population_id] || "#6366f1";
+          const afDisplay = pop.allele_frequency === 0 ? "0"
+            : pop.allele_frequency < 0.0001 ? pop.allele_frequency.toExponential(2)
+            : pop.allele_frequency.toFixed(5);
+          return (
+            <div key={pop.population_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: "0.68rem", color: "#64748b", width: 160, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pop.population}</span>
+              <div style={{ flex: 1, height: 14, background: "rgba(30,41,59,0.5)", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3, opacity: 0.8, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
+              </div>
+              <span style={{ fontSize: "0.65rem", color: "#475569", width: 70, textAlign: "right", flexShrink: 0, fontFamily: "monospace" }}>{afDisplay}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 const SOURCE_COLORS = {
@@ -556,6 +682,7 @@ const SOURCE_COLORS = {
   UniProt: { color: "#fde68a", bg: "rgba(66,32,6,0.3)", border: "rgba(161,98,7,0.25)" },
   NCBI: { color: "#d8b4fe", bg: "rgba(59,7,100,0.3)", border: "rgba(126,34,206,0.25)" },
   PubMed: { color: "#fdba74", bg: "rgba(124,45,18,0.3)", border: "rgba(194,65,12,0.25)" },
+  OpenTargets: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
 };
 
 function AssistantMessage({ msg }) {
@@ -585,6 +712,8 @@ function AssistantMessage({ msg }) {
         {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
         {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
         {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
+        {msg.data?.drugs?.length > 0 && <DrugPanel drugs={msg.data.drugs} />}
+        {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>

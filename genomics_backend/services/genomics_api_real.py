@@ -14,6 +14,7 @@ NCBI_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 REACTOME_BASE = "https://reactome.org/ContentService"
 GTEX_BASE = "https://gtexportal.org/api/v2"
 STRING_BASE = "https://string-db.org/api"
+OPENTARGETS_BASE = "https://api.platform.opentargets.org/api/v4/graphql"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -546,6 +547,143 @@ async def fetch_string_interactions(gene_symbol: str, species: int = 9606, limit
         return sorted(results, key=lambda x: x["interaction_score"], reverse=True)
 
 
+async def fetch_open_targets_drugs(ensembl_id: str) -> list[dict]:
+    """Fetch approved and investigational drugs targeting a gene via Open Targets."""
+    if not ensembl_id:
+        return []
+    query = """
+    query KnownDrugs($ensemblId: String!) {
+      target(ensemblId: $ensemblId) {
+        knownDrugs {
+          count
+          rows {
+            drug {
+              id
+              name
+              drugType
+              maximumClinicalTrialPhase
+              isApproved
+            }
+            mechanismOfAction
+            disease {
+              name
+            }
+            phase
+            status
+          }
+        }
+      }
+    }
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                OPENTARGETS_BASE,
+                json={"query": query, "variables": {"ensemblId": ensembl_id}},
+                headers=HEADERS,
+                timeout=TIMEOUT,
+            )
+            if response.status_code != 200:
+                return []
+            data = response.json()
+            rows = (data.get("data", {}).get("target", {}) or {}).get("knownDrugs", {}).get("rows") or []
+
+            seen = set()
+            drugs = []
+            for row in rows:
+                drug = row.get("drug") or {}
+                name = drug.get("name", "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                drugs.append({
+                    "name": name,
+                    "drug_type": drug.get("drugType", ""),
+                    "phase": row.get("phase") or drug.get("maximumClinicalTrialPhase"),
+                    "is_approved": drug.get("isApproved", False),
+                    "mechanism": row.get("mechanismOfAction", ""),
+                    "indication": (row.get("disease") or {}).get("name", ""),
+                    "status": row.get("status", ""),
+                })
+            return sorted(drugs, key=lambda d: (not d["is_approved"], -(d["phase"] or 0)))
+    except Exception as e:
+        logger.warning(f"Open Targets drug query failed for {ensembl_id}: {e}")
+        return []
+
+
+async def fetch_gnomad_population_summary(gene_symbol: str) -> list[dict]:
+    """Fetch per-ancestry allele frequency summary for a gene from gnomAD."""
+    POP_LABELS = {
+        "afr": "African/African Am.",
+        "amr": "Admixed American",
+        "asj": "Ashkenazi Jewish",
+        "eas": "East Asian",
+        "fin": "Finnish",
+        "nfe": "Non-Finnish Eur.",
+        "sas": "South Asian",
+        "mid": "Middle Eastern",
+    }
+    query = """
+    query PopSummary($geneSymbol: String!) {
+      gene(gene_symbol: $geneSymbol, reference_genome: GRCh38) {
+        variants(dataset: gnomad_r4) {
+          exome {
+            ac
+            an
+            populations {
+              id
+              ac
+              an
+            }
+          }
+        }
+      }
+    }
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                GNOMAD_BASE,
+                json={"query": query, "variables": {"geneSymbol": gene_symbol}},
+                headers=HEADERS,
+                timeout=TIMEOUT,
+            )
+            if response.status_code != 200:
+                return []
+            data = response.json()
+            variants_raw = (data.get("data", {}).get("gene", {}) or {}).get("variants", []) or []
+
+            # Aggregate allele counts per population across all variants
+            pop_ac: dict[str, int] = {}
+            pop_an: dict[str, int] = {}
+            for v in variants_raw:
+                exome = v.get("exome") or {}
+                for pop in exome.get("populations") or []:
+                    pid = pop.get("id", "").lower()
+                    if pid not in POP_LABELS:
+                        continue
+                    pop_ac[pid] = pop_ac.get(pid, 0) + (pop.get("ac") or 0)
+                    pop_an[pid] = pop_an.get(pid, 0) + (pop.get("an") or 0)
+
+            summary = []
+            for pid, label in POP_LABELS.items():
+                an = pop_an.get(pid, 0)
+                ac = pop_ac.get(pid, 0)
+                if an == 0:
+                    continue
+                summary.append({
+                    "population_id": pid,
+                    "population": label,
+                    "allele_count": ac,
+                    "allele_number": an,
+                    "allele_frequency": round(ac / an, 8) if an > 0 else 0,
+                })
+            return sorted(summary, key=lambda x: x["allele_frequency"], reverse=True)
+    except Exception as e:
+        logger.warning(f"gnomAD population summary failed for {gene_symbol}: {e}")
+        return []
+
+
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
@@ -582,13 +720,17 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
             })
 
     uniprot_safe = safe(uniprot_info)
+    ensembl_safe = safe(ensembl_info)
+    ensembl_id = (ensembl_safe or {}).get("id", "")
 
-    # Fetch AlphaFold, Reactome, GTEx, STRING in parallel
-    alphafold_info, pathways, expression, interactions = await asyncio.gather(
+    # Fetch AlphaFold, Reactome, GTEx, STRING, Open Targets drugs, gnomAD population summary in parallel
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
         fetch_string_interactions(gene_symbol),
+        fetch_open_targets_drugs(ensembl_id),
+        fetch_gnomad_population_summary(gene_symbol),
         return_exceptions=True
     )
 
@@ -596,7 +738,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         return val if not isinstance(val, Exception) and val is not None else None
 
     return {
-        "gene_info": safe(ensembl_info),
+        "gene_info": ensembl_safe,
         "protein_info": uniprot_safe,
         "publication_count": safe(pub_count) or 0,
         "variants": results,
@@ -604,8 +746,10 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "pathways": safe2(pathways) or [],
         "expression": safe2(expression) or [],
         "interactions": safe2(interactions) or [],
+        "drugs": safe2(drugs) or [],
+        "population_summary": safe2(pop_summary) or [],
         "sources": list(filter(None, [
-            "Ensembl" if safe(ensembl_info) else None,
+            "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,
             "gnomAD" if freq_list else None,
             "UniProt" if uniprot_safe else None,
@@ -613,6 +757,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
             "Reactome" if safe2(pathways) else None,
             "GTEx" if safe2(expression) else None,
             "STRING" if safe2(interactions) else None,
+            "OpenTargets" if safe2(drugs) else None,
             "PubMed"
         ]))
     }

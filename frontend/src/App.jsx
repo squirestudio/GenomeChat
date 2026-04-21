@@ -17,6 +17,7 @@ const COLOR_SCHEMES = ["pLDDT", "Secondary Structure", "Chain", "Hydrophobicity"
 
 function applyStyle(viewer, rep, scheme) {
   viewer.setStyle({}, {});
+  try { viewer.removeAllSurfaces(); } catch {}
   const colorscheme = (() => {
     if (scheme === "pLDDT") return { prop: "b", gradient: "linear", colors: ["#FF7D45","#FFDB13","#65CBF3","#0053D6"], min: 0, max: 100 };
     if (scheme === "Secondary Structure") return "ssJmol";
@@ -139,7 +140,12 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
 
   const resetView = () => {
     if (!viewerRef.current) return;
-    try { viewerRef.current.zoomTo(); viewerRef.current.render(); } catch {}
+    try {
+      applyStyle(viewerRef.current, "Cartoon", "pLDDT");
+      viewerRef.current.zoomTo();
+    } catch {}
+    setRep("Cartoon");
+    setScheme("pLDDT");
   };
 
   const downloadPymol = () => {

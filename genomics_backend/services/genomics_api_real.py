@@ -11,6 +11,9 @@ CLINVAR_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 GNOMAD_BASE = "https://gnomad.broadinstitute.org/api"
 UNIPROT_BASE = "https://rest.uniprot.org/uniprotkb"
 NCBI_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+REACTOME_BASE = "https://reactome.org/ContentService"
+GTEX_BASE = "https://gtexportal.org/api/v2"
+STRING_BASE = "https://string-db.org/api"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -98,18 +101,26 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
             if not item:
                 continue
 
+            # ClinVar API returns significance in multiple possible locations
             clinsig = item.get("clinical_significance", {})
             if isinstance(clinsig, dict):
-                significance = clinsig.get("description", "Unknown")
+                significance = clinsig.get("description") or clinsig.get("review_status") or "Unknown"
+            elif isinstance(clinsig, str) and clinsig:
+                significance = clinsig
             else:
-                significance = str(clinsig)
+                # Try germline_classification (newer ClinVar API format)
+                germline = item.get("germline_classification", {})
+                if isinstance(germline, dict):
+                    significance = germline.get("description") or "Unknown"
+                else:
+                    significance = str(germline) if germline else "Unknown"
 
             title = item.get("title", "")
             condition = item.get("trait_set", [{}])
             if isinstance(condition, list) and condition:
-                condition_name = condition[0].get("trait_name", "Unknown")
+                condition_name = condition[0].get("trait_name") or condition[0].get("trait_xref", [{}])[0].get("db_name", "Unknown") if condition[0].get("trait_xref") else "Unknown"
             else:
-                condition_name = "Unknown"
+                condition_name = item.get("condition_set", {}).get("trait_set", [{}])[0].get("trait_name", "Unknown") if isinstance(item.get("condition_set"), dict) else "Unknown"
 
             variants.append(VariantResult(
                 variant_id=f"VCV{uid}",
@@ -410,6 +421,131 @@ async def fetch_disease_genes(disease_name: str) -> list[GeneResult]:
         return sorted(genes, key=lambda g: g.publication_count or 0, reverse=True)
 
 
+async def fetch_reactome_pathways(gene_symbol: str) -> list[dict]:
+    """Fetch biological pathways for a gene from Reactome."""
+    async with httpx.AsyncClient() as client:
+        # Map gene symbol to Reactome identifier
+        search_url = f"{REACTOME_BASE}/search/query"
+        search_data = await _get(client, search_url, {
+            "query": gene_symbol,
+            "species": "Homo sapiens",
+            "types": "Protein",
+            "cluster": "true",
+        })
+        if not search_data:
+            return []
+
+        # Extract UniProt accession from results
+        accession = None
+        results = search_data.get("results", [])
+        for group in results:
+            for entry in group.get("entries", []):
+                if entry.get("species") == "Homo sapiens":
+                    accession = entry.get("stId") or entry.get("id")
+                    break
+            if accession:
+                break
+
+        if not accession:
+            return []
+
+        # Get pathways for this entity
+        pathway_url = f"{REACTOME_BASE}/data/pathways/low/entity/{accession}/allForms"
+        pathways_raw = await _get(client, pathway_url, {})
+        if not pathways_raw or not isinstance(pathways_raw, list):
+            return []
+
+        pathways = []
+        seen = set()
+        for p in pathways_raw:
+            name = p.get("displayName") or p.get("name", "")
+            st_id = p.get("stId", "")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            pathways.append({
+                "name": name,
+                "pathway_id": st_id,
+                "species": p.get("speciesName", "Homo sapiens"),
+                "url": f"https://reactome.org/PathwayBrowser/#/{st_id}",
+                "source": "Reactome",
+            })
+
+        return pathways[:20]
+
+
+async def fetch_gtex_expression(gene_symbol: str) -> list[dict]:
+    """Fetch tissue expression data from GTEx."""
+    async with httpx.AsyncClient() as client:
+        data = await _get(client, f"{GTEX_BASE}/expression/geneExpression", {
+            "tissueSiteDetailId": "all",
+            "gencodeId": "",
+            "geneSymbol": gene_symbol,
+            "datasetId": "gtex_v8",
+        })
+        if not data:
+            return []
+
+        expressions = data.get("data", []) if isinstance(data, dict) else []
+        results = []
+        for item in expressions:
+            tissue = item.get("tissueSiteDetail") or item.get("tissueSiteDetailId", "")
+            median = item.get("median")
+            if tissue and median is not None:
+                results.append({
+                    "tissue": tissue,
+                    "median_tpm": round(float(median), 2),
+                    "unit": "TPM",
+                    "source": "GTEx",
+                })
+
+        return sorted(results, key=lambda x: x["median_tpm"], reverse=True)[:20]
+
+
+async def fetch_string_interactions(gene_symbol: str, species: int = 9606, limit: int = 15) -> list[dict]:
+    """Fetch protein-protein interactions from STRING DB."""
+    async with httpx.AsyncClient() as client:
+        # Get STRING IDs for the gene
+        map_url = f"{STRING_BASE}/json/get_string_ids"
+        map_data = await _get(client, map_url, {
+            "identifiers": gene_symbol,
+            "species": species,
+            "limit": 1,
+            "caller_identity": "genomechat",
+        })
+        if not map_data or not isinstance(map_data, list):
+            return []
+
+        string_id = map_data[0].get("stringId")
+        if not string_id:
+            return []
+
+        # Get interactions
+        interact_url = f"{STRING_BASE}/json/interaction_partners"
+        partners = await _get(client, interact_url, {
+            "identifiers": string_id,
+            "species": species,
+            "limit": limit,
+            "caller_identity": "genomechat",
+        })
+        if not partners or not isinstance(partners, list):
+            return []
+
+        results = []
+        for p in partners:
+            partner_name = p.get("preferredName_B") or p.get("stringId_B", "")
+            score = p.get("score", 0)
+            if partner_name and partner_name != gene_symbol:
+                results.append({
+                    "gene": partner_name,
+                    "interaction_score": round(score, 3),
+                    "score_pct": round(score * 100, 1),
+                    "source": "STRING",
+                })
+
+        return sorted(results, key=lambda x: x["interaction_score"], reverse=True)
+
+
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
@@ -445,24 +581,38 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
                 "source": "gnomAD"
             })
 
-    # Fetch AlphaFold structure using UniProt accession
-    alphafold_info = None
     uniprot_safe = safe(uniprot_info)
-    if uniprot_safe and uniprot_safe.get("accession"):
-        alphafold_info = await fetch_alphafold_structure(uniprot_safe["accession"])
+
+    # Fetch AlphaFold, Reactome, GTEx, STRING in parallel
+    alphafold_info, pathways, expression, interactions = await asyncio.gather(
+        fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
+        fetch_reactome_pathways(gene_symbol),
+        fetch_gtex_expression(gene_symbol),
+        fetch_string_interactions(gene_symbol),
+        return_exceptions=True
+    )
+
+    def safe2(val):
+        return val if not isinstance(val, Exception) and val is not None else None
 
     return {
         "gene_info": safe(ensembl_info),
         "protein_info": uniprot_safe,
         "publication_count": safe(pub_count) or 0,
         "variants": results,
-        "alphafold": alphafold_info,
+        "alphafold": safe2(alphafold_info),
+        "pathways": safe2(pathways) or [],
+        "expression": safe2(expression) or [],
+        "interactions": safe2(interactions) or [],
         "sources": list(filter(None, [
             "Ensembl" if safe(ensembl_info) else None,
             "ClinVar" if variant_list else None,
             "gnomAD" if freq_list else None,
             "UniProt" if uniprot_safe else None,
-            "AlphaFold" if alphafold_info else None,
+            "AlphaFold" if safe2(alphafold_info) else None,
+            "Reactome" if safe2(pathways) else None,
+            "GTEx" if safe2(expression) else None,
+            "STRING" if safe2(interactions) else None,
             "PubMed"
         ]))
     }

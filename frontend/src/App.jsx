@@ -302,6 +302,139 @@ function DataSection({ data, queryType }) {
   );
 }
 
+// ─── Pathway Viewer (Reactome) ───────────────────────────────────────────────
+
+const PATHWAY_COLORS = [
+  "#0ea5e9","#6366f1","#8b5cf6","#ec4899","#f59e0b",
+  "#10b981","#14b8a6","#f97316","#ef4444","#84cc16",
+];
+
+function PathwayViewer({ pathways }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!pathways?.length) return null;
+  const shown = expanded ? pathways : pathways.slice(0, 8);
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(99,102,241,0.15)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a5b4fc" }}>Biological Pathways</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Reactome · {pathways.length} pathways</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {shown.map((p, i) => (
+          <a key={p.pathway_id || i} href={p.url} target="_blank" rel="noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0.3rem 0.65rem", borderRadius: 100, border: `1px solid ${PATHWAY_COLORS[i % PATHWAY_COLORS.length]}30`, background: `${PATHWAY_COLORS[i % PATHWAY_COLORS.length]}12`, color: PATHWAY_COLORS[i % PATHWAY_COLORS.length], fontSize: "0.72rem", textDecoration: "none", cursor: "pointer" }}
+            onMouseEnter={e => e.currentTarget.style.background = `${PATHWAY_COLORS[i % PATHWAY_COLORS.length]}25`}
+            onMouseLeave={e => e.currentTarget.style.background = `${PATHWAY_COLORS[i % PATHWAY_COLORS.length]}12`}
+          >
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: PATHWAY_COLORS[i % PATHWAY_COLORS.length], flexShrink: 0 }} />
+            {p.name}
+            <span style={{ opacity: 0.5, fontSize: "0.65rem" }}>↗</span>
+          </a>
+        ))}
+      </div>
+      {pathways.length > 8 && (
+        <div style={{ padding: "0 0.875rem 0.625rem" }}>
+          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+            {expanded ? "Show less" : `+ ${pathways.length - 8} more pathways`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tissue Expression Chart (GTEx) ──────────────────────────────────────────
+
+function ExpressionChart({ expression }) {
+  if (!expression?.length) return null;
+  const top = expression.slice(0, 12);
+  const max = Math.max(...top.map(e => e.median_tpm));
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(16,185,129,0.15)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#6ee7b7" }}>Tissue Expression</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>GTEx v8 · median TPM</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {top.map((e, i) => {
+          const pct = max > 0 ? (e.median_tpm / max) * 100 : 0;
+          const intensity = Math.max(0.3, pct / 100);
+          return (
+            <div key={e.tissue} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: "0.7rem", color: "#64748b", width: 140, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.tissue}</span>
+              <div style={{ flex: 1, height: 14, background: "rgba(30,41,59,0.5)", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: `rgba(16,185,129,${intensity})`, borderRadius: 3, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
+              </div>
+              <span style={{ fontSize: "0.68rem", color: "#475569", width: 50, textAlign: "right", flexShrink: 0 }}>{e.median_tpm}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Protein Interaction Network (STRING) ────────────────────────────────────
+
+function InteractionNetwork({ interactions, centerGene }) {
+  if (!interactions?.length) return null;
+
+  // Simple force-like circular layout
+  const cx = 200, cy = 180, r = 130;
+  const nodes = interactions.slice(0, 12);
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(245,158,11,0.15)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fcd34d" }}>Protein Interactions</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>STRING DB · {interactions.length} partners</span>
+      </div>
+      <div style={{ display: "flex", gap: 0 }}>
+        <svg width="400" height="360" style={{ flexShrink: 0 }}>
+          {nodes.map((node, i) => {
+            const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
+            const nx = cx + r * Math.cos(angle);
+            const ny = cy + r * Math.sin(angle);
+            const opacity = 0.3 + node.interaction_score * 0.7;
+            return (
+              <line key={`l${i}`} x1={cx} y1={cy} x2={nx} y2={ny}
+                stroke={`rgba(245,158,11,${opacity})`} strokeWidth={1 + node.interaction_score * 2} />
+            );
+          })}
+          <circle cx={cx} cy={cy} r={22} fill="rgba(14,165,233,0.2)" stroke="#0ea5e9" strokeWidth={1.5} />
+          <text x={cx} y={cy + 4} textAnchor="middle" fill="#7dd3fc" fontSize={10} fontWeight={700} fontFamily="monospace">{centerGene}</text>
+          {nodes.map((node, i) => {
+            const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
+            const nx = cx + r * Math.cos(angle);
+            const ny = cy + r * Math.sin(angle);
+            return (
+              <g key={`n${i}`}>
+                <circle cx={nx} cy={ny} r={16} fill="rgba(245,158,11,0.12)" stroke={`rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`} strokeWidth={1} />
+                <text x={nx} y={ny + 4} textAnchor="middle" fill="#fcd34d" fontSize={8} fontFamily="monospace">{node.gene}</text>
+              </g>
+            );
+          })}
+        </svg>
+        <div style={{ flex: 1, padding: "0.75rem 0.75rem 0.75rem 0", overflowY: "auto", maxHeight: 360 }}>
+          {nodes.map((node, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.3rem 0", borderBottom: "1px solid rgba(30,41,59,0.4)" }}>
+              <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#fcd34d" }}>{node.gene}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 40, height: 4, background: "rgba(30,41,59,0.5)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${node.score_pct}%`, height: "100%", background: `rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`, borderRadius: 2 }} />
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "#475569" }}>{node.score_pct}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 const SOURCE_COLORS = {
@@ -337,6 +470,9 @@ function AssistantMessage({ msg }) {
         )}
         <Markdown content={msg.content} />
         {msg.data && <DataSection data={msg.data} queryType={msg.query_type} />}
+        {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
+        {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
+        {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>

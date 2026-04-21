@@ -684,6 +684,98 @@ async def fetch_gnomad_population_summary(gene_symbol: str) -> list[dict]:
         return []
 
 
+async def fetch_omim_data(gene_symbol: str) -> dict:
+    """Fetch OMIM gene entry and associated disease phenotypes via NCBI E-utilities."""
+    INHERITANCE_MAP = {
+        "AUTOSOMAL DOMINANT": "AD",
+        "AUTOSOMAL RECESSIVE": "AR",
+        "X-LINKED DOMINANT": "XLD",
+        "X-LINKED RECESSIVE": "XLR",
+        "X-LINKED": "XL",
+        "MITOCHONDRIAL": "MT",
+        "SOMATIC": "SMT",
+        "DIGENIC": "DG",
+    }
+
+    def detect_inheritance(title: str) -> str | None:
+        t = title.upper()
+        for phrase, code in INHERITANCE_MAP.items():
+            if phrase in t:
+                return code
+        return None
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Search OMIM for this gene symbol
+            search_data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+                "db": "omim",
+                "term": f'"{gene_symbol}"[Gene/Locus Symbol]',
+                "retmax": 20,
+                "retmode": "json",
+            })
+            ids = (search_data or {}).get("esearchresult", {}).get("idlist", [])
+
+            if not ids:
+                search_data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+                    "db": "omim",
+                    "term": f"{gene_symbol}[All Fields]",
+                    "retmax": 10,
+                    "retmode": "json",
+                })
+                ids = (search_data or {}).get("esearchresult", {}).get("idlist", [])[:10]
+
+            if not ids:
+                return {}
+
+            summary_data = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                "db": "omim",
+                "id": ",".join(ids[:15]),
+                "retmode": "json",
+            })
+            if not summary_data:
+                return {}
+
+            result = summary_data.get("result", {})
+            uids = result.get("uids", [])
+
+            gene_entry = None
+            phenotypes = []
+
+            for uid in uids:
+                entry = result.get(str(uid), {})
+                title = entry.get("title", "")
+                if not title:
+                    continue
+                mim = str(entry.get("uid", uid))
+                # mimtype: "1"=gene(*), "2"=gene+phenotype(+), "3"=phenotype(#), "4"=phenotype(%), "5"=removed
+                mimtype = str(entry.get("mimtype", ""))
+
+                item = {
+                    "mim_number": mim,
+                    "title": title.strip(),
+                    "url": f"https://omim.org/entry/{mim}",
+                    "inheritance": detect_inheritance(title),
+                }
+
+                if mimtype in ("1", "2") and not gene_entry:
+                    gene_entry = item
+                elif mimtype in ("3", "4"):
+                    phenotypes.append(item)
+                elif mimtype not in ("5",):
+                    # Unknown type — include as phenotype if title looks like a disease
+                    if gene_symbol.upper() not in title.upper()[:20]:
+                        phenotypes.append(item)
+
+            return {
+                "gene_entry": gene_entry,
+                "phenotypes": phenotypes[:12],
+                "source": "OMIM",
+            }
+    except Exception as e:
+        logger.warning(f"OMIM fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
@@ -723,14 +815,15 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     ensembl_safe = safe(ensembl_info)
     ensembl_id = (ensembl_safe or {}).get("id", "")
 
-    # Fetch AlphaFold, Reactome, GTEx, STRING, Open Targets drugs, gnomAD population summary in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary = await asyncio.gather(
+    # Fetch AlphaFold, Reactome, GTEx, STRING, Open Targets, gnomAD populations, OMIM in parallel
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
         fetch_string_interactions(gene_symbol),
         fetch_open_targets_drugs(ensembl_id),
         fetch_gnomad_population_summary(gene_symbol),
+        fetch_omim_data(gene_symbol),
         return_exceptions=True
     )
 
@@ -748,6 +841,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "interactions": safe2(interactions) or [],
         "drugs": safe2(drugs) or [],
         "population_summary": safe2(pop_summary) or [],
+        "omim": safe2(omim) or {},
         "sources": list(filter(None, [
             "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,
@@ -758,6 +852,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
             "GTEx" if safe2(expression) else None,
             "STRING" if safe2(interactions) else None,
             "OpenTargets" if safe2(drugs) else None,
+            "OMIM" if safe2(omim) else None,
             "PubMed"
         ]))
     }

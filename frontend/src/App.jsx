@@ -673,6 +673,92 @@ function PopulationFrequencyChart({ populations }) {
   );
 }
 
+// ─── OMIM Panel ──────────────────────────────────────────────────────────────
+
+const INHERITANCE_STYLE = {
+  AD:  { color: "#7dd3fc", bg: "rgba(8,47,73,0.5)",   border: "rgba(3,105,161,0.4)" },
+  AR:  { color: "#fdba74", bg: "rgba(124,45,18,0.4)", border: "rgba(194,65,12,0.3)" },
+  XLD: { color: "#c4b5fd", bg: "rgba(49,46,129,0.4)", border: "rgba(109,40,217,0.3)" },
+  XLR: { color: "#d8b4fe", bg: "rgba(59,7,100,0.4)",  border: "rgba(126,34,206,0.3)" },
+  XL:  { color: "#d8b4fe", bg: "rgba(59,7,100,0.4)",  border: "rgba(126,34,206,0.3)" },
+  MT:  { color: "#fca5a5", bg: "rgba(127,29,29,0.4)", border: "rgba(185,28,28,0.3)" },
+  SMT: { color: "#fde68a", bg: "rgba(66,32,6,0.4)",   border: "rgba(161,98,7,0.3)" },
+  DG:  { color: "#86efac", bg: "rgba(5,46,22,0.4)",   border: "rgba(21,128,61,0.3)" },
+};
+
+const INHERITANCE_FULL = {
+  AD: "Autosomal Dominant", AR: "Autosomal Recessive",
+  XLD: "X-Linked Dominant", XLR: "X-Linked Recessive", XL: "X-Linked",
+  MT: "Mitochondrial", SMT: "Somatic", DG: "Digenic",
+};
+
+function OmimPanel({ omim }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!omim?.gene_entry && !omim?.phenotypes?.length) return null;
+  const phenotypes = omim.phenotypes || [];
+  const shown = expanded ? phenotypes : phenotypes.slice(0, 5);
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(167,139,250,0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#c4b5fd" }}>OMIM — Genetic Disease Catalog</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Online Mendelian Inheritance in Man</span>
+      </div>
+
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {/* Gene entry */}
+        {omim.gene_entry && (
+          <a href={omim.gene_entry.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: "0.72rem", color: "#c4b5fd", fontWeight: 600 }}>{omim.gene_entry.title}</p>
+                <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 2 }}>Gene entry · MIM #{omim.gene_entry.mim_number}</p>
+              </div>
+              <span style={{ fontSize: "0.65rem", color: "#6366f1", flexShrink: 0 }}>↗</span>
+            </div>
+          </a>
+        )}
+
+        {/* Phenotype entries */}
+        {phenotypes.length > 0 && (
+          <>
+            <p style={{ fontSize: "0.65rem", color: "#334155", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>
+              Associated Disorders ({phenotypes.length})
+            </p>
+            {shown.map((p, i) => {
+              const iStyle = p.inheritance ? (INHERITANCE_STYLE[p.inheritance] || {}) : {};
+              return (
+                <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                  <div style={{ padding: "0.45rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.3)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.3)"}
+                  >
+                    <p style={{ fontSize: "0.72rem", color: "#94a3b8", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      {p.inheritance && (
+                        <span title={INHERITANCE_FULL[p.inheritance]} style={{ fontSize: "0.62rem", padding: "0.15em 0.45em", borderRadius: 4, background: iStyle.bg, color: iStyle.color, border: `1px solid ${iStyle.border}`, cursor: "help" }}>
+                          {p.inheritance}
+                        </span>
+                      )}
+                      <span style={{ fontSize: "0.62rem", color: "#334155", fontFamily: "monospace" }}>#{p.mim_number}</span>
+                      <span style={{ fontSize: "0.62rem", color: "#334155" }}>↗</span>
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
+            {phenotypes.length > 5 && (
+              <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#a78bfa", background: "none", border: "none", cursor: "pointer", padding: "0.25rem 0", textAlign: "left" }}>
+                {expanded ? "Show less" : `+ ${phenotypes.length - 5} more disorders`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 const SOURCE_COLORS = {
@@ -683,6 +769,7 @@ const SOURCE_COLORS = {
   NCBI: { color: "#d8b4fe", bg: "rgba(59,7,100,0.3)", border: "rgba(126,34,206,0.25)" },
   PubMed: { color: "#fdba74", bg: "rgba(124,45,18,0.3)", border: "rgba(194,65,12,0.25)" },
   OpenTargets: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
+  OMIM: { color: "#c4b5fd", bg: "rgba(49,46,129,0.3)", border: "rgba(109,40,217,0.25)" },
 };
 
 function AssistantMessage({ msg }) {
@@ -714,6 +801,7 @@ function AssistantMessage({ msg }) {
         {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
         {msg.data?.drugs?.length > 0 && <DrugPanel drugs={msg.data.drugs} />}
         {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
+        {(omim => omim?.gene_entry || omim?.phenotypes?.length)(msg.data?.omim) && <OmimPanel omim={msg.data.omim} />}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>

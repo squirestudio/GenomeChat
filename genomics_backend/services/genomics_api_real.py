@@ -17,6 +17,8 @@ GTEX_BASE = "https://gtexportal.org/api/v2"
 STRING_BASE = "https://string-db.org/api"
 OPENTARGETS_BASE = "https://api.platform.opentargets.org/api/v4/graphql"
 PHARMGKB_BASE = "https://api.pharmgkb.org/v1"
+GDC_BASE = "https://api.gdc.cancer.gov"
+CLINGEN_BASE = "https://search.clinicalgenome.org/kb"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -904,6 +906,148 @@ async def fetch_pharmgkb_data(gene_symbol: str) -> dict:
         return {}
 
 
+TCGA_NAMES = {
+    "TCGA-BRCA": "Breast Cancer", "TCGA-OV": "Ovarian Cancer", "TCGA-PRAD": "Prostate Cancer",
+    "TCGA-LUAD": "Lung Adenocarcinoma", "TCGA-LUSC": "Lung Squamous Cell", "TCGA-COAD": "Colon Cancer",
+    "TCGA-READ": "Rectal Cancer", "TCGA-UCEC": "Endometrial Cancer", "TCGA-STAD": "Stomach Cancer",
+    "TCGA-BLCA": "Bladder Cancer", "TCGA-LIHC": "Liver Cancer", "TCGA-KIRC": "Kidney Clear Cell",
+    "TCGA-KIRP": "Kidney Papillary", "TCGA-HNSC": "Head & Neck Cancer", "TCGA-GBM": "Glioblastoma",
+    "TCGA-LGG": "Lower Grade Glioma", "TCGA-THCA": "Thyroid Cancer", "TCGA-SKCM": "Melanoma",
+    "TCGA-PAAD": "Pancreatic Cancer", "TCGA-CESC": "Cervical Cancer", "TCGA-SARC": "Sarcoma",
+    "TCGA-LAML": "Acute Myeloid Leukemia", "TCGA-MESO": "Mesothelioma", "TCGA-TGCT": "Testicular GCT",
+    "TCGA-DLBC": "Diffuse Large B-Cell Lymphoma", "TCGA-UVM": "Uveal Melanoma",
+    "TCGA-ACC": "Adrenocortical Carcinoma", "TCGA-PCPG": "Pheochromocytoma",
+    "TCGA-KICH": "Kidney Chromophobe", "TCGA-THYM": "Thymoma", "TCGA-CHOL": "Cholangiocarcinoma",
+    "TCGA-ESCA": "Esophageal Cancer", "TCGA-UCS": "Uterine Carcinosarcoma",
+}
+
+
+async def fetch_cancer_mutations(gene_symbol: str) -> dict:
+    """Fetch somatic cancer mutation data from NCI GDC (TCGA)."""
+    import json as _json
+    gene_filter = {
+        "op": "=",
+        "content": {"field": "consequence.transcript.gene.symbol", "value": gene_symbol},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            # Cancer type distribution
+            r1 = await client.post(
+                f"{GDC_BASE}/ssms",
+                json={"filters": gene_filter, "facets": "case.project.project_id", "size": 0},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+            # Consequence type distribution
+            r2 = await client.post(
+                f"{GDC_BASE}/ssms",
+                json={"filters": gene_filter, "facets": "consequence.transcript.consequence_type", "size": 0},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+
+            if r1.status_code != 200:
+                return {}
+            d1 = r1.json()
+
+            def get_buckets(data, field):
+                aggs = (data.get("data") or {}).get("aggregations") or {}
+                return (aggs.get(field) or {}).get("buckets") or []
+
+            proj_buckets = get_buckets(d1, "case.project.project_id")
+            cancer_types = []
+            for b in sorted(proj_buckets, key=lambda x: x.get("doc_count", 0), reverse=True)[:15]:
+                pid = b.get("key", "")
+                cancer_types.append({
+                    "project_id": pid,
+                    "cancer_type": TCGA_NAMES.get(pid, pid),
+                    "mutation_count": b.get("doc_count", 0),
+                })
+
+            consequence_types = []
+            if r2.status_code == 200:
+                d2 = r2.json()
+                for b in sorted(
+                    get_buckets(d2, "consequence.transcript.consequence_type"),
+                    key=lambda x: x.get("doc_count", 0), reverse=True
+                )[:8]:
+                    label = b.get("key", "").replace("_variant", "").replace("_", " ").title()
+                    consequence_types.append({"type": label, "count": b.get("doc_count", 0)})
+
+            if not cancer_types:
+                return {}
+
+            return {
+                "cancer_types": cancer_types,
+                "consequence_types": consequence_types,
+                "total_mutations": sum(c["mutation_count"] for c in cancer_types),
+                "source": "NCI GDC / TCGA",
+            }
+    except Exception as e:
+        logger.warning(f"GDC cancer mutation fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
+CLINGEN_VALIDITY_ORDER = ["Definitive", "Strong", "Moderate", "Limited", "Disputed", "Refuted", "No Reported Evidence"]
+
+
+async def fetch_clingen_validity(gene_symbol: str) -> list[dict]:
+    """Fetch ClinGen gene-disease validity classifications."""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(
+                f"{CLINGEN_BASE}/gene-validity",
+                params={"geneLabel": gene_symbol, "format": "json"},
+                headers={"Accept": "application/json"},
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+
+            # ClinGen returns JSON-LD with @graph array
+            entries = data.get("@graph") or data.get("gene_validity_list") or []
+            if isinstance(data, list):
+                entries = data
+
+            results = []
+            for entry in entries:
+                classification = (entry.get("classification") or {})
+                if isinstance(classification, dict):
+                    class_label = classification.get("label") or classification.get("name") or str(classification)
+                else:
+                    class_label = str(classification)
+
+                disease = entry.get("disease") or entry.get("condition") or {}
+                disease_name = (disease.get("label") or disease.get("name") or "Unknown") if isinstance(disease, dict) else str(disease)
+
+                moi = entry.get("moi") or entry.get("modeOfInheritance") or {}
+                moi_label = (moi.get("label") or moi.get("name") or "") if isinstance(moi, dict) else str(moi)
+
+                gcep = entry.get("affiliation") or entry.get("gcep") or {}
+                gcep_name = (gcep.get("label") or gcep.get("name") or "") if isinstance(gcep, dict) else str(gcep)
+
+                curation_id = entry.get("@id") or entry.get("id") or ""
+                url = f"https://search.clinicalgenome.org/kb/gene-validity/{curation_id.split('/')[-1]}" if curation_id else "https://clinicalgenome.org"
+
+                results.append({
+                    "disease": disease_name,
+                    "classification": class_label,
+                    "moi": moi_label,
+                    "gcep": gcep_name,
+                    "url": url,
+                })
+
+            # Sort by classification strength
+            def sort_key(r):
+                try:
+                    return CLINGEN_VALIDITY_ORDER.index(r["classification"])
+                except ValueError:
+                    return 99
+
+            return sorted(results, key=sort_key)[:15]
+    except Exception as e:
+        logger.warning(f"ClinGen validity fetch failed for {gene_symbol}: {e}")
+        return []
+
+
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
@@ -944,7 +1088,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     ensembl_id = (ensembl_safe or {}).get("id", "")
 
     # Fetch all enrichment data in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb = await asyncio.gather(
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb, cancer_muts, clingen = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
@@ -954,6 +1098,8 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         fetch_omim_data(gene_symbol),
         fetch_protein_domains(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_pharmgkb_data(gene_symbol),
+        fetch_cancer_mutations(gene_symbol),
+        fetch_clingen_validity(gene_symbol),
         return_exceptions=True
     )
 
@@ -974,6 +1120,8 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "omim": safe2(omim) or {},
         "domains": safe2(domains) or [],
         "pharmgkb": safe2(pgkb) or {},
+        "cancer_mutations": safe2(cancer_muts) or {},
+        "clingen": safe2(clingen) or [],
         "sources": list(filter(None, [
             "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,
@@ -986,6 +1134,8 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
             "OpenTargets" if safe2(drugs) else None,
             "OMIM" if safe2(omim) else None,
             "PharmGKB" if safe2(pgkb) else None,
+            "COSMIC/GDC" if safe2(cancer_muts) else None,
+            "ClinGen" if safe2(clingen) else None,
             "PubMed"
         ]))
     }

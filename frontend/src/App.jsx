@@ -673,6 +673,123 @@ function PopulationFrequencyChart({ populations }) {
   );
 }
 
+// ─── Cancer Mutations Panel (COSMIC / NCI GDC) ───────────────────────────────
+
+const CONSEQUENCE_COLORS = {
+  "Missense": "#f97316", "Stop Gained": "#ef4444", "Frameshift": "#dc2626",
+  "Splice Acceptor": "#8b5cf6", "Splice Donor": "#7c3aed", "Synonymous": "#22c55e",
+  "Intron": "#64748b", "Start Lost": "#f59e0b", "Stop Lost": "#fb923c",
+};
+
+function CancerMutationsPanel({ data }) {
+  if (!data?.cancer_types?.length) return null;
+  const { cancer_types, consequence_types, total_mutations } = data;
+  const max = Math.max(...cancer_types.map(c => c.mutation_count));
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(239,68,68,0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fca5a5" }}>Somatic Cancer Mutations</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>NCI GDC / TCGA · {total_mutations?.toLocaleString()} mutations</span>
+      </div>
+
+      <div style={{ display: "flex", gap: 0 }}>
+        {/* Cancer type bars */}
+        <div style={{ flex: 1, padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+          {cancer_types.map((c) => {
+            const pct = max > 0 ? (c.mutation_count / max) * 100 : 0;
+            return (
+              <div key={c.project_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: "0.68rem", color: "#64748b", width: 150, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.cancer_type}</span>
+                <div style={{ flex: 1, height: 14, background: "rgba(30,41,59,0.5)", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: `rgba(239,68,68,${0.3 + (pct / 100) * 0.6})`, borderRadius: 3, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "#475569", width: 40, textAlign: "right", flexShrink: 0 }}>{c.mutation_count}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Consequence type breakdown */}
+        {consequence_types?.length > 0 && (
+          <div style={{ width: 160, padding: "0.75rem", borderLeft: "1px solid rgba(30,41,59,0.5)", display: "flex", flexDirection: "column", gap: 5 }}>
+            <p style={{ fontSize: "0.63rem", color: "#334155", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Mutation Type</p>
+            {consequence_types.map((ct, i) => {
+              const color = CONSEQUENCE_COLORS[ct.type] || "#6366f1";
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: 1, background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: "0.65rem", color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ct.type}</span>
+                  </div>
+                  <span style={{ fontSize: "0.63rem", color: "#475569", flexShrink: 0 }}>{ct.count}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── ClinGen Panel ────────────────────────────────────────────────────────────
+
+const CLINGEN_STYLE = {
+  "Definitive":           { color: "#86efac", bg: "rgba(5,46,22,0.5)",   border: "rgba(21,128,61,0.4)" },
+  "Strong":               { color: "#7dd3fc", bg: "rgba(8,47,73,0.5)",   border: "rgba(3,105,161,0.4)" },
+  "Moderate":             { color: "#fde68a", bg: "rgba(66,32,6,0.4)",   border: "rgba(161,98,7,0.35)" },
+  "Limited":              { color: "#fdba74", bg: "rgba(124,45,18,0.4)", border: "rgba(194,65,12,0.3)" },
+  "Disputed":             { color: "#fca5a5", bg: "rgba(127,29,29,0.4)", border: "rgba(185,28,28,0.3)" },
+  "Refuted":              { color: "#f87171", bg: "rgba(127,29,29,0.5)", border: "rgba(185,28,28,0.4)" },
+  "No Reported Evidence": { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" },
+};
+
+function ClinGenPanel({ curations }) {
+  if (!curations?.length) return null;
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(134,239,172,0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(134,239,172,0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#86efac" }}>ClinGen Gene-Disease Validity</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Expert curated · {curations.length} associations</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {curations.map((c, i) => {
+          const cs = CLINGEN_STYLE[c.classification] || CLINGEN_STYLE["No Reported Evidence"];
+          return (
+            <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+              <div style={{ padding: "0.5rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(134,239,172,0.3)"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.25)"}
+              >
+                <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: cs.bg, color: cs.color, border: `1px solid ${cs.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                  {c.classification}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: "0.73rem", color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.disease}</p>
+                  {(c.moi || c.gcep) && (
+                    <p style={{ fontSize: "0.63rem", color: "#475569", marginTop: 2 }}>
+                      {[c.moi, c.gcep].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <span style={{ fontSize: "0.6rem", color: "#334155", flexShrink: 0 }}>↗</span>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+      <div style={{ padding: "0.35rem 0.875rem 0.6rem", borderTop: "1px solid rgba(30,41,59,0.4)", display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {Object.entries(CLINGEN_STYLE).map(([label, s]) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ fontSize: "0.58rem", padding: "0.1em 0.35em", borderRadius: 3, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── PharmGKB Panel ──────────────────────────────────────────────────────────
 
 const PGX_LEVEL_STYLE = {
@@ -1038,6 +1155,8 @@ const SOURCE_COLORS = {
   OpenTargets: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
   OMIM: { color: "#c4b5fd", bg: "rgba(49,46,129,0.3)", border: "rgba(109,40,217,0.25)" },
   PharmGKB: { color: "#7dd3fc", bg: "rgba(8,47,73,0.3)", border: "rgba(3,105,161,0.25)" },
+  "COSMIC/GDC": { color: "#fca5a5", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
+  ClinGen: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
 };
 
 function AssistantMessage({ msg }) {
@@ -1079,6 +1198,8 @@ function AssistantMessage({ msg }) {
         {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
         {(omim => omim?.gene_entry || omim?.phenotypes?.length)(msg.data?.omim) && <OmimPanel omim={msg.data.omim} />}
         {(pgkb => pgkb?.related_drugs?.length || pgkb?.clinical_annotations?.length)(msg.data?.pharmgkb) && <PharmGKBPanel pgkb={msg.data.pharmgkb} />}
+        {msg.data?.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={msg.data.cancer_mutations} />}
+        {msg.data?.clingen?.length > 0 && <ClinGenPanel curations={msg.data.clingen} />}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>

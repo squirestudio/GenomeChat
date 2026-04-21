@@ -36,6 +36,9 @@ class VariantResult(BaseModel):
     frequency: Optional[float] = None
     population: Optional[str] = None
     consequence: Optional[str] = None
+    hgvs: Optional[str] = None
+    protein_position: Optional[int] = None
+    review_status: Optional[str] = None
     source: str = "ClinVar"
 
 

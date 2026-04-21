@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 import logging
+import re
 from typing import Optional
 from models import VariantResult, GeneResult
 
@@ -123,12 +124,33 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
             else:
                 condition_name = item.get("condition_set", {}).get("trait_set", [{}])[0].get("trait_name", "Unknown") if isinstance(item.get("condition_set"), dict) else "Unknown"
 
+            # Extract HGVS protein change and position from title
+            # Title format: "NM_000059.4(BRCA2):c.5946delT (p.Ser1982ArgfsTer22)"
+            hgvs = None
+            protein_position = None
+            p_match = re.search(r'\(p\.([^)]+)\)', title)
+            if p_match:
+                hgvs = f"p.{p_match.group(1)}"
+                pos_match = re.search(r'[A-Za-z*]+(\d+)', p_match.group(1))
+                if pos_match:
+                    protein_position = int(pos_match.group(1))
+
+            # Review status
+            clinsig_obj = item.get("clinical_significance", {})
+            review_status = clinsig_obj.get("review_status") if isinstance(clinsig_obj, dict) else None
+            if not review_status:
+                germline_obj = item.get("germline_classification", {})
+                review_status = germline_obj.get("review_status") if isinstance(germline_obj, dict) else None
+
             variants.append(VariantResult(
                 variant_id=f"VCV{uid}",
                 gene=gene_symbol,
                 clinical_significance=significance,
                 condition=condition_name,
                 consequence=title.split(" ")[0] if title else None,
+                hgvs=hgvs,
+                protein_position=protein_position,
+                review_status=review_status,
                 source="ClinVar"
             ))
 
@@ -247,6 +269,37 @@ async def fetch_uniprot_info(gene_symbol: str) -> Optional[dict]:
             "accession": entry.get("primaryAccession"),
             "source": "UniProt"
         }
+
+
+async def fetch_protein_domains(uniprot_accession: str) -> list[dict]:
+    """Fetch protein domain and region annotations from UniProt."""
+    IMPORTANT_TYPES = {"Domain", "Region", "Motif"}
+    try:
+        async with httpx.AsyncClient() as client:
+            data = await _get(client, f"{UNIPROT_BASE}/{uniprot_accession}", {"format": "json"})
+            if not data:
+                return []
+            features = data.get("features", [])
+            domains = []
+            for feat in features:
+                ftype = feat.get("type", "")
+                if ftype not in IMPORTANT_TYPES:
+                    continue
+                loc = feat.get("location", {})
+                start = (loc.get("start") or {}).get("value")
+                end = (loc.get("end") or {}).get("value")
+                if start is None or end is None or end <= start:
+                    continue
+                domains.append({
+                    "name": feat.get("description", ftype),
+                    "type": ftype,
+                    "start": start,
+                    "end": end,
+                })
+            return domains
+    except Exception as e:
+        logger.warning(f"UniProt domain fetch failed for {uniprot_accession}: {e}")
+        return []
 
 
 async def fetch_pubmed_count(gene_symbol: str) -> int:
@@ -815,8 +868,8 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     ensembl_safe = safe(ensembl_info)
     ensembl_id = (ensembl_safe or {}).get("id", "")
 
-    # Fetch AlphaFold, Reactome, GTEx, STRING, Open Targets, gnomAD populations, OMIM in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim = await asyncio.gather(
+    # Fetch AlphaFold, Reactome, GTEx, STRING, Open Targets, gnomAD populations, OMIM, domains in parallel
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
@@ -824,6 +877,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         fetch_open_targets_drugs(ensembl_id),
         fetch_gnomad_population_summary(gene_symbol),
         fetch_omim_data(gene_symbol),
+        fetch_protein_domains(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         return_exceptions=True
     )
 
@@ -842,6 +896,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "drugs": safe2(drugs) or [],
         "population_summary": safe2(pop_summary) or [],
         "omim": safe2(omim) or {},
+        "domains": safe2(domains) or [],
         "sources": list(filter(None, [
             "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,

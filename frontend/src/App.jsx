@@ -673,6 +673,166 @@ function PopulationFrequencyChart({ populations }) {
   );
 }
 
+// ─── Variant Domain Map (Lollipop) ───────────────────────────────────────────
+
+const LOLLIPOP_SIG_COLOR = (sig) => {
+  if (!sig) return "#94a3b8";
+  const s = sig.toLowerCase();
+  if (s.includes("pathogenic") && !s.includes("likely")) return "#ef4444";
+  if (s.includes("likely pathogenic")) return "#f97316";
+  if (s.includes("benign") && !s.includes("likely")) return "#22c55e";
+  if (s.includes("likely benign")) return "#14b8a6";
+  if (s.includes("uncertain")) return "#eab308";
+  return "#94a3b8";
+};
+
+const DOMAIN_PALETTE = ["#3b82f6","#8b5cf6","#ec4899","#f59e0b","#10b981","#06b6d4","#f97316","#a855f7","#14b8a6","#6366f1"];
+
+function LollipopMap({ variants, domains, proteinLength, geneName }) {
+  const [tooltip, setTooltip] = useState(null);
+  if (!proteinLength) return null;
+
+  const positioned = (variants || [])
+    .filter(v => v.protein_position > 0 && v.protein_position <= proteinLength)
+    .sort((a, b) => a.protein_position - b.protein_position);
+
+  if (!positioned.length && !domains?.length) return null;
+
+  const W = 680, H = 225;
+  const ML = 8, MR = 8, MB = 40;
+  const plotW = W - ML - MR;
+  const barY = H - MB - 18;
+  const barH = 18;
+  const toX = (pos) => ML + (pos / proteinLength) * plotW;
+
+  // Lane assignment: stack colliding lollipops
+  const LANE_Y = [28, 52, 76, 100, 120];
+  const MIN_GAP = 12;
+  const laneEnds = LANE_Y.map(() => -Infinity);
+  const lollipops = positioned.map(v => {
+    const x = toX(v.protein_position);
+    let lane = laneEnds.findIndex(end => x - end > MIN_GAP);
+    if (lane === -1) lane = LANE_Y.length - 1;
+    laneEnds[lane] = x;
+    return { ...v, x, cy: LANE_Y[lane] };
+  });
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1.0];
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(99,102,241,0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a5b4fc" }}>Variant Domain Map</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>
+          {positioned.length} variants · {proteinLength} aa · UniProt / ClinVar
+        </span>
+      </div>
+
+      <div style={{ padding: "0.75rem 0.875rem", position: "relative" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", overflow: "visible" }}>
+          {/* Protein bar */}
+          <rect x={ML} y={barY} width={plotW} height={barH} rx={3}
+            fill="rgba(30,41,59,0.9)" stroke="rgba(99,102,241,0.3)" strokeWidth={1} />
+
+          {/* Domain blocks */}
+          {(domains || []).map((d, i) => {
+            const x = toX(d.start);
+            const w = Math.max(4, toX(d.end) - x);
+            const color = DOMAIN_PALETTE[i % DOMAIN_PALETTE.length];
+            return (
+              <g key={i}>
+                <rect x={x} y={barY} width={w} height={barH} rx={2} fill={color} opacity={0.75} />
+                {w > 32 && (
+                  <text x={x + w / 2} y={barY + barH / 2 + 4} textAnchor="middle"
+                    fill="white" fontSize={7.5} fontWeight={600} style={{ pointerEvents: "none" }}>
+                    {d.name.length > 14 ? d.name.slice(0, 12) + "…" : d.name}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Position ticks */}
+          {ticks.map(frac => {
+            const pos = Math.round(frac * proteinLength);
+            const x = ML + frac * plotW;
+            return (
+              <g key={frac}>
+                <line x1={x} y1={barY + barH} x2={x} y2={barY + barH + 5} stroke="#334155" strokeWidth={1} />
+                <text x={x} y={barY + barH + 15} textAnchor="middle" fill="#475569" fontSize={9}>{pos}</text>
+              </g>
+            );
+          })}
+
+          {/* Gene label */}
+          <text x={ML} y={barY - 5} fill="#475569" fontSize={9}>{geneName}</text>
+          <text x={W - MR} y={barY - 5} textAnchor="end" fill="#475569" fontSize={9}>{proteinLength} aa</text>
+
+          {/* Lollipops */}
+          {lollipops.map((v, i) => {
+            const color = LOLLIPOP_SIG_COLOR(v.clinical_significance);
+            const isHovered = tooltip?.variant_id === v.variant_id;
+            return (
+              <g key={i} style={{ cursor: "pointer" }}
+                onMouseEnter={() => setTooltip(v)}
+                onMouseLeave={() => setTooltip(null)}>
+                <line x1={v.x} y1={v.cy + 5} x2={v.x} y2={barY}
+                  stroke={color} strokeWidth={isHovered ? 1.5 : 1} opacity={isHovered ? 0.9 : 0.55} />
+                <circle cx={v.x} cy={v.cy} r={isHovered ? 6.5 : 5}
+                  fill={color} opacity={isHovered ? 1 : 0.8}
+                  stroke={isHovered ? "white" : "none"} strokeWidth={1} />
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* Tooltip */}
+        {tooltip && (
+          <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
+            background: "rgba(15,23,42,0.97)", border: "1px solid rgba(99,102,241,0.45)",
+            borderRadius: 8, padding: "0.5rem 0.75rem", pointerEvents: "none", zIndex: 10,
+            minWidth: 210, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
+            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#a5b4fc", fontWeight: 600 }}>
+              {tooltip.hgvs || tooltip.variant_id}
+            </p>
+            <p style={{ fontSize: "0.7rem", color: LOLLIPOP_SIG_COLOR(tooltip.clinical_significance), marginTop: 3 }}>
+              {tooltip.clinical_significance || "Unknown significance"}
+            </p>
+            {tooltip.condition && (
+              <p style={{ fontSize: "0.68rem", color: "#64748b", marginTop: 3 }}>{tooltip.condition}</p>
+            )}
+            <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 3 }}>
+              Position: {tooltip.protein_position}
+            </p>
+          </div>
+        )}
+
+        {/* Domain legend */}
+        {domains?.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "0.5rem" }}>
+            {domains.slice(0, 8).map((d, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length], opacity: 0.8 }} />
+                <span style={{ fontSize: "0.62rem", color: "#475569" }}>{d.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Variant significance legend */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: "0.4rem" }}>
+          {[["#ef4444","Pathogenic"],["#f97316","Likely path."],["#eab308","VUS"],["#14b8a6","Likely benign"],["#22c55e","Benign"],["#94a3b8","Other"]].map(([color, label]) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <svg width={10} height={10} style={{ flexShrink: 0 }}><circle cx={5} cy={5} r={4} fill={color} /></svg>
+              <span style={{ fontSize: "0.62rem", color: "#475569" }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── OMIM Panel ──────────────────────────────────────────────────────────────
 
 const INHERITANCE_STYLE = {
@@ -799,6 +959,14 @@ function AssistantMessage({ msg }) {
         {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
         {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
         {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
+        {msg.data?.protein_info?.length && (
+          <LollipopMap
+            variants={msg.data.variants || []}
+            domains={msg.data.domains || []}
+            proteinLength={msg.data.protein_info.length}
+            geneName={msg.target}
+          />
+        )}
         {msg.data?.drugs?.length > 0 && <DrugPanel drugs={msg.data.drugs} />}
         {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
         {(omim => omim?.gene_entry || omim?.phenotypes?.length)(msg.data?.omim) && <OmimPanel omim={msg.data.omim} />}

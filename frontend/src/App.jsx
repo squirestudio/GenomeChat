@@ -673,6 +673,113 @@ function PopulationFrequencyChart({ populations }) {
   );
 }
 
+// ─── PharmGKB Panel ──────────────────────────────────────────────────────────
+
+const PGX_LEVEL_STYLE = {
+  "1A": { color: "#86efac", bg: "rgba(5,46,22,0.5)",   border: "rgba(21,128,61,0.4)" },
+  "1B": { color: "#6ee7b7", bg: "rgba(5,46,22,0.35)",  border: "rgba(21,128,61,0.3)" },
+  "2A": { color: "#7dd3fc", bg: "rgba(8,47,73,0.5)",   border: "rgba(3,105,161,0.4)" },
+  "2B": { color: "#93c5fd", bg: "rgba(23,37,84,0.4)",  border: "rgba(29,78,216,0.25)" },
+  "3":  { color: "#fde68a", bg: "rgba(66,32,6,0.4)",   border: "rgba(161,98,7,0.3)" },
+  "4":  { color: "#94a3b8", bg: "rgba(30,41,59,0.5)",  border: "rgba(51,65,85,0.4)" },
+};
+
+function PharmGKBPanel({ pgkb }) {
+  const [tab, setTab] = useState("annotations");
+  if (!pgkb?.related_drugs?.length && !pgkb?.clinical_annotations?.length) return null;
+  const annotations = pgkb.clinical_annotations || [];
+  const relatedDrugs = pgkb.related_drugs || [];
+
+  const tabBtn = (id, label, count) => (
+    <button onClick={() => setTab(id)} style={{
+      fontSize: "0.7rem", padding: "0.25rem 0.65rem", borderRadius: 6, cursor: "pointer", border: "none",
+      background: tab === id ? "rgba(14,165,233,0.2)" : "transparent",
+      color: tab === id ? "#38bdf8" : "#475569",
+      borderBottom: tab === id ? "2px solid #0ea5e9" : "2px solid transparent",
+    }}>
+      {label} {count > 0 && <span style={{ fontSize: "0.62rem", color: tab === id ? "#38bdf8" : "#334155" }}>({count})</span>}
+    </button>
+  );
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(56,189,248,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(56,189,248,0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#38bdf8" }}>Pharmacogenomics</span>
+        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "#334155", textDecoration: "none" }}>PharmGKB ↗</a>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 2, padding: "0 0.875rem", borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+        {tabBtn("annotations", "Clinical Annotations", annotations.length)}
+        {tabBtn("drugs", "Related Drugs", relatedDrugs.length)}
+      </div>
+
+      <div style={{ padding: "0.75rem" }}>
+        {tab === "annotations" && (
+          annotations.length === 0
+            ? <p style={{ fontSize: "0.72rem", color: "#475569", padding: "0.5rem 0" }}>No clinical annotations found for this gene.</p>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {annotations.map((ann, i) => {
+                  const ls = PGX_LEVEL_STYLE[ann.level] || PGX_LEVEL_STYLE["4"];
+                  return (
+                    <a key={i} href={ann.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                      <div style={{ padding: "0.5rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.25)", borderRadius: 8, display: "flex", gap: 10, alignItems: "flex-start" }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(56,189,248,0.3)"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.25)"}
+                      >
+                        <span title={ann.level_label} style={{ fontSize: "0.65rem", padding: "0.2em 0.5em", borderRadius: 4, background: ls.bg, color: ls.color, border: `1px solid ${ls.border}`, flexShrink: 0, cursor: "help", whiteSpace: "nowrap" }}>
+                          Level {ann.level}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {ann.drugs.length > 0 && (
+                            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#e2e8f0", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {ann.drugs.join(", ")}
+                            </p>
+                          )}
+                          {ann.phenotype && <p style={{ fontSize: "0.7rem", color: "#64748b", marginTop: 2 }}>{ann.phenotype}</p>}
+                          {ann.variant && <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 1, fontFamily: "monospace" }}>{ann.variant}</p>}
+                        </div>
+                        <span style={{ fontSize: "0.6rem", color: "#334155", flexShrink: 0 }}>↗</span>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+        )}
+
+        {tab === "drugs" && (
+          relatedDrugs.length === 0
+            ? <p style={{ fontSize: "0.72rem", color: "#475569", padding: "0.5rem 0" }}>No related drugs found.</p>
+            : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {relatedDrugs.map((d, i) => (
+                  <a key={i} href={d.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                    <span style={{ display: "inline-block", fontSize: "0.72rem", padding: "0.25rem 0.65rem", borderRadius: 100, background: "rgba(14,165,233,0.1)", border: "1px solid rgba(14,165,233,0.2)", color: "#38bdf8", cursor: "pointer" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "rgba(14,165,233,0.2)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "rgba(14,165,233,0.1)"}
+                    >
+                      {d.name}
+                    </span>
+                  </a>
+                ))}
+              </div>
+        )}
+      </div>
+
+      {/* Level legend */}
+      {tab === "annotations" && annotations.length > 0 && (
+        <div style={{ padding: "0.4rem 0.875rem 0.6rem", borderTop: "1px solid rgba(30,41,59,0.4)", display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {Object.entries(PGX_LEVEL_STYLE).map(([level, s]) => (
+            <div key={level} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <span style={{ fontSize: "0.6rem", padding: "0.1em 0.35em", borderRadius: 3, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>{level}</span>
+            </div>
+          ))}
+          <span style={{ fontSize: "0.6rem", color: "#334155", marginLeft: 4 }}>1A = highest evidence → 4 = case reports</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Variant Domain Map (Lollipop) ───────────────────────────────────────────
 
 const LOLLIPOP_SIG_COLOR = (sig) => {
@@ -930,6 +1037,7 @@ const SOURCE_COLORS = {
   PubMed: { color: "#fdba74", bg: "rgba(124,45,18,0.3)", border: "rgba(194,65,12,0.25)" },
   OpenTargets: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
   OMIM: { color: "#c4b5fd", bg: "rgba(49,46,129,0.3)", border: "rgba(109,40,217,0.25)" },
+  PharmGKB: { color: "#7dd3fc", bg: "rgba(8,47,73,0.3)", border: "rgba(3,105,161,0.25)" },
 };
 
 function AssistantMessage({ msg }) {
@@ -970,6 +1078,7 @@ function AssistantMessage({ msg }) {
         {msg.data?.drugs?.length > 0 && <DrugPanel drugs={msg.data.drugs} />}
         {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
         {(omim => omim?.gene_entry || omim?.phenotypes?.length)(msg.data?.omim) && <OmimPanel omim={msg.data.omim} />}
+        {(pgkb => pgkb?.related_drugs?.length || pgkb?.clinical_annotations?.length)(msg.data?.pharmgkb) && <PharmGKBPanel pgkb={msg.data.pharmgkb} />}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>

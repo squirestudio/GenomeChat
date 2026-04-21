@@ -16,6 +16,7 @@ REACTOME_BASE = "https://reactome.org/ContentService"
 GTEX_BASE = "https://gtexportal.org/api/v2"
 STRING_BASE = "https://string-db.org/api"
 OPENTARGETS_BASE = "https://api.platform.opentargets.org/api/v4/graphql"
+PHARMGKB_BASE = "https://api.pharmgkb.org/v1"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -829,6 +830,80 @@ async def fetch_omim_data(gene_symbol: str) -> dict:
         return {}
 
 
+async def fetch_pharmgkb_data(gene_symbol: str) -> dict:
+    """Fetch pharmacogenomics data from PharmGKB — drug-gene relationships and clinical annotations."""
+    LEVEL_LABELS = {
+        "1A": "Highest evidence (guideline-supported)",
+        "1B": "High evidence",
+        "2A": "Moderate evidence (guideline gene)",
+        "2B": "Moderate evidence",
+        "3": "Limited evidence",
+        "4": "Case reports only",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            # Fetch gene entry
+            gene_resp = await client.get(
+                f"{PHARMGKB_BASE}/data/gene",
+                params={"symbol": gene_symbol, "view": "max"},
+                headers={"Accept": "application/json"},
+            )
+            if gene_resp.status_code != 200:
+                return {}
+            gene_json = gene_resp.json()
+            gene_list = gene_json.get("data", [])
+            if not gene_list:
+                return {}
+            gene = gene_list[0] if isinstance(gene_list, list) else gene_list
+            gene_id = gene.get("id", "")
+
+            # Related drugs from gene entry
+            related_drugs = []
+            for d in (gene.get("relatedChemicals") or gene.get("relatedDrugs") or [])[:20]:
+                name = d.get("name", "").strip()
+                if name:
+                    related_drugs.append({
+                        "name": name,
+                        "id": d.get("id", ""),
+                        "url": f"https://www.pharmgkb.org/chemical/{d.get('id', '')}",
+                    })
+
+            # Clinical annotations for this gene
+            ann_resp = await client.get(
+                f"{PHARMGKB_BASE}/data/clinicalAnnotation",
+                params={"gene.symbol": gene_symbol, "view": "base", "pageSize": 15},
+                headers={"Accept": "application/json"},
+            )
+            annotations = []
+            if ann_resp.status_code == 200:
+                ann_json = ann_resp.json()
+                for ann in (ann_json.get("data") or [])[:15]:
+                    drug_names = [c.get("name", "") for c in (ann.get("relatedChemicals") or ann.get("chemicals") or [])]
+                    level = str(ann.get("level") or ann.get("evidenceLevel") or "")
+                    variant_name = (ann.get("variant") or {}).get("name", "") or (ann.get("genotype") or "")
+                    annotations.append({
+                        "level": level,
+                        "level_label": LEVEL_LABELS.get(level, f"Level {level}"),
+                        "drugs": [n for n in drug_names if n],
+                        "phenotype": ann.get("phenotypeCategory") or ann.get("phenotype") or "",
+                        "variant": variant_name,
+                        "url": f"https://www.pharmgkb.org/clinicalAnnotation/{ann.get('id', '')}",
+                    })
+
+            if not related_drugs and not annotations:
+                return {}
+
+            return {
+                "gene_id": gene_id,
+                "related_drugs": related_drugs,
+                "clinical_annotations": annotations,
+                "url": f"https://www.pharmgkb.org/gene/{gene_id}" if gene_id else f"https://www.pharmgkb.org/search?query={gene_symbol}",
+            }
+    except Exception as e:
+        logger.warning(f"PharmGKB fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
@@ -868,8 +943,8 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     ensembl_safe = safe(ensembl_info)
     ensembl_id = (ensembl_safe or {}).get("id", "")
 
-    # Fetch AlphaFold, Reactome, GTEx, STRING, Open Targets, gnomAD populations, OMIM, domains in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains = await asyncio.gather(
+    # Fetch all enrichment data in parallel
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
@@ -878,6 +953,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         fetch_gnomad_population_summary(gene_symbol),
         fetch_omim_data(gene_symbol),
         fetch_protein_domains(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
+        fetch_pharmgkb_data(gene_symbol),
         return_exceptions=True
     )
 
@@ -897,6 +973,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "population_summary": safe2(pop_summary) or [],
         "omim": safe2(omim) or {},
         "domains": safe2(domains) or [],
+        "pharmgkb": safe2(pgkb) or {},
         "sources": list(filter(None, [
             "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,
@@ -908,6 +985,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
             "STRING" if safe2(interactions) else None,
             "OpenTargets" if safe2(drugs) else None,
             "OMIM" if safe2(omim) else None,
+            "PharmGKB" if safe2(pgkb) else None,
             "PubMed"
         ]))
     }

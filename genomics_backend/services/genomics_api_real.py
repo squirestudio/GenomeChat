@@ -191,6 +191,24 @@ async def fetch_gnomad_frequencies(gene_symbol: str, population: Optional[str] =
         return []
 
 
+async def fetch_alphafold_structure(uniprot_accession: str) -> Optional[dict]:
+    if not uniprot_accession:
+        return None
+    async with httpx.AsyncClient() as client:
+        url = f"https://alphafold.ebi.ac.uk/api/prediction/{uniprot_accession}"
+        data = await _get(client, url, {})
+        if not data or not isinstance(data, list) or not data[0]:
+            return None
+        entry = data[0]
+        return {
+            "pdb_url": entry.get("pdbUrl"),
+            "entry_id": entry.get("entryId"),
+            "gene": entry.get("gene"),
+            "uniprot_accession": uniprot_accession,
+            "source": "AlphaFold"
+        }
+
+
 async def fetch_uniprot_info(gene_symbol: str) -> Optional[dict]:
     async with httpx.AsyncClient() as client:
         params = {
@@ -427,16 +445,24 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
                 "source": "gnomAD"
             })
 
+    # Fetch AlphaFold structure using UniProt accession
+    alphafold_info = None
+    uniprot_safe = safe(uniprot_info)
+    if uniprot_safe and uniprot_safe.get("accession"):
+        alphafold_info = await fetch_alphafold_structure(uniprot_safe["accession"])
+
     return {
         "gene_info": safe(ensembl_info),
-        "protein_info": safe(uniprot_info),
+        "protein_info": uniprot_safe,
         "publication_count": safe(pub_count) or 0,
         "variants": results,
+        "alphafold": alphafold_info,
         "sources": list(filter(None, [
             "Ensembl" if safe(ensembl_info) else None,
             "ClinVar" if variant_list else None,
             "gnomAD" if freq_list else None,
-            "UniProt" if safe(uniprot_info) else None,
+            "UniProt" if uniprot_safe else None,
+            "AlphaFold" if alphafold_info else None,
             "PubMed"
         ]))
     }

@@ -1,5 +1,143 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// ─── 3D Protein Viewer (AlphaFold) ───────────────────────────────────────────
+
+function load3Dmol() {
+  return new Promise((resolve) => {
+    if (window.$3Dmol) { resolve(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.1/3Dmol-min.js";
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+}
+
+function ProteinViewer({ pdbUrl, geneName, entryId }) {
+  const containerRef = useRef(null);
+  const viewerRef = useRef(null);
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [spinning, setSpinning] = useState(true);
+
+  useEffect(() => {
+    if (!pdbUrl || !containerRef.current) return;
+    let cancelled = false;
+
+    load3Dmol().then(() => {
+      if (cancelled || !containerRef.current) return;
+      try {
+        const viewer = window.$3Dmol.createViewer(containerRef.current, {
+          backgroundColor: "#0a0f1e",
+          antialias: true,
+        });
+        viewerRef.current = viewer;
+
+        fetch(pdbUrl)
+          .then(r => r.text())
+          .then(pdbData => {
+            if (cancelled) return;
+            viewer.addModel(pdbData, "pdb");
+            viewer.setStyle({}, {
+              cartoon: {
+                colorscheme: {
+                  prop: "b",
+                  gradient: "linear",
+                  colors: ["#FF7D45", "#FFDB13", "#65CBF3", "#0053D6"],
+                  min: 0,
+                  max: 100,
+                },
+              },
+            });
+            viewer.zoomTo();
+            viewer.render();
+            viewer.spin(true);
+            setStatus("ready");
+          })
+          .catch(() => { if (!cancelled) setStatus("error"); });
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (viewerRef.current) {
+        try { viewerRef.current.spin(false); } catch {}
+      }
+    };
+  }, [pdbUrl]);
+
+  const toggleSpin = () => {
+    if (!viewerRef.current) return;
+    try {
+      viewerRef.current.spin(!spinning);
+      viewerRef.current.render();
+    } catch {}
+    setSpinning(s => !s);
+  };
+
+  const resetView = () => {
+    if (!viewerRef.current) return;
+    try { viewerRef.current.zoomTo(); viewerRef.current.render(); } catch {}
+  };
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(10,15,30,0.8)", border: "1px solid rgba(14,165,233,0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(14,165,233,0.1)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#38bdf8" }}>
+            {geneName} — 3D Structure
+          </span>
+          {entryId && <span style={{ fontSize: "0.68rem", color: "#334155", fontFamily: "monospace" }}>{entryId}</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {status === "ready" && (
+            <>
+              <button onClick={toggleSpin} style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: "rgba(30,41,59,0.8)", border: "1px solid rgba(51,65,85,0.5)", color: "#94a3b8", cursor: "pointer" }}>
+                {spinning ? "⏸ Stop" : "▶ Spin"}
+              </button>
+              <button onClick={resetView} style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: "rgba(30,41,59,0.8)", border: "1px solid rgba(51,65,85,0.5)", color: "#94a3b8", cursor: "pointer" }}>
+                ⟳ Reset
+              </button>
+              <a href={pdbUrl} download target="_blank" rel="noreferrer" style={{ fontSize: "0.7rem", padding: "0.25rem 0.6rem", borderRadius: 6, background: "rgba(30,41,59,0.8)", border: "1px solid rgba(51,65,85,0.5)", color: "#94a3b8", cursor: "pointer", textDecoration: "none" }}>
+                ↓ PDB
+              </a>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={{ position: "relative", height: 340 }}>
+        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+        {status === "loading" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid #0ea5e9", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+            <p style={{ fontSize: "0.75rem", color: "#475569" }}>Loading AlphaFold structure…</p>
+          </div>
+        )}
+        {status === "error" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <p style={{ fontSize: "0.75rem", color: "#475569" }}>Structure unavailable for this protein</p>
+          </div>
+        )}
+      </div>
+
+      {status === "ready" && (
+        <div style={{ padding: "0.5rem 0.875rem", borderTop: "1px solid rgba(14,165,233,0.1)", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: "0.68rem", color: "#475569" }}>pLDDT confidence:</span>
+          {[["#0053D6","Very high (>90)"], ["#65CBF3","High (70–90)"], ["#FFDB13","Medium (50–70)"], ["#FF7D45","Low (<50)"]].map(([color, label]) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+              <span style={{ fontSize: "0.65rem", color: "#475569" }}>{label}</span>
+            </div>
+          ))}
+          <span style={{ marginLeft: "auto", fontSize: "0.65rem", color: "#1e293b" }}>AlphaFold DB</span>
+        </div>
+      )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const SUGGESTIONS = [
@@ -190,6 +328,13 @@ function AssistantMessage({ msg }) {
           </div>
         )}
         {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} />}
+        {msg.data?.alphafold?.pdb_url && (
+          <ProteinViewer
+            pdbUrl={msg.data.alphafold.pdb_url}
+            geneName={msg.data.alphafold.gene || msg.target}
+            entryId={msg.data.alphafold.entry_id}
+          />
+        )}
         <Markdown content={msg.content} />
         {msg.data && <DataSection data={msg.data} queryType={msg.query_type} />}
         {msg.sources?.length > 0 && (

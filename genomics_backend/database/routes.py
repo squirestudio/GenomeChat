@@ -1,3 +1,4 @@
+import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -6,6 +7,7 @@ from datetime import datetime
 from .models import get_db, Project, Query, AuditLog
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+share_router = APIRouter(tags=["sharing"])
 
 
 class ProjectCreate(BaseModel):
@@ -223,3 +225,37 @@ def delete_query(project_id: int, query_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Query not found")
     db.delete(query)
     db.commit()
+
+
+# ─── Shared link endpoints (no /projects prefix) ─────────────────────────────
+
+@share_router.post("/queries/{query_id}/share")
+def create_share_link(query_id: int, db: Session = Depends(get_db)):
+    """Generate or return existing share token for a query."""
+    query = db.query(Query).filter(Query.id == query_id).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    if not query.share_token:
+        query.share_token = secrets.token_urlsafe(16)
+        db.commit()
+        db.refresh(query)
+    return {"token": query.share_token, "query_id": query_id}
+
+
+@share_router.get("/share/{token}")
+def get_shared_query(token: str, db: Session = Depends(get_db)):
+    """Return full stored response for a shared query token."""
+    query = db.query(Query).filter(Query.share_token == token).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="Shared link not found or expired")
+    stored = query.results if isinstance(query.results, dict) else {}
+    return {
+        "query_text": query.query_text,
+        "query_type": query.query_type,
+        "target": query.target,
+        "sources": query.sources or [],
+        "result_count": query.result_count or 0,
+        "created_at": query.created_at.isoformat() if query.created_at else None,
+        "content": stored.get("content"),
+        "data": stored.get("data"),
+    }

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, Boolean
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 from datetime import datetime
 from config import get_settings
@@ -61,6 +61,7 @@ class Query(Base):
     sources = Column(JSON, default=list)
     execution_time_ms = Column(Float)
     cached = Column(Integer, default=0)
+    share_token = Column(String(64), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="queries")

@@ -790,6 +790,46 @@ function ClinGenPanel({ curations }) {
   );
 }
 
+// ─── Publication Timeline ─────────────────────────────────────────────────────
+
+function PublicationTimeline({ timeline }) {
+  if (!timeline?.length) return null;
+  const hasData = timeline.some(t => t.count > 0);
+  if (!hasData) return null;
+
+  const max = Math.max(...timeline.map(t => t.count), 1);
+  const BAR_H = 80;
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(251,191,36,0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(251,191,36,0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fbbf24" }}>Publication Timeline</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>PubMed · papers per year</span>
+      </div>
+      <div style={{ padding: "0.75rem 0.875rem 0.6rem" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: BAR_H + 24 }}>
+          {timeline.map(({ year, count }) => {
+            const barH = count > 0 ? Math.max(4, Math.round((count / max) * BAR_H)) : 2;
+            const opacity = count > 0 ? 0.7 + 0.3 * (count / max) : 0.15;
+            return (
+              <div key={year} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}
+                title={`${year}: ${count.toLocaleString()} publications`}>
+                <span style={{ fontSize: "0.58rem", color: count > 0 ? "#fbbf24" : "#334155", lineHeight: 1 }}>
+                  {count > 0 ? (count >= 1000 ? `${(count/1000).toFixed(1)}k` : count) : ""}
+                </span>
+                <div style={{ width: "100%", height: barH, background: `rgba(251,191,36,${opacity})`, borderRadius: "3px 3px 0 0", transition: "height 0.3s" }} />
+                <span style={{ fontSize: "0.58rem", color: "#475569", transform: "rotate(-45deg)", transformOrigin: "top center", marginTop: 2, whiteSpace: "nowrap" }}>
+                  {String(year).slice(2)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── PharmGKB Panel ──────────────────────────────────────────────────────────
 
 const PGX_LEVEL_STYLE = {
@@ -1195,6 +1235,7 @@ function ComparisonView({ msg }) {
       {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} />}
       {(data.clingen?.length > 0) && <ClinGenPanel curations={data.clingen} />}
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
+      {data.publication_timeline?.length > 0 && <PublicationTimeline timeline={data.publication_timeline} />}
     </div>
   );
 
@@ -1316,16 +1357,50 @@ function AssistantMessage({ msg }) {
         {(pgkb => pgkb?.related_drugs?.length || pgkb?.clinical_annotations?.length)(msg.data?.pharmgkb) && <PharmGKBPanel pgkb={msg.data.pharmgkb} />}
         {msg.data?.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={msg.data.cancer_mutations} />}
         {msg.data?.clingen?.length > 0 && <ClinGenPanel curations={msg.data.clingen} />}
-        {msg.sources?.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>
-            {msg.sources.map(s => {
-              const c = SOURCE_COLORS[s] || { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" };
-              return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
-            })}
-          </div>
-        )}
+        {msg.data?.publication_timeline?.length > 0 && <PublicationTimeline timeline={msg.data.publication_timeline} />}
+        <MessageFooter msg={msg} />
       </div>
+    </div>
+  );
+}
+
+function MessageFooter({ msg }) {
+  const [shareUrl, setShareUrl] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const share = async () => {
+    if (!msg.query_id) return;
+    setSharing(true);
+    try {
+      const r = await fetch(`${API}/queries/${msg.query_id}/share`, { method: "POST" });
+      if (r.ok) {
+        const { token } = await r.json();
+        const url = `${window.location.origin}${window.location.pathname}?share=${token}`;
+        setShareUrl(url);
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }
+    } finally { setSharing(false); }
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
+      {msg.sources?.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>
+          {msg.sources.map(s => {
+            const c = SOURCE_COLORS[s] || { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" };
+            return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
+          })}
+        </div>
+      )}
+      {msg.query_id && (
+        <button onClick={share} disabled={sharing} style={{ fontSize: "0.68rem", color: copied ? "#34d399" : "#475569", background: "none", border: "1px solid rgba(51,65,85,0.35)", borderRadius: 6, padding: "0.2rem 0.55rem", cursor: "pointer", flexShrink: 0 }}>
+          {copied ? "Link copied!" : sharing ? "Sharing…" : shareUrl ? "Copy link" : "Share"}
+        </button>
+      )}
     </div>
   );
 }
@@ -1415,7 +1490,11 @@ export default function App() {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => { checkHealth(); loadProjects(); loadChatHistory(); }, []);
+  useEffect(() => {
+    checkHealth(); loadProjects(); loadChatHistory();
+    const token = new URLSearchParams(window.location.search).get("share");
+    if (token) loadSharedQuery(token);
+  }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   const checkHealth = async () => {
@@ -1432,6 +1511,27 @@ export default function App() {
     try {
       const r = await fetch(`${API}/projects/queries/recent?limit=30`);
       if (r.ok) setChatHistory(await r.json());
+    } catch {}
+  };
+
+  const loadSharedQuery = async (token) => {
+    try {
+      const r = await fetch(`${API}/share/${token}`);
+      if (!r.ok) return;
+      const item = await r.json();
+      const userMsg = { role: "user", content: item.query_text };
+      const assistantMsg = {
+        role: "assistant",
+        content: item.content || "",
+        data: item.data,
+        query_type: item.query_type,
+        target: item.target,
+        sources: item.sources || [],
+        result_count: item.result_count || 0,
+        cached: true,
+      };
+      setMessages([userMsg, assistantMsg]);
+      window.history.replaceState({}, "", window.location.pathname);
     } catch {}
   };
 
@@ -1550,7 +1650,7 @@ export default function App() {
           projects={projects} activeProjectId={activeProjectId}
           onSelectProject={setActiveProjectId} onCreateProject={async name => { try { const r = await fetch(`${API}/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); if (r.ok) { const p = await r.json(); setActiveProjectId(p.id); loadProjects(); } } catch {} }}
           onDeleteProject={async id => { try { await fetch(`${API}/projects/${id}`, { method: "DELETE" }); if (activeProjectId === id) setActiveProjectId(null); loadProjects(); } catch {} }}
-          chatHistory={chatHistory} onNewChat={() => setMessages([])}
+          chatHistory={chatHistory} onNewChat={() => setMessages([])} onLoadHistory={loadHistory}
         />
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -1565,7 +1665,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {messages.length > 0 && (
-                <button onClick={exportChat} style={{ fontSize: "0.72rem", color: "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer" }}>Export</button>
+                <button onClick={exportReport} style={{ fontSize: "0.72rem", color: "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer" }}>Export</button>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />

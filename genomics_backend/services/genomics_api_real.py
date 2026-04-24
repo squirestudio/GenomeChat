@@ -319,6 +319,35 @@ async def fetch_pubmed_count(gene_symbol: str) -> int:
     return 0
 
 
+async def fetch_pubmed_timeline(gene_symbol: str, years: int = 12) -> list[dict]:
+    """Fetch PubMed publication counts per year for the last N years."""
+    import datetime as dt
+    current_year = dt.datetime.utcnow().year
+    year_list = list(range(current_year - years + 1, current_year + 1))
+
+    async def count_year(client: httpx.AsyncClient, year: int) -> dict:
+        params = {
+            "db": "pubmed",
+            "term": f"{gene_symbol}[Gene Name]",
+            "retmode": "json",
+            "rettype": "count",
+            "datetype": "pdat",
+            "mindate": f"{year}/01/01",
+            "maxdate": f"{year}/12/31",
+        }
+        data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", params)
+        count = 0
+        if data:
+            count = int(data.get("esearchresult", {}).get("count", 0))
+        return {"year": year, "count": count}
+
+    async with httpx.AsyncClient() as client:
+        tasks = [count_year(client, y) for y in year_list]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    return [r for r in results if isinstance(r, dict)]
+
+
 def _normalize_disease_name(name: str) -> str:
     """Normalize disease name for NCBI search (remove apostrophes, trailing 's)."""
     return name.replace("'s", "").replace("'s", "").strip()
@@ -1088,7 +1117,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     ensembl_id = (ensembl_safe or {}).get("id", "")
 
     # Fetch all enrichment data in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb, cancer_muts, clingen = await asyncio.gather(
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb, cancer_muts, clingen, pub_timeline = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
@@ -1100,6 +1129,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         fetch_pharmgkb_data(gene_symbol),
         fetch_cancer_mutations(gene_symbol),
         fetch_clingen_validity(gene_symbol),
+        fetch_pubmed_timeline(gene_symbol),
         return_exceptions=True
     )
 
@@ -1122,6 +1152,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "pharmgkb": safe2(pgkb) or {},
         "cancer_mutations": safe2(cancer_muts) or {},
         "clingen": safe2(clingen) or [],
+        "publication_timeline": safe2(pub_timeline) or [],
         "sources": list(filter(None, [
             "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,

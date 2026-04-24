@@ -14,7 +14,7 @@ from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline
 from services.ai_explainer import explain_results, explain_comparison, answer_followup
 from services.cache import cache
 from database.models import create_tables, get_db, Query as QueryModel
-from database.routes import router as projects_router
+from database.routes import router as projects_router, share_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ app.add_middleware(
 )
 
 app.include_router(projects_router)
+app.include_router(share_router)
 
 
 @app.get("/health", response_model=HealthResponse)

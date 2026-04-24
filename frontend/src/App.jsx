@@ -1143,6 +1143,121 @@ function OmimPanel({ omim }) {
   );
 }
 
+// ─── Gene Comparison View ────────────────────────────────────────────────────
+
+function ComparisonStat({ label, a, b }) {
+  return (
+    <div style={{ display: "contents" }}>
+      <span style={{ fontSize: "0.68rem", color: "#475569", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgba(30,41,59,0.5)" }}>{label}</span>
+      <span style={{ fontSize: "0.72rem", color: "#94a3b8", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgba(30,41,59,0.5)", textAlign: "center" }}>{a || "—"}</span>
+      <span style={{ fontSize: "0.72rem", color: "#94a3b8", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgba(30,41,59,0.5)", textAlign: "center" }}>{b || "—"}</span>
+    </div>
+  );
+}
+
+function ComparisonView({ msg }) {
+  const { gene_a, gene_b, data_a, data_b } = msg.data || {};
+  const [activeTab, setActiveTab] = useState("overview");
+  if (!data_a || !data_b) return null;
+
+  const stat = (data, key, fallback = "—") => {
+    const v = data?.[key];
+    return v !== undefined && v !== null ? v : fallback;
+  };
+
+  const pathogenicCount = (data) =>
+    (data?.variants || []).filter(v => (v.clinical_significance || "").toLowerCase().includes("pathogenic") && !v.clinical_significance.toLowerCase().includes("likely")).length;
+
+  const topDrugs = (data) => (data?.drugs || []).slice(0, 3).map(d => d.name).join(", ") || "—";
+  const topValidity = (data) => (data?.clingen || [])[0]?.classification || "—";
+  const topCancer = (data) => (data?.cancer_mutations?.cancer_types || [])[0]?.cancer_type || "—";
+
+  const tabBtn = (id, label) => (
+    <button onClick={() => setActiveTab(id)} style={{
+      fontSize: "0.72rem", padding: "0.3rem 0.75rem", borderRadius: 6, cursor: "pointer", border: "none",
+      background: activeTab === id ? "rgba(14,165,233,0.2)" : "transparent",
+      color: activeTab === id ? "#38bdf8" : "#475569",
+      borderBottom: activeTab === id ? "2px solid #0ea5e9" : "2px solid transparent",
+    }}>
+      {label}
+    </button>
+  );
+
+  const GeneCol = ({ data, gene }) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <GeneInfoBanner geneInfo={data.gene_info} proteinInfo={data.protein_info} pubCount={data.publication_count} />
+      {data.alphafold?.pdb_url && <ProteinViewer pdbUrl={data.alphafold.pdb_url} geneName={gene} entryId={data.alphafold.entry_id} />}
+      {data.pathways?.length > 0 && <PathwayViewer pathways={data.pathways} />}
+      {data.expression?.length > 0 && <ExpressionChart expression={data.expression} />}
+      {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} />}
+      {data.protein_info?.length && <LollipopMap variants={data.variants || []} domains={data.domains || []} proteinLength={data.protein_info.length} geneName={gene} />}
+      {data.drugs?.length > 0 && <DrugPanel drugs={data.drugs} />}
+      {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} />}
+      {(data.clingen?.length > 0) && <ClinGenPanel curations={data.clingen} />}
+      {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Title */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#38bdf8" }}>{gene_a}</span>
+          <span style={{ fontSize: "0.75rem", color: "#334155" }}>vs</span>
+          <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#a78bfa" }}>{gene_b}</span>
+          <span style={{ fontSize: "0.68rem", color: "#334155" }}>· Gene Comparison</span>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 12, borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+          {tabBtn("overview", "Overview")}
+          {tabBtn("gene_a", gene_a)}
+          {tabBtn("gene_b", gene_b)}
+        </div>
+
+        {activeTab === "overview" && (
+          <>
+            {/* Comparison table */}
+            <div style={{ marginBottom: 16, background: "rgba(15,23,42,0.5)", border: "1px solid rgba(51,65,85,0.3)", borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr" }}>
+                <span style={{ fontSize: "0.65rem", color: "#334155", padding: "0.4rem 0.5rem", background: "rgba(30,41,59,0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}></span>
+                <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "#38bdf8", padding: "0.4rem 0.5rem", background: "rgba(30,41,59,0.5)", textAlign: "center" }}>{gene_a}</span>
+                <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "#a78bfa", padding: "0.4rem 0.5rem", background: "rgba(30,41,59,0.5)", textAlign: "center" }}>{gene_b}</span>
+                <ComparisonStat label="Chromosome" a={`Chr ${stat(data_a.gene_info, "chromosome")}`} b={`Chr ${stat(data_b.gene_info, "chromosome")}`} />
+                <ComparisonStat label="Protein length" a={data_a.protein_info?.length ? `${data_a.protein_info.length} aa` : "—"} b={data_b.protein_info?.length ? `${data_b.protein_info.length} aa` : "—"} />
+                <ComparisonStat label="Publications" a={(data_a.publication_count || 0).toLocaleString()} b={(data_b.publication_count || 0).toLocaleString()} />
+                <ComparisonStat label="ClinVar variants" a={stat(data_a, "variants", []).length} b={stat(data_b, "variants", []).length} />
+                <ComparisonStat label="Pathogenic variants" a={pathogenicCount(data_a)} b={pathogenicCount(data_b)} />
+                <ComparisonStat label="Pathways" a={(data_a.pathways || []).length} b={(data_b.pathways || []).length} />
+                <ComparisonStat label="ClinGen validity" a={topValidity(data_a)} b={topValidity(data_b)} />
+                <ComparisonStat label="Key drugs" a={topDrugs(data_a)} b={topDrugs(data_b)} />
+                <ComparisonStat label="Top cancer type" a={topCancer(data_a)} b={topCancer(data_b)} />
+              </div>
+            </div>
+            <Markdown content={msg.content} />
+          </>
+        )}
+
+        {activeTab === "gene_a" && <GeneCol data={data_a} gene={gene_a} />}
+        {activeTab === "gene_b" && <GeneCol data={data_b} gene={gene_b} />}
+
+        {/* Sources */}
+        {msg.sources?.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>
+            {msg.sources.map(s => {
+              const c = SOURCE_COLORS[s] || { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" };
+              return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 const SOURCE_COLORS = {
@@ -1160,6 +1275,7 @@ const SOURCE_COLORS = {
 };
 
 function AssistantMessage({ msg }) {
+  if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
       <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
@@ -1240,7 +1356,7 @@ function TypingIndicator() {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat }) {
+function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory }) {
   const [newName, setNewName] = useState("");
   return (
     <aside style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(30,41,59,0.8)", background: "rgba(15,23,42,0.6)" }}>
@@ -1252,9 +1368,17 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
         {chatHistory.length > 0 && (
           <div style={{ marginBottom: "1.25rem" }}>
-            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Recent</p>
-            {chatHistory.slice(0, 8).map((item, i) => (
-              <p key={i} style={{ fontSize: "0.75rem", color: "#64748b", padding: "0.35rem 0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</p>
+            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
+            {chatHistory.slice(0, 20).map((item, i) => (
+              <button key={item.id || i} onClick={() => onLoadHistory(item)}
+                style={{ width: "100%", textAlign: "left", fontSize: "0.72rem", color: "#64748b", padding: "0.35rem 0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: "none", border: "none", cursor: "pointer", display: "block" }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(30,41,59,0.5)"; e.currentTarget.style.color = "#94a3b8"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#64748b"; }}
+                title={item.query_text}
+              >
+                {item.target ? <span style={{ fontFamily: "monospace", color: "#38bdf8", marginRight: 4 }}>{item.target}</span> : null}
+                {item.query_text?.slice(0, 28)}
+              </button>
             ))}
           </div>
         )}
@@ -1291,7 +1415,7 @@ export default function App() {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  useEffect(() => { checkHealth(); loadProjects(); }, []);
+  useEffect(() => { checkHealth(); loadProjects(); loadChatHistory(); }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   const checkHealth = async () => {
@@ -1302,6 +1426,29 @@ export default function App() {
   const loadProjects = async () => {
     try { const r = await fetch(`${API}/projects`); if (r.ok) setProjects(await r.json()); }
     catch {}
+  };
+
+  const loadChatHistory = async () => {
+    try {
+      const r = await fetch(`${API}/projects/queries/recent?limit=30`);
+      if (r.ok) setChatHistory(await r.json());
+    } catch {}
+  };
+
+  const loadHistory = (item) => {
+    if (!item.content && !item.data) return;
+    const userMsg = { role: "user", content: item.query_text };
+    const assistantMsg = {
+      role: "assistant",
+      content: item.content || "",
+      data: item.data,
+      query_type: item.query_type,
+      target: item.target,
+      sources: item.sources || [],
+      result_count: item.result_count || 0,
+      cached: true,
+    };
+    setMessages([userMsg, assistantMsg]);
   };
 
   const buildHistory = useCallback(() =>
@@ -1339,10 +1486,54 @@ export default function App() {
     }
   }, [input, loading, buildHistory, activeProjectId]);
 
-  const exportChat = () => {
-    const blob = new Blob([JSON.stringify(messages, null, 2)], { type: "application/json" });
+  const exportReport = () => {
+    const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const lines = [`# GenomeChat Research Report`, `*Generated ${date}*`, ""];
+    messages.forEach(msg => {
+      if (msg.role === "user") {
+        lines.push(`## Query`, `> ${msg.content}`, "");
+      } else {
+        if (msg.target) lines.push(`**Target:** ${msg.target}${msg.query_type ? ` · ${msg.query_type.replace("_", " ")}` : ""}`, "");
+        if (msg.content) lines.push(msg.content, "");
+        const d = msg.data;
+        if (d?.variants?.length) {
+          lines.push(`### Variants (${d.variants.length})`);
+          d.variants.slice(0, 10).forEach(v => lines.push(`- **${v.variant_id}**: ${v.clinical_significance || "?"} — ${v.condition || ""} ${v.hgvs ? `(${v.hgvs})` : ""}`));
+          lines.push("");
+        }
+        if (d?.pathways?.length) {
+          lines.push(`### Pathways`);
+          d.pathways.slice(0, 8).forEach(p => lines.push(`- [${p.name}](${p.url})`));
+          lines.push("");
+        }
+        if (d?.drugs?.length) {
+          lines.push(`### Drug Interactions`);
+          d.drugs.slice(0, 8).forEach(dr => lines.push(`- **${dr.name}** — Phase ${dr.phase || "?"} · ${dr.mechanism || ""}`));
+          lines.push("");
+        }
+        if (d?.clingen?.length) {
+          lines.push(`### ClinGen Validity`);
+          d.clingen.forEach(c => lines.push(`- **${c.classification}**: ${c.disease} ${c.moi ? `(${c.moi})` : ""}`));
+          lines.push("");
+        }
+        if (d?.omim?.phenotypes?.length) {
+          lines.push(`### OMIM Disease Associations`);
+          d.omim.phenotypes.forEach(p => lines.push(`- [${p.title}](${p.url}) — MIM #${p.mim_number}`));
+          lines.push("");
+        }
+        if (d?.cancer_mutations?.cancer_types?.length) {
+          lines.push(`### Cancer Mutations (TCGA)`);
+          d.cancer_mutations.cancer_types.slice(0, 8).forEach(c => lines.push(`- ${c.cancer_type}: ${c.mutation_count} mutations`));
+          lines.push("");
+        }
+        if (msg.sources?.length) lines.push(`**Sources:** ${msg.sources.join(", ")}`, "");
+        lines.push("---", "");
+      }
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `genomechat-${Date.now()}.json`; a.click();
+    const a = document.createElement("a");
+    a.href = url; a.download = `genomechat-report-${Date.now()}.md`; a.click();
     URL.revokeObjectURL(url);
   };
 

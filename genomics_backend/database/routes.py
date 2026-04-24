@@ -191,6 +191,28 @@ def add_query_to_project(project_id: int, query_data: dict, db: Session = Depend
     )
 
 
+@router.get("/queries/recent")
+def get_recent_queries(limit: int = 30, db: Session = Depends(get_db)):
+    """Return recent queries with stored full response for history replay."""
+    queries = db.query(Query).order_by(Query.created_at.desc()).limit(limit).all()
+    result = []
+    for q in queries:
+        stored = q.results if isinstance(q.results, dict) else {}
+        result.append({
+            "id": q.id,
+            "query_text": q.query_text,
+            "query_type": q.query_type,
+            "target": q.target,
+            "sources": q.sources or [],
+            "result_count": q.result_count or 0,
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+            # Full stored response for replay
+            "content": stored.get("content"),
+            "data": stored.get("data"),
+        })
+    return result
+
+
 @router.delete("/{project_id}/queries/{query_id}", status_code=204)
 def delete_query(project_id: int, query_id: int, db: Session = Depends(get_db)):
     query = db.query(Query).filter(

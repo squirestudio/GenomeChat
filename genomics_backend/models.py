@@ -6,6 +6,7 @@ from enum import Enum
 class QueryType(str, Enum):
     GENE_QUERY = "gene_query"
     DISEASE_QUERY = "disease_query"
+    COMPARISON_QUERY = "comparison_query"
     UNKNOWN = "unknown"
 
 

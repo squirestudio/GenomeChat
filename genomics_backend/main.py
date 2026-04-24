@@ -11,7 +11,7 @@ from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline
-from services.ai_explainer import explain_results, answer_followup
+from services.ai_explainer import explain_results, explain_comparison, answer_followup
 from services.cache import cache
 from database.models import create_tables, get_db, Query as QueryModel
 from database.routes import router as projects_router
@@ -110,7 +110,25 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
 
     # Fetch genomics data
     try:
-        if interpreted.query_type == QueryType.GENE_QUERY:
+        import asyncio as _asyncio
+        if interpreted.query_type == QueryType.COMPARISON_QUERY:
+            gene_a = interpreted.filters.get("gene_a", "")
+            gene_b = interpreted.filters.get("gene_b", "")
+            if not gene_a or not gene_b:
+                parts = interpreted.target.split(" vs ")
+                gene_a, gene_b = parts[0].strip(), parts[1].strip() if len(parts) > 1 else parts[0]
+            data_a, data_b = await _asyncio.gather(
+                run_gene_pipeline(gene_a),
+                run_gene_pipeline(gene_b),
+            )
+            pipeline_result = {
+                "gene_a": gene_a, "gene_b": gene_b,
+                "data_a": data_a, "data_b": data_b,
+                "sources": list(set((data_a.get("sources") or []) + (data_b.get("sources") or []))),
+            }
+            raw_results = []
+            sources = pipeline_result["sources"]
+        elif interpreted.query_type == QueryType.GENE_QUERY:
             pipeline_result = await run_gene_pipeline(
                 interpreted.target,
                 population=interpreted.population,
@@ -126,22 +144,39 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Data fetch failed: {e}")
 
     # Have Claude explain the results
-    explanation = await explain_results(
-        query=request.message,
-        query_type=interpreted.query_type.value,
-        data=pipeline_result,
-        conversation_history=history_dicts,
-    )
+    if interpreted.query_type == QueryType.COMPARISON_QUERY:
+        explanation = await explain_comparison(
+            gene_a=pipeline_result["gene_a"],
+            gene_b=pipeline_result["gene_b"],
+            data_a=pipeline_result["data_a"],
+            data_b=pipeline_result["data_b"],
+            conversation_history=history_dicts,
+        )
+    else:
+        explanation = await explain_results(
+            query=request.message,
+            query_type=interpreted.query_type.value,
+            data=pipeline_result,
+            conversation_history=history_dicts,
+        )
 
-    # Save to DB
+    # Save to DB — store full response so history can replay it
     query_id = None
     try:
+        stored_results = {
+            "content": explanation,
+            "data": pipeline_result,
+            "query_type": interpreted.query_type.value,
+            "target": interpreted.target,
+            "sources": sources,
+            "result_count": len(raw_results),
+        }
         db_query = QueryModel(
             project_id=request.project_id,
             query_text=request.message,
             query_type=interpreted.query_type.value,
             target=interpreted.target,
-            results=raw_results[:50],
+            results=stored_results,
             result_count=len(raw_results),
             sources=sources,
             cached=0,

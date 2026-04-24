@@ -126,6 +126,66 @@ async def explain_results(
         return _fallback_explanation(query_type, data)
 
 
+async def explain_comparison(
+    gene_a: str,
+    gene_b: str,
+    data_a: dict,
+    data_b: dict,
+    conversation_history: list = None,
+) -> str:
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        return f"## {gene_a} vs {gene_b}\n\nComparison data retrieved. Add an Anthropic API key for AI-powered analysis."
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    def summarize(symbol, data):
+        gi = data.get("gene_info") or {}
+        pi = data.get("protein_info") or {}
+        variants = data.get("variants", [])
+        pathogenic = [v for v in variants if "pathogenic" in (v.get("clinical_significance") or "").lower()]
+        clingen = data.get("clingen") or []
+        drugs = data.get("drugs") or []
+        cancer = data.get("cancer_mutations") or {}
+        top_cancer = cancer.get("cancer_types", [{}])[0].get("cancer_type", "") if cancer.get("cancer_types") else ""
+        top_validity = clingen[0].get("classification", "") if clingen else ""
+        return (
+            f"{symbol}:\n"
+            f"  Location: Chr {gi.get('chromosome','?')}, {pi.get('length','?')} aa\n"
+            f"  Function: {(pi.get('function') or '')[:200]}\n"
+            f"  Publications: {data.get('publication_count',0):,}\n"
+            f"  ClinVar variants: {len(variants)} total, {len(pathogenic)} pathogenic\n"
+            f"  Pathways: {len(data.get('pathways',[]))}\n"
+            f"  ClinGen top validity: {top_validity}\n"
+            f"  Key drugs: {', '.join(d['name'] for d in drugs[:4])}\n"
+            f"  Top cancer type: {top_cancer}"
+        )
+
+    content = (
+        f'Comparing {gene_a} and {gene_b}.\n\n'
+        f'{summarize(gene_a, data_a)}\n\n'
+        f'{summarize(gene_b, data_b)}\n\n'
+        f'Please compare these two genes. Address: functional similarities/differences, '
+        f'clinical significance differences, overlapping vs. distinct disease associations, '
+        f'research context, and when a researcher might study one vs the other.'
+    )
+
+    messages = list((conversation_history or [])[-4:])
+    messages.append({"role": "user", "content": content})
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1400,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        )
+        return response.content[0].text
+    except Exception as e:
+        logger.error(f"Comparison explanation failed: {e}")
+        return f"## {gene_a} vs {gene_b}\n\nData retrieved for both genes. Error generating AI comparison: {e}"
+
+
 async def answer_followup(question: str, conversation_history: list) -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:

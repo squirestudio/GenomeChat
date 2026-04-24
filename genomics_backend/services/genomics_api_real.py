@@ -19,6 +19,9 @@ OPENTARGETS_BASE = "https://api.platform.opentargets.org/api/v4/graphql"
 PHARMGKB_BASE = "https://api.pharmgkb.org/v1"
 GDC_BASE = "https://api.gdc.cancer.gov"
 CLINGEN_BASE = "https://search.clinicalgenome.org/kb"
+GWAS_BASE = "https://www.ebi.ac.uk/gwas/rest/api"
+HPO_BASE = "https://hpo.jax.org/api/hpo"
+MONARCH_BASE = "https://api-v3.monarchinitiative.org/v3/api"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -1077,6 +1080,217 @@ async def fetch_clingen_validity(gene_symbol: str) -> list[dict]:
         return []
 
 
+async def fetch_gwas_associations(gene_symbol: str) -> list[dict]:
+    """Fetch GWAS Catalog trait associations for a gene."""
+    results = []
+    try:
+        async with httpx.AsyncClient() as client:
+            # Search associations by gene name
+            url = f"{GWAS_BASE}/associations/search/findByGene"
+            params = {"geneName": gene_symbol, "size": 50}
+            headers = {"Accept": "application/json"}
+            for attempt in range(MAX_RETRIES):
+                try:
+                    resp = await client.get(url, params=params, headers=headers, timeout=TIMEOUT)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        break
+                    elif resp.status_code == 429:
+                        await asyncio.sleep(2 ** attempt)
+                    else:
+                        return results
+                except httpx.TimeoutException:
+                    await asyncio.sleep(1)
+            else:
+                return results
+
+            assocs = (data.get("_embedded") or {}).get("associations", [])
+            seen_traits = set()
+            for a in assocs:
+                # Pull trait(s)
+                traits = a.get("efoTraits") or a.get("traitNames") or []
+                if isinstance(traits, list):
+                    trait_names = [t.get("trait") or t.get("shortForm") or str(t) for t in traits if isinstance(t, dict)]
+                else:
+                    trait_names = []
+
+                if not trait_names:
+                    continue
+
+                pval_mantissa = a.get("pvalueMantissa")
+                pval_exponent = a.get("pvalueExponent")
+                p_value = None
+                if pval_mantissa is not None and pval_exponent is not None:
+                    try:
+                        p_value = float(pval_mantissa) * (10 ** int(pval_exponent))
+                    except Exception:
+                        pass
+
+                or_beta = a.get("orPerCopyNum") or a.get("betaNum")
+                risk_allele = ""
+                loci = a.get("loci") or []
+                for locus in loci:
+                    for ra in (locus.get("strongestRiskAlleles") or []):
+                        risk_allele = ra.get("riskAlleleName", "")
+                        break
+                    if risk_allele:
+                        break
+
+                study = (a.get("study") or {})
+                pmid = study.get("publicationInfo", {}).get("pubmedId") if isinstance(study.get("publicationInfo"), dict) else None
+                study_accession = study.get("accessionId", "")
+
+                for trait in trait_names:
+                    key = (trait, risk_allele)
+                    if key in seen_traits:
+                        continue
+                    seen_traits.add(key)
+                    results.append({
+                        "trait": trait,
+                        "p_value": p_value,
+                        "p_value_str": f"{pval_mantissa}×10⁻{abs(int(pval_exponent))}" if pval_mantissa and pval_exponent else "N/A",
+                        "or_beta": float(or_beta) if or_beta else None,
+                        "risk_allele": risk_allele,
+                        "pmid": pmid,
+                        "study_accession": study_accession,
+                        "url": f"https://www.ebi.ac.uk/gwas/studies/{study_accession}" if study_accession else "https://www.ebi.ac.uk/gwas/",
+                    })
+
+            # Sort by p-value ascending (most significant first)
+            results.sort(key=lambda x: x["p_value"] if x["p_value"] is not None else 1.0)
+            return results[:25]
+    except Exception as e:
+        logger.warning(f"GWAS Catalog fetch failed for {gene_symbol}: {e}")
+        return []
+
+
+async def fetch_hpo_terms(gene_symbol: str, ncbi_gene_id: Optional[str] = None) -> dict:
+    """Fetch HPO phenotype terms associated with a gene."""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Resolve NCBI gene ID if not provided — search by symbol
+            gene_id = ncbi_gene_id
+            if not gene_id:
+                search_url = f"{NCBI_BASE}/esearch.fcgi"
+                params = {"db": "gene", "term": f"{gene_symbol}[gene] AND Homo sapiens[orgn]",
+                          "retmode": "json", "retmax": 1}
+                data = await _get(client, search_url, params)
+                ids = (data or {}).get("esearchresult", {}).get("idlist", [])
+                gene_id = ids[0] if ids else None
+
+            if not gene_id:
+                return {}
+
+            url = f"{HPO_BASE}/gene/{gene_id}"
+            headers = {"Accept": "application/json"}
+            resp = await client.get(url, headers=headers, timeout=TIMEOUT)
+            if resp.status_code != 200:
+                return {}
+
+            data = resp.json()
+
+            # Collect terms with categories
+            terms = []
+            for t in (data.get("termAssoc") or []):
+                terms.append({
+                    "id": t.get("ontologyId", ""),
+                    "name": t.get("name", ""),
+                    "definition": t.get("definition", ""),
+                    "url": f"https://hpo.jax.org/browse/term/{t.get('ontologyId', '')}",
+                })
+
+            # Collect disease associations
+            diseases = []
+            for d in (data.get("diseaseAssoc") or []):
+                diseases.append({
+                    "id": d.get("diseaseId", ""),
+                    "name": d.get("diseaseName", ""),
+                    "db": d.get("diseaseId", "").split(":")[0] if ":" in d.get("diseaseId", "") else "",
+                })
+
+            return {
+                "gene_symbol": gene_symbol,
+                "ncbi_gene_id": gene_id,
+                "phenotype_terms": terms[:40],
+                "disease_associations": diseases[:20],
+            }
+    except Exception as e:
+        logger.warning(f"HPO fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
+async def fetch_monarch_associations(gene_symbol: str, ncbi_gene_id: Optional[str] = None) -> dict:
+    """Fetch Monarch Initiative disease + phenotype associations for a gene."""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Resolve NCBI gene ID if needed
+            gene_id = ncbi_gene_id
+            if not gene_id:
+                search_url = f"{NCBI_BASE}/esearch.fcgi"
+                params = {"db": "gene", "term": f"{gene_symbol}[gene] AND Homo sapiens[orgn]",
+                          "retmode": "json", "retmax": 1}
+                data = await _get(client, search_url, params)
+                ids = (data or {}).get("esearchresult", {}).get("idlist", [])
+                gene_id = ids[0] if ids else None
+
+            if not gene_id:
+                return {}
+
+            monarch_id = f"NCBIGene:{gene_id}"
+            headers = {"Accept": "application/json"}
+
+            # Fetch disease associations
+            disease_url = f"{MONARCH_BASE}/association"
+            disease_params = {
+                "subject": monarch_id,
+                "category": "biolink:GeneToDiseaseAssociation",
+                "limit": 20,
+                "offset": 0,
+            }
+            disease_resp = await client.get(disease_url, params=disease_params, headers=headers, timeout=TIMEOUT)
+            diseases = []
+            if disease_resp.status_code == 200:
+                d_data = disease_resp.json()
+                for item in (d_data.get("items") or []):
+                    obj = item.get("object") or {}
+                    pred = item.get("predicate") or ""
+                    diseases.append({
+                        "id": obj.get("id", ""),
+                        "name": obj.get("label") or obj.get("name", ""),
+                        "predicate": pred.replace("biolink:", "").replace("_", " "),
+                        "url": f"https://monarchinitiative.org/disease/{obj.get('id', '')}" if obj.get("id") else "",
+                    })
+
+            # Fetch phenotype associations
+            pheno_params = {
+                "subject": monarch_id,
+                "category": "biolink:GeneToPhenotypicFeatureAssociation",
+                "limit": 30,
+                "offset": 0,
+            }
+            pheno_resp = await client.get(disease_url, params=pheno_params, headers=headers, timeout=TIMEOUT)
+            phenotypes = []
+            if pheno_resp.status_code == 200:
+                p_data = pheno_resp.json()
+                for item in (p_data.get("items") or []):
+                    obj = item.get("object") or {}
+                    phenotypes.append({
+                        "id": obj.get("id", ""),
+                        "name": obj.get("label") or obj.get("name", ""),
+                        "url": f"https://monarchinitiative.org/phenotype/{obj.get('id', '')}" if obj.get("id") else "",
+                    })
+
+            return {
+                "gene_symbol": gene_symbol,
+                "monarch_id": monarch_id,
+                "diseases": diseases,
+                "phenotypes": phenotypes,
+            }
+    except Exception as e:
+        logger.warning(f"Monarch fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
@@ -1117,7 +1331,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     ensembl_id = (ensembl_safe or {}).get("id", "")
 
     # Fetch all enrichment data in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb, cancer_muts, clingen, pub_timeline = await asyncio.gather(
+    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb, cancer_muts, clingen, pub_timeline, gwas, hpo, monarch = await asyncio.gather(
         fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
         fetch_reactome_pathways(gene_symbol),
         fetch_gtex_expression(gene_symbol),
@@ -1130,6 +1344,9 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         fetch_cancer_mutations(gene_symbol),
         fetch_clingen_validity(gene_symbol),
         fetch_pubmed_timeline(gene_symbol),
+        fetch_gwas_associations(gene_symbol),
+        fetch_hpo_terms(gene_symbol),
+        fetch_monarch_associations(gene_symbol),
         return_exceptions=True
     )
 
@@ -1153,6 +1370,9 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
         "cancer_mutations": safe2(cancer_muts) or {},
         "clingen": safe2(clingen) or [],
         "publication_timeline": safe2(pub_timeline) or [],
+        "gwas": safe2(gwas) or [],
+        "hpo": safe2(hpo) or {},
+        "monarch": safe2(monarch) or {},
         "sources": list(filter(None, [
             "Ensembl" if ensembl_safe else None,
             "ClinVar" if variant_list else None,
@@ -1167,6 +1387,9 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
             "PharmGKB" if safe2(pgkb) else None,
             "COSMIC/GDC" if safe2(cancer_muts) else None,
             "ClinGen" if safe2(clingen) else None,
+            "GWAS Catalog" if safe2(gwas) else None,
+            "HPO" if safe2(hpo) else None,
+            "Monarch" if safe2(monarch) else None,
             "PubMed"
         ]))
     }

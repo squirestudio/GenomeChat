@@ -830,6 +830,163 @@ function PublicationTimeline({ timeline }) {
   );
 }
 
+// ─── GWAS Panel ──────────────────────────────────────────────────────────────
+
+function GWASPanel({ gwas }) {
+  if (!gwas?.length) return null;
+
+  const sigColor = (p) => {
+    if (p === null || p === undefined) return "#94a3b8";
+    if (p < 5e-8) return "#f87171";   // genome-wide significant
+    if (p < 1e-5) return "#fb923c";   // suggestive
+    return "#fbbf24";                  // nominal
+  };
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(248,113,113,0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#f87171" }}>GWAS Catalog</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Trait associations · {gwas.length} results</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {gwas.map((a, i) => (
+          <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.45rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(248,113,113,0.3)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.25)"}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: "0.73rem", color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.trait}</p>
+                <div style={{ display: "flex", gap: 8, marginTop: 2, alignItems: "center" }}>
+                  {a.risk_allele && <span style={{ fontSize: "0.62rem", color: "#64748b" }}>{a.risk_allele}</span>}
+                  {a.or_beta != null && <span style={{ fontSize: "0.62rem", color: "#64748b" }}>OR/β={a.or_beta.toFixed(2)}</span>}
+                  {a.pmid && <span style={{ fontSize: "0.62rem", color: "#475569" }}>PMID:{a.pmid}</span>}
+                </div>
+              </div>
+              <span style={{ fontSize: "0.65rem", fontFamily: "monospace", color: sigColor(a.p_value), flexShrink: 0, whiteSpace: "nowrap" }}>
+                {a.p_value_str !== "N/A" ? `p=${a.p_value_str}` : "p=N/A"}
+              </span>
+            </div>
+          </a>
+        ))}
+      </div>
+      <div style={{ padding: "0.35rem 0.875rem 0.5rem", borderTop: "1px solid rgba(30,41,59,0.4)", display: "flex", gap: 12, alignItems: "center" }}>
+        {[["< 5×10⁻⁸", "#f87171", "Genome-wide"], ["< 1×10⁻⁵", "#fb923c", "Suggestive"], ["other", "#fbbf24", "Nominal"]].map(([thr, col, lbl]) => (
+          <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: col }} />
+            <span style={{ fontSize: "0.62rem", color: "#475569" }}>{lbl}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── HPO + Monarch Phenotype Panel ───────────────────────────────────────────
+
+function PhenotypePanel({ hpo, monarch }) {
+  const [activeTab, setActiveTab] = useState("hpo");
+
+  const hpoTerms = hpo?.phenotype_terms || [];
+  const hpoDiseases = hpo?.disease_associations || [];
+  const monarchDiseases = monarch?.diseases || [];
+  const monarchPhenos = monarch?.phenotypes || [];
+
+  const hasHPO = hpoTerms.length > 0 || hpoDiseases.length > 0;
+  const hasMonarch = monarchDiseases.length > 0 || monarchPhenos.length > 0;
+  if (!hasHPO && !hasMonarch) return null;
+
+  const Tab = ({ id, label, count }) => (
+    <button onClick={() => setActiveTab(id)} style={{
+      fontSize: "0.7rem", padding: "0.3rem 0.65rem", border: "none", cursor: "pointer",
+      background: activeTab === id ? "rgba(139,92,246,0.15)" : "transparent",
+      color: activeTab === id ? "#a78bfa" : "#475569",
+      borderBottom: activeTab === id ? "2px solid #a78bfa" : "2px solid transparent",
+    }}>
+      {label}{count > 0 ? <span style={{ marginLeft: 4, fontSize: "0.62rem", color: "#334155" }}>({count})</span> : null}
+    </button>
+  );
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(167,139,250,0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(167,139,250,0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa" }}>Phenotype Associations</span>
+        <span style={{ fontSize: "0.68rem", color: "#334155" }}>HPO · Monarch Initiative</span>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: "1px solid rgba(30,41,59,0.5)", paddingLeft: "0.5rem" }}>
+        {hasHPO && <Tab id="hpo" label="HPO Terms" count={hpoTerms.length} />}
+        {hpoDiseases.length > 0 && <Tab id="hpo_disease" label="HPO Diseases" count={hpoDiseases.length} />}
+        {hasMonarch && <Tab id="monarch" label="Monarch" count={monarchDiseases.length + monarchPhenos.length} />}
+      </div>
+
+      <div style={{ padding: "0.65rem 0.75rem", maxHeight: 260, overflowY: "auto" }}>
+        {activeTab === "hpo" && hpoTerms.map((t, i) => (
+          <a key={i} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "flex-start" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.2)"}
+            >
+              <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)", flexShrink: 0, fontFamily: "monospace" }}>{t.id}</span>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.72rem", color: "#e2e8f0" }}>{t.name}</p>
+                {t.definition && <p style={{ fontSize: "0.62rem", color: "#475569", marginTop: 1, lineHeight: 1.4 }}>{t.definition.slice(0, 120)}{t.definition.length > 120 ? "…" : ""}</p>}
+              </div>
+            </div>
+          </a>
+        ))}
+
+        {activeTab === "hpo_disease" && hpoDiseases.map((d, i) => (
+          <div key={i} style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgba(139,92,246,0.1)", color: "#7c3aed", border: "1px solid rgba(109,40,217,0.2)", flexShrink: 0, fontFamily: "monospace" }}>{d.db}</span>
+            <p style={{ fontSize: "0.72rem", color: "#e2e8f0" }}>{d.name}</p>
+          </div>
+        ))}
+
+        {activeTab === "monarch" && (
+          <>
+            {monarchDiseases.length > 0 && (
+              <>
+                <p style={{ fontSize: "0.65rem", color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.08em" }}>Disease Associations</p>
+                {monarchDiseases.map((d, i) => (
+                  <a key={i} href={d.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                    <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.2)"}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: "0.72rem", color: "#e2e8f0" }}>{d.name}</p>
+                        {d.predicate && <p style={{ fontSize: "0.62rem", color: "#475569", marginTop: 1 }}>{d.predicate}</p>}
+                      </div>
+                      <span style={{ fontSize: "0.6rem", fontFamily: "monospace", color: "#334155" }}>↗</span>
+                    </div>
+                  </a>
+                ))}
+              </>
+            )}
+            {monarchPhenos.length > 0 && (
+              <>
+                <p style={{ fontSize: "0.65rem", color: "#475569", margin: "8px 0 5px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Phenotypic Features</p>
+                {monarchPhenos.map((p, i) => (
+                  <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                    <div style={{ padding: "0.35rem 0.6rem", marginBottom: 3, background: "rgba(30,41,59,0.2)", border: "1px solid rgba(51,65,85,0.15)", borderRadius: 6 }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.25)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.15)"}
+                    >
+                      <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>{p.name}</p>
+                    </div>
+                  </a>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── PharmGKB Panel ──────────────────────────────────────────────────────────
 
 const PGX_LEVEL_STYLE = {
@@ -1235,6 +1392,8 @@ function ComparisonView({ msg }) {
       {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} />}
       {(data.clingen?.length > 0) && <ClinGenPanel curations={data.clingen} />}
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
+      {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} />}
+      {(data.hpo?.phenotype_terms?.length > 0 || data.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={data.hpo} monarch={data.monarch} />}
       {data.publication_timeline?.length > 0 && <PublicationTimeline timeline={data.publication_timeline} />}
     </div>
   );
@@ -1313,6 +1472,9 @@ const SOURCE_COLORS = {
   PharmGKB: { color: "#7dd3fc", bg: "rgba(8,47,73,0.3)", border: "rgba(3,105,161,0.25)" },
   "COSMIC/GDC": { color: "#fca5a5", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
   ClinGen: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
+  "GWAS Catalog": { color: "#f87171", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
+  HPO: { color: "#c4b5fd", bg: "rgba(76,29,149,0.3)", border: "rgba(109,40,217,0.25)" },
+  Monarch: { color: "#a78bfa", bg: "rgba(76,29,149,0.25)", border: "rgba(109,40,217,0.2)" },
 };
 
 function AssistantMessage({ msg }) {
@@ -1357,6 +1519,8 @@ function AssistantMessage({ msg }) {
         {(pgkb => pgkb?.related_drugs?.length || pgkb?.clinical_annotations?.length)(msg.data?.pharmgkb) && <PharmGKBPanel pgkb={msg.data.pharmgkb} />}
         {msg.data?.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={msg.data.cancer_mutations} />}
         {msg.data?.clingen?.length > 0 && <ClinGenPanel curations={msg.data.clingen} />}
+        {msg.data?.gwas?.length > 0 && <GWASPanel gwas={msg.data.gwas} />}
+        {(msg.data?.hpo?.phenotype_terms?.length > 0 || msg.data?.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={msg.data.hpo} monarch={msg.data.monarch} />}
         {msg.data?.publication_timeline?.length > 0 && <PublicationTimeline timeline={msg.data.publication_timeline} />}
         <MessageFooter msg={msg} />
       </div>

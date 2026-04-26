@@ -83,3 +83,21 @@ class AuditLog(Base):
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+    # Run additive column migrations that create_all won't apply to existing tables
+    _run_migrations()
+
+
+def _run_migrations():
+    """Apply ALTER TABLE migrations that are safe to run repeatedly (IF NOT EXISTS)."""
+    migrations = [
+        "ALTER TABLE queries ADD COLUMN IF NOT EXISTS share_token VARCHAR(64) UNIQUE",
+    ]
+    with engine.connect() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(__import__("sqlalchemy").text(sql))
+                conn.commit()
+            except Exception as e:
+                # Column may already exist or DB may not support IF NOT EXISTS — skip
+                import logging
+                logging.getLogger(__name__).debug(f"Migration skipped: {e}")

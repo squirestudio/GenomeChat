@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+
+// Registry so exportPDF can grab a live protein viewer snapshot (WebGL → PNG)
+const viewerRegistry = new Map(); // geneName -> $3Dmol viewer instance
 
 // ─── 3D Protein Viewer (AlphaFold) ───────────────────────────────────────────
 
@@ -93,8 +98,10 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
         const viewer = window.$3Dmol.createViewer(containerRef.current, {
           backgroundColor: "#0a0f1e",
           antialias: true,
+          preserveDrawingBuffer: true,
         });
         viewerRef.current = viewer;
+        viewerRegistry.set(geneName, viewer);
 
         fetch(pdbUrl)
           .then(r => r.text())
@@ -116,6 +123,7 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
       cancelled = true;
       if (viewerRef.current) {
         try { viewerRef.current.spin(false); } catch {}
+        viewerRegistry.delete(geneName);
       }
     };
   }, [pdbUrl]);
@@ -1647,6 +1655,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [projects, setProjects] = useState([]);
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [apiStatus, setApiStatus] = useState("checking");
@@ -1750,55 +1759,289 @@ export default function App() {
     }
   }, [input, loading, buildHistory, activeProjectId]);
 
-  const exportReport = () => {
-    const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-    const lines = [`# GenomeChat Research Report`, `*Generated ${date}*`, ""];
-    messages.forEach(msg => {
-      if (msg.role === "user") {
-        lines.push(`## Query`, `> ${msg.content}`, "");
-      } else {
-        if (msg.target) lines.push(`**Target:** ${msg.target}${msg.query_type ? ` · ${msg.query_type.replace("_", " ")}` : ""}`, "");
-        if (msg.content) lines.push(msg.content, "");
-        const d = msg.data;
-        if (d?.variants?.length) {
-          lines.push(`### Variants (${d.variants.length})`);
-          d.variants.slice(0, 10).forEach(v => lines.push(`- **${v.variant_id}**: ${v.clinical_significance || "?"} — ${v.condition || ""} ${v.hgvs ? `(${v.hgvs})` : ""}`));
-          lines.push("");
+  const exportReport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+    // ── helpers ──────────────────────────────────────────────────────────────
+    const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+    const inline = t => esc(t)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/`(.+?)`/g, `<code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;font-size:12px;font-family:monospace">$1</code>`);
+
+    const mdToHtml = text => {
+      if (!text) return "";
+      const out = []; let inList = false;
+      for (const raw of text.split("\n")) {
+        const l = raw.trimEnd();
+        if (/^##\s/.test(l)) {
+          if (inList) { out.push("</ul>"); inList = false; }
+          out.push(`<h2 style="font-size:16px;font-weight:700;color:#1e40af;border-bottom:1px solid #dbeafe;padding-bottom:6px;margin:22px 0 10px">${inline(l.slice(3))}</h2>`);
+        } else if (/^###\s/.test(l)) {
+          if (inList) { out.push("</ul>"); inList = false; }
+          out.push(`<h3 style="font-size:14px;font-weight:600;color:#1e3a8a;margin:16px 0 7px">${inline(l.slice(4))}</h3>`);
+        } else if (/^[-*]\s/.test(l)) {
+          if (!inList) { out.push('<ul style="margin:6px 0 10px 0;padding-left:20px">'); inList = true; }
+          out.push(`<li style="font-size:13px;line-height:1.65;margin:3px 0;color:#374151">${inline(l.slice(2))}</li>`);
+        } else if (l.trim() === "") {
+          if (inList) { out.push("</ul>"); inList = false; }
+          out.push("<div style='height:8px'></div>");
+        } else {
+          if (inList) { out.push("</ul>"); inList = false; }
+          out.push(`<p style="font-size:13px;line-height:1.7;margin:3px 0;color:#374151">${inline(l)}</p>`);
         }
-        if (d?.pathways?.length) {
-          lines.push(`### Pathways`);
-          d.pathways.slice(0, 8).forEach(p => lines.push(`- [${p.name}](${p.url})`));
-          lines.push("");
-        }
-        if (d?.drugs?.length) {
-          lines.push(`### Drug Interactions`);
-          d.drugs.slice(0, 8).forEach(dr => lines.push(`- **${dr.name}** — Phase ${dr.phase || "?"} · ${dr.mechanism || ""}`));
-          lines.push("");
-        }
-        if (d?.clingen?.length) {
-          lines.push(`### ClinGen Validity`);
-          d.clingen.forEach(c => lines.push(`- **${c.classification}**: ${c.disease} ${c.moi ? `(${c.moi})` : ""}`));
-          lines.push("");
-        }
-        if (d?.omim?.phenotypes?.length) {
-          lines.push(`### OMIM Disease Associations`);
-          d.omim.phenotypes.forEach(p => lines.push(`- [${p.title}](${p.url}) — MIM #${p.mim_number}`));
-          lines.push("");
-        }
-        if (d?.cancer_mutations?.cancer_types?.length) {
-          lines.push(`### Cancer Mutations (TCGA)`);
-          d.cancer_mutations.cancer_types.slice(0, 8).forEach(c => lines.push(`- ${c.cancer_type}: ${c.mutation_count} mutations`));
-          lines.push("");
-        }
-        if (msg.sources?.length) lines.push(`**Sources:** ${msg.sources.join(", ")}`, "");
-        lines.push("---", "");
       }
-    });
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `genomechat-report-${Date.now()}.md`; a.click();
-    URL.revokeObjectURL(url);
+      if (inList) out.push("</ul>");
+      return out.join("");
+    };
+
+    const sectionHeader = (title, color = "#1e40af") =>
+      `<div style="display:flex;align-items:center;gap:10px;margin:28px 0 12px"><div style="flex:1;height:1px;background:#e5e7eb"></div><span style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.08em;white-space:nowrap">${esc(title)}</span><div style="flex:1;height:1px;background:#e5e7eb"></div></div>`;
+
+    const table = (headers, rows, colWidths) => {
+      const wStyle = (i) => colWidths?.[i] ? `width:${colWidths[i]}` : "";
+      return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0">
+        <thead><tr>${headers.map((h,i) => `<th style="text-align:left;padding:6px 8px;background:#f0f4ff;color:#1e40af;font-weight:600;border-bottom:2px solid #dbeafe;${wStyle(i)}">${esc(h)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((r,ri) => `<tr style="background:${ri%2===0?"#fafafa":"#ffffff"}">${r.map((c,ci) => `<td style="padding:5px 8px;border-bottom:1px solid #f3f4f6;color:#374151;vertical-align:top;${wStyle(ci)}">${c}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>`;
+    };
+
+    const badge = (text, bg, color) =>
+      `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:${bg};color:${color};margin:1px 2px">${esc(text)}</span>`;
+
+    // ── gather messages ───────────────────────────────────────────────────────
+    const pairs = [];
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === "user") {
+        const reply = messages[i + 1]?.role === "assistant" ? messages[i + 1] : null;
+        pairs.push({ query: messages[i].content, reply });
+        if (reply) i++;
+      }
+    }
+    if (!pairs.length) return;
+    const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+    // ── protein snapshot ──────────────────────────────────────────────────────
+    const proteinImgs = {};
+    for (const { reply } of pairs) {
+      if (!reply?.target) continue;
+      const gene = reply.target.split(" vs ")[0];
+      const viewer = viewerRegistry.get(gene);
+      if (viewer) {
+        try {
+          viewer.spin(false);
+          viewer.render();
+          await new Promise(r => setTimeout(r, 120));
+          proteinImgs[gene] = viewer.pngURI();
+        } catch {}
+      }
+    }
+
+    // ── build HTML report ─────────────────────────────────────────────────────
+    let body = "";
+
+    for (const { query, reply } of pairs) {
+      const d = reply?.data || {};
+      const gene = reply?.target || "";
+
+      // Query block
+      body += `<div style="background:#eff6ff;border-left:4px solid #3b82f6;border-radius:4px;padding:14px 16px;margin-bottom:18px">
+        <p style="font-size:10px;font-weight:700;color:#6b7280;letter-spacing:.08em;margin-bottom:4px">RESEARCH QUERY</p>
+        <p style="font-size:15px;font-weight:600;color:#1e3a8a;line-height:1.5">${esc(query)}</p>
+        ${gene ? `<p style="font-size:12px;color:#3b82f6;margin-top:4px">${esc(gene)}${reply?.query_type ? " · " + reply.query_type.replace(/_/g," ") : ""}${reply?.result_count ? " · " + reply.result_count + " results" : ""}</p>` : ""}
+      </div>`;
+
+      // Protein structure
+      const proteinPng = proteinImgs[gene];
+      if (proteinPng) {
+        body += `${sectionHeader("Protein Structure (AlphaFold)", "#7c3aed")}
+          <div style="text-align:center;background:#0a0f1e;border-radius:10px;padding:8px;margin-bottom:8px">
+            <img src="${proteinPng}" style="max-width:100%;border-radius:8px;display:block;margin:0 auto" />
+          </div>
+          <p style="font-size:11px;color:#9ca3af;text-align:center;margin-bottom:16px">AlphaFold predicted structure · ${esc(d.alphafold?.entry_id || gene)} · Colored by pLDDT confidence</p>`;
+      }
+
+      // AI analysis
+      if (reply?.content) {
+        body += `${sectionHeader("Clinical Analysis")}${mdToHtml(reply.content)}`;
+      }
+
+      // Population frequencies
+      if (d.population_summary?.length) {
+        const popRows = d.population_summary.map(p => {
+          const af = p.allele_frequency || 0;
+          const barPct = Math.min(100, af * 5000000).toFixed(1);
+          return [
+            `<strong>${esc(p.population)}</strong>`,
+            `<span style="font-family:monospace">${af.toExponential(2)}</span>`,
+            `${p.allele_count?.toLocaleString() ?? "—"} / ${p.allele_number?.toLocaleString() ?? "—"}`,
+            `<div style="background:#e0e7ff;border-radius:3px;height:8px;width:120px"><div style="background:#3b82f6;border-radius:3px;height:8px;width:${barPct}%"></div></div>`,
+          ];
+        });
+        body += `${sectionHeader("Population Allele Frequencies (gnomAD v4)")}
+          <p style="font-size:12px;color:#6b7280;margin-bottom:8px">Aggregate allele frequency across all variants in this gene, by ancestry group.</p>
+          ${table(["Population", "Allele Freq.", "AC / AN", "Relative"], popRows, ["30%","18%","28%","24%"])}`;
+      }
+
+      // HPO phenotypes
+      const hpoTerms = d.hpo?.phenotype_terms || [];
+      const monarchDiseases = d.monarch?.diseases || [];
+      if (hpoTerms.length || monarchDiseases.length) {
+        body += sectionHeader("Associated Phenotypes & Diseases (HPO · Monarch)");
+        if (hpoTerms.length) {
+          body += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px">
+            ${hpoTerms.slice(0,20).map(t => badge(t.name, "#f5f3ff", "#5b21b6")).join("")}
+          </div>`;
+        }
+        if (monarchDiseases.length) {
+          const mRows = monarchDiseases.slice(0,12).map(d2 => [esc(d2.name), esc(d2.predicate || "—")]);
+          body += table(["Disease (Monarch)", "Relationship"], mRows);
+        }
+      }
+
+      // Pathogenic variants
+      const patho = (d.variants || []).filter(v => /pathogenic/i.test(v.clinical_significance || ""));
+      if (patho.length) {
+        const vRows = patho.slice(0, 12).map(v => [
+          `<span style="font-family:monospace;font-size:11px">${esc(v.variant_id)}</span>`,
+          `<strong style="color:${/likely/i.test(v.clinical_significance||"")?"#d97706":"#dc2626"}">${esc(v.clinical_significance)}</strong>`,
+          esc(v.condition || "—"),
+          v.hgvs ? `<span style="font-family:monospace;font-size:11px">${esc(v.hgvs)}</span>` : "—",
+          v.frequency ? `<span style="font-family:monospace">${parseFloat(v.frequency).toExponential(2)}</span>` : "—",
+        ]);
+        body += `${sectionHeader("Pathogenic Variants (ClinVar)")}
+          ${table(["Variant ID","Significance","Condition","Protein Change","gnomAD AF"], vRows, ["20%","18%","28%","20%","14%"])}`;
+      }
+
+      // GWAS associations
+      if (d.gwas?.length) {
+        const gRows = d.gwas.slice(0, 12).map(g => [
+          esc(g.trait),
+          `<span style="font-family:monospace;color:${g.p_value < 5e-8 ? "#dc2626" : g.p_value < 1e-5 ? "#d97706" : "#374151"}">${esc(g.p_value_str)}</span>`,
+          g.or_beta != null ? g.or_beta.toFixed(3) : "—",
+          g.risk_allele ? `<span style="font-family:monospace">${esc(g.risk_allele)}</span>` : "—",
+        ]);
+        body += `${sectionHeader("GWAS Trait Associations (EBI GWAS Catalog)")}
+          <p style="font-size:12px;color:#6b7280;margin-bottom:8px">p &lt; 5×10⁻⁸ = genome-wide significant</p>
+          ${table(["Trait","p-value","OR / β","Risk Allele"], gRows, ["45%","20%","17%","18%"])}`;
+      }
+
+      // Drug interactions
+      if (d.drugs?.length) {
+        const dRows = d.drugs.slice(0, 10).map(dr => [
+          `<strong>${esc(dr.name)}</strong>`,
+          dr.phase != null ? badge(`Phase ${dr.phase}`, dr.phase >= 4 ? "#dcfce7" : dr.phase >= 3 ? "#dbeafe" : "#f5f3ff", dr.phase >= 4 ? "#15803d" : dr.phase >= 3 ? "#1d4ed8" : "#6d28d9") : "—",
+          esc(dr.mechanism || "—"),
+          esc(dr.indication || "—"),
+        ]);
+        body += `${sectionHeader("Drug Interactions (Open Targets)")}
+          ${table(["Drug","Phase","Mechanism","Indication"], dRows, ["22%","14%","32%","32%"])}`;
+      }
+
+      // ClinGen validity
+      if (d.clingen?.length) {
+        const cgColors = { Definitive: ["#dcfce7","#15803d"], Strong: ["#dbeafe","#1d4ed8"], Moderate: ["#fef9c3","#a16207"], Limited: ["#ffedd5","#c2410c"], Disputed: ["#fce7f3","#be185d"], Refuted: ["#fee2e2","#991b1b"] };
+        const cgRows = d.clingen.slice(0,10).map(c => {
+          const [bg, col] = cgColors[c.classification] || ["#f3f4f6","#374151"];
+          return [badge(c.classification, bg, col), esc(c.disease), esc(c.moi || "—"), esc(c.gcep || "—")];
+        });
+        body += `${sectionHeader("ClinGen Gene-Disease Validity")}
+          ${table(["Classification","Disease","Inheritance","Expert Panel"], cgRows, ["20%","38%","14%","28%"])}`;
+      }
+
+      // OMIM
+      if (d.omim?.phenotypes?.length) {
+        const oRows = d.omim.phenotypes.slice(0, 10).map(p => [
+          esc(p.title),
+          `<span style="font-family:monospace">${esc(p.mim_number)}</span>`,
+          esc(p.inheritance || "—"),
+        ]);
+        body += `${sectionHeader("OMIM Disease Associations")}
+          ${table(["Condition","MIM #","Inheritance"], oRows, ["58%","18%","24%"])}`;
+      }
+
+      // Cancer mutations
+      if (d.cancer_mutations?.cancer_types?.length) {
+        const cRows = d.cancer_mutations.cancer_types.slice(0, 10).map(c => [
+          esc(c.cancer_type), String(c.mutation_count?.toLocaleString() ?? "—")
+        ]);
+        body += `${sectionHeader("Somatic Cancer Mutations (TCGA / GDC)")}
+          ${table(["Cancer Type","Mutation Count"], cRows, ["70%","30%"])}`;
+      }
+
+      // Sources
+      if (reply?.sources?.length) {
+        body += `<p style="font-size:11px;color:#9ca3af;margin-top:20px"><strong style="color:#6b7280">Data sources:</strong> ${reply.sources.map(esc).join(" · ")}</p>`;
+      }
+
+      body += `<div style="height:32px;border-bottom:1px solid #e5e7eb;margin-bottom:32px"></div>`;
+    }
+
+    const reportHtml = `
+      <div id="gc-pdf-report" style="width:794px;background:#ffffff;padding:48px 52px;font-family:'Georgia',serif;color:#1a1a1a;box-sizing:border-box">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #1e40af;padding-bottom:20px;margin-bottom:28px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:38px;height:38px;background:linear-gradient(135deg,#1d4ed8,#7c3aed);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px">🧬</div>
+            <div>
+              <p style="font-size:20px;font-weight:700;color:#1e40af;margin:0">GenomeChat</p>
+              <p style="font-size:11px;color:#9ca3af;margin:0">Genomics Research Report</p>
+            </div>
+          </div>
+          <p style="font-size:12px;color:#9ca3af;text-align:right">Generated ${date}<br><span style="font-size:10px">Powered by Claude AI</span></p>
+        </div>
+        ${body}
+        <!-- Footer -->
+        <div style="margin-top:32px;border-top:1px solid #e5e7eb;padding-top:16px">
+          <p style="font-size:11px;color:#d1d5db;text-align:center">GenomeChat · Data from Ensembl, ClinVar, gnomAD, UniProt, Open Targets, GWAS Catalog, HPO, Monarch, PharmGKB, OMIM, ClinGen, COSMIC/GDC · Powered by Claude AI</p>
+          <p style="font-size:10px;color:#e5e7eb;text-align:center;margin-top:4px">For research purposes only. Not a substitute for clinical genetic counseling.</p>
+        </div>
+      </div>`;
+
+    // ── render hidden div → html2canvas → jsPDF ───────────────────────────────
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = "position:fixed;left:-9999px;top:0;z-index:-1";
+    wrapper.innerHTML = reportHtml;
+    document.body.appendChild(wrapper);
+
+    try {
+      const el = wrapper.querySelector("#gc-pdf-report");
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        logging: false,
+        imageTimeout: 8000,
+      });
+
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 0;
+      const imgW = pageW - margin * 2;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
+      let yOffset = 0;
+      let firstPage = true;
+      while (yOffset < imgH) {
+        if (!firstPage) pdf.addPage();
+        pdf.addImage(imgData, "JPEG", margin, margin - yOffset, imgW, imgH);
+        yOffset += pageH - margin * 2;
+        firstPage = false;
+      }
+
+      const slug = pairs[0]?.reply?.target?.replace(/\s+/g, "_") || "report";
+      pdf.save(`GenomeChat_${slug}_${Date.now()}.pdf`);
+    } finally {
+      document.body.removeChild(wrapper);
+    }
+    } finally {
+      setExporting(false);
+    }
   };
 
   const statusColor = { online: "#34d399", offline: "#f87171", checking: "#fbbf24", error: "#f87171" }[apiStatus];
@@ -1829,7 +2072,9 @@ export default function App() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {messages.length > 0 && (
-                <button onClick={exportReport} style={{ fontSize: "0.72rem", color: "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer" }}>Export</button>
+                <button onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "#334155" : "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
+                  {exporting ? "Building PDF…" : "Export PDF"}
+                </button>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />

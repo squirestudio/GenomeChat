@@ -260,6 +260,19 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+const getToken = () => localStorage.getItem("gc_token");
+const setToken = (t) => localStorage.setItem("gc_token", t);
+const clearToken = () => localStorage.removeItem("gc_token");
+const authHeaders = () => {
+  const t = getToken();
+  return t ? { "Authorization": `Bearer ${t}` } : {};
+};
+const apiFetch = (path, opts = {}) => fetch(`${API}${path}`, {
+  ...opts,
+  headers: { "Content-Type": "application/json", ...authHeaders(), ...(opts.headers || {}) },
+});
+
 const SUGGESTIONS = [
   { label: "BRCA1 pathogenic variants", icon: "🧬" },
   { label: "What genes cause hereditary breast cancer?", icon: "🔬" },
@@ -1545,7 +1558,7 @@ function MessageFooter({ msg }) {
     if (!msg.query_id) return;
     setSharing(true);
     try {
-      const r = await fetch(`${API}/queries/${msg.query_id}/share`, { method: "POST" });
+      const r = await apiFetch(`/queries/${msg.query_id}/share`, { method: "POST" });
       if (r.ok) {
         const { token } = await r.json();
         const url = `${window.location.origin}${window.location.pathname}?share=${token}`;
@@ -1603,8 +1616,9 @@ function TypingIndicator() {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory }) {
+function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser }) {
   const [newName, setNewName] = useState("");
+  const [hoveredId, setHoveredId] = useState(null);
   return (
     <aside style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(30,41,59,0.8)", background: "rgba(15,23,42,0.6)" }}>
       <div style={{ padding: "1rem", borderBottom: "1px solid rgba(30,41,59,0.6)" }}>
@@ -1613,19 +1627,37 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
         </button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
+        {!currentUser && chatHistory.length === 0 && (
+          <a href={`${API}/auth/google`} style={{ display: "block", margin: "0 0 12px", padding: "8px 10px", background: "rgba(14,165,233,0.08)", border: "1px solid rgba(14,165,233,0.2)", borderRadius: 8, textDecoration: "none", textAlign: "center" }}>
+            <p style={{ fontSize: "0.68rem", color: "#38bdf8", margin: 0 }}>Sign in to save history</p>
+          </a>
+        )}
         {chatHistory.length > 0 && (
           <div style={{ marginBottom: "1.25rem" }}>
             <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
             {chatHistory.slice(0, 20).map((item, i) => (
-              <button key={item.id || i} onClick={() => onLoadHistory(item)}
-                style={{ width: "100%", textAlign: "left", fontSize: "0.72rem", color: "#64748b", padding: "0.35rem 0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: "none", border: "none", cursor: "pointer", display: "block" }}
-                onMouseEnter={e => { e.currentTarget.style.background = "rgba(30,41,59,0.5)"; e.currentTarget.style.color = "#94a3b8"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#64748b"; }}
-                title={item.query_text}
+              <div key={item.id || i}
+                style={{ position: "relative", display: "flex", alignItems: "center", borderRadius: 6, marginBottom: 1 }}
+                onMouseEnter={() => setHoveredId(item.id || i)}
+                onMouseLeave={() => setHoveredId(null)}
               >
-                {item.target ? <span style={{ fontFamily: "monospace", color: "#38bdf8", marginRight: 4 }}>{item.target}</span> : null}
-                {item.query_text?.slice(0, 28)}
-              </button>
+                <button onClick={() => onLoadHistory(item)}
+                  style={{ flex: 1, textAlign: "left", fontSize: "0.72rem", color: hoveredId === (item.id || i) ? "#94a3b8" : "#64748b", padding: "0.35rem 0.5rem", paddingRight: hoveredId === (item.id || i) ? "1.4rem" : "0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: hoveredId === (item.id || i) ? "rgba(30,41,59,0.5)" : "none", border: "none", cursor: "pointer", minWidth: 0 }}
+                  title={item.query_text}
+                >
+                  {item.target ? <span style={{ fontFamily: "monospace", color: "#38bdf8", marginRight: 4 }}>{item.target}</span> : null}
+                  {item.query_text?.slice(0, 26)}
+                </button>
+                {hoveredId === (item.id || i) && item.id && (
+                  <button
+                    onClick={e => { e.stopPropagation(); onDeleteHistory(item.id); }}
+                    style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
+                    onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
+                    onMouseLeave={e => e.currentTarget.style.color = "#475569"}
+                    title="Delete this query"
+                  >×</button>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -1639,9 +1671,22 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
             All queries
           </button>
           {projects.map(p => (
-            <button key={p.id} onClick={() => onSelectProject(p.id)} style={{ width: "100%", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === p.id ? "#38bdf8" : "#64748b", background: activeProjectId === p.id ? "rgba(14,165,233,0.1)" : "transparent", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", marginBottom: 2 }}>
+            <div key={p.id} style={{ position: "relative", display: "flex", alignItems: "center", borderRadius: 6, marginBottom: 2 }}
+              onMouseEnter={() => setHoveredId(`proj-${p.id}`)}
+              onMouseLeave={() => setHoveredId(null)}
+            >
+            <button onClick={() => onSelectProject(p.id)} style={{ flex: 1, textAlign: "left", padding: "0.35rem 0.5rem", paddingRight: hoveredId === `proj-${p.id}` ? "1.4rem" : "0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === p.id ? "#38bdf8" : "#64748b", background: activeProjectId === p.id ? "rgba(14,165,233,0.1)" : "transparent", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {p.name}
             </button>
+            {hoveredId === `proj-${p.id}` && (
+              <button onClick={e => { e.stopPropagation(); onDeleteProject(p.id); }}
+                style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
+                onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
+                onMouseLeave={e => e.currentTarget.style.color = "#475569"}
+                title="Delete project"
+              >×</button>
+            )}
+            </div>
           ))}
         </div>
       </div>
@@ -1660,36 +1705,57 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [apiStatus, setApiStatus] = useState("checking");
   const [chatHistory, setChatHistory] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
-    checkHealth(); loadProjects(); loadChatHistory();
-    const token = new URLSearchParams(window.location.search).get("share");
-    if (token) loadSharedQuery(token);
+    const params = new URLSearchParams(window.location.search);
+    // Handle OAuth callback token
+    const authToken = params.get("token");
+    if (authToken) {
+      setToken(authToken);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // Handle shared query
+    const shareToken = params.get("share");
+    if (shareToken) loadSharedQuery(shareToken);
+
+    checkHealth();
+    fetchMe().then(() => { loadProjects(); loadChatHistory(); });
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   const checkHealth = async () => {
-    try { const r = await fetch(`${API}/health`); setApiStatus(r.ok ? "online" : "error"); }
+    try { const r = await apiFetch("/health"); setApiStatus(r.ok ? "online" : "error"); }
     catch { setApiStatus("offline"); }
   };
 
+  const fetchMe = async () => {
+    try {
+      const r = await apiFetch("/auth/me");
+      if (r.ok) {
+        const { user } = await r.json();
+        setCurrentUser(user);
+      }
+    } catch {}
+  };
+
   const loadProjects = async () => {
-    try { const r = await fetch(`${API}/projects`); if (r.ok) setProjects(await r.json()); }
+    try { const r = await apiFetch("/projects"); if (r.ok) setProjects(await r.json()); }
     catch {}
   };
 
   const loadChatHistory = async () => {
     try {
-      const r = await fetch(`${API}/projects/queries/recent?limit=30`);
+      const r = await apiFetch("/projects/queries/recent?limit=30");
       if (r.ok) setChatHistory(await r.json());
     } catch {}
   };
 
   const loadSharedQuery = async (token) => {
     try {
-      const r = await fetch(`${API}/share/${token}`);
+      const r = await apiFetch(`/share/${token}`);
       if (!r.ok) return;
       const item = await r.json();
       const userMsg = { role: "user", content: item.query_text };
@@ -1705,6 +1771,13 @@ export default function App() {
       };
       setMessages([userMsg, assistantMsg]);
       window.history.replaceState({}, "", window.location.pathname);
+    } catch {}
+  };
+
+  const deleteHistory = async (queryId) => {
+    try {
+      await apiFetch(`/queries/${queryId}`, { method: "DELETE" });
+      setChatHistory(prev => prev.filter(h => h.id !== queryId));
     } catch {}
   };
 
@@ -1738,9 +1811,8 @@ export default function App() {
     setLoading(true);
 
     try {
-      const r = await fetch(`${API}/chat`, {
+      const r = await apiFetch("/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg, history: buildHistory(), project_id: activeProjectId }),
       });
       const data = await r.json();
@@ -2055,9 +2127,10 @@ export default function App() {
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         <Sidebar
           projects={projects} activeProjectId={activeProjectId}
-          onSelectProject={setActiveProjectId} onCreateProject={async name => { try { const r = await fetch(`${API}/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); if (r.ok) { const p = await r.json(); setActiveProjectId(p.id); loadProjects(); } } catch {} }}
-          onDeleteProject={async id => { try { await fetch(`${API}/projects/${id}`, { method: "DELETE" }); if (activeProjectId === id) setActiveProjectId(null); loadProjects(); } catch {} }}
-          chatHistory={chatHistory} onNewChat={() => setMessages([])} onLoadHistory={loadHistory}
+          onSelectProject={setActiveProjectId} onCreateProject={async name => { try { const r = await apiFetch("/projects", { method: "POST", body: JSON.stringify({ name }) }); if (r.ok) { const p = await r.json(); setActiveProjectId(p.id); loadProjects(); } } catch {} }}
+          onDeleteProject={async id => { try { await apiFetch(`/projects/${id}`, { method: "DELETE" }); if (activeProjectId === id) setActiveProjectId(null); loadProjects(); } catch {} }}
+          chatHistory={chatHistory} onNewChat={() => setMessages([])} onLoadHistory={loadHistory} onDeleteHistory={deleteHistory}
+          currentUser={currentUser}
         />
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -2080,6 +2153,28 @@ export default function App() {
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                 <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
               </div>
+              {currentUser ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>
+                    {currentUser.name?.[0]?.toUpperCase() || "?"}
+                  </div>
+                  <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); }}
+                    style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
+                    onMouseLeave={e => e.currentTarget.style.color = "#475569"}
+                    title="Sign out"
+                  >Sign out</button>
+                </div>
+              ) : (
+                <a href={`${API}/auth/google`}
+                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "#94a3b8", background: "rgba(30,41,59,0.6)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.65rem", textDecoration: "none", cursor: "pointer" }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.4)"}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.4)"}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                  Sign in with Google
+                </a>
+              )}
             </div>
           </header>
 

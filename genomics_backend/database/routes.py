@@ -1,5 +1,5 @@
 import secrets
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -194,9 +194,16 @@ def add_query_to_project(project_id: int, query_data: dict, db: Session = Depend
 
 
 @router.get("/queries/recent")
-def get_recent_queries(limit: int = 30, db: Session = Depends(get_db)):
-    """Return recent queries with stored full response for history replay."""
-    queries = db.query(Query).order_by(Query.created_at.desc()).limit(limit).all()
+def get_recent_queries(request: Request, limit: int = 30, db: Session = Depends(get_db)):
+    """Return recent queries for the current user (or all anonymous if not signed in)."""
+    from auth import get_current_user
+    current_user = get_current_user(request, db)
+    q = db.query(Query).order_by(Query.created_at.desc())
+    if current_user:
+        q = q.filter(Query.user_id == current_user.id)
+    else:
+        q = q.filter(Query.user_id == None)  # noqa: E711 — anonymous only
+    queries = q.limit(limit).all()
     result = []
     for q in queries:
         stored = q.results if isinstance(q.results, dict) else {}
@@ -228,6 +235,20 @@ def delete_query(project_id: int, query_id: int, db: Session = Depends(get_db)):
 
 
 # ─── Shared link endpoints (no /projects prefix) ─────────────────────────────
+
+@share_router.delete("/queries/{query_id}", status_code=204)
+def delete_query_by_id(query_id: int, request: Request, db: Session = Depends(get_db)):
+    """Delete a query. Authenticated users may only delete their own queries."""
+    from auth import get_current_user
+    current_user = get_current_user(request, db)
+    query = db.query(Query).filter(Query.id == query_id).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+    if current_user and query.user_id and query.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your query")
+    db.delete(query)
+    db.commit()
+
 
 @share_router.post("/queries/{query_id}/share")
 def create_share_link(query_id: int, db: Session = Depends(get_db)):

@@ -15,6 +15,8 @@ from services.ai_explainer import explain_results, explain_comparison, answer_fo
 from services.cache import cache
 from database.models import create_tables, get_db, Query as QueryModel
 from database.routes import router as projects_router, share_router
+from auth import router as auth_router, get_current_user
+from database.models import User
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,6 +75,7 @@ app.add_middleware(
 
 app.include_router(projects_router)
 app.include_router(share_router)
+app.include_router(auth_router)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -89,7 +92,7 @@ async def health_check():
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: Session = Depends(get_db)):
+async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_current_user)):
     """
     Primary chat endpoint. Interprets the message, fetches genomics data if needed,
     then has Claude explain the results with full conversation context.
@@ -174,6 +177,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
         }
         db_query = QueryModel(
             project_id=request.project_id,
+            user_id=current_user.id if current_user else None,
             query_text=request.message,
             query_type=interpreted.query_type.value,
             target=interpreted.target,

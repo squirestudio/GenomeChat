@@ -53,6 +53,7 @@ class Query(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     query_text = Column(Text, nullable=False)
     query_type = Column(String(50))
     target = Column(String(255))
@@ -91,6 +92,7 @@ def _run_migrations():
     """Apply ALTER TABLE migrations that are safe to run repeatedly (IF NOT EXISTS)."""
     migrations = [
         "ALTER TABLE queries ADD COLUMN IF NOT EXISTS share_token VARCHAR(64) UNIQUE",
+        "ALTER TABLE queries ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
     ]
     with engine.connect() as conn:
         for sql in migrations:

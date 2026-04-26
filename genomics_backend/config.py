@@ -6,12 +6,19 @@ import os
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
     database_url: str = "postgresql://genomechat:genomechat@localhost:5432/genomechat"
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:5174", "https://genomechat.vercel.app", "*"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3333", "http://localhost:5173", "http://localhost:5174", "https://genomechat.vercel.app", "*"]
     cache_ttl_hours: int = 24
     cache_max_size: int = 1000
     request_timeout: int = 30
     max_retries: int = 3
     log_level: str = "INFO"
+    # Google OAuth
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    jwt_secret: str = "change-this-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = 168  # 7 days
+    frontend_url: str = "http://localhost:3333"
 
     def get_database_url(self) -> str:
         # Railway provides DATABASE_URL as postgres:// but SQLAlchemy needs postgresql://

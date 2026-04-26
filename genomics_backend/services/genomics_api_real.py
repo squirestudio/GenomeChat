@@ -202,26 +202,35 @@ async def fetch_gnomad_frequencies(gene_symbol: str, population: Optional[str] =
             data = response.json()
             variants_raw = data.get("data", {}).get("gene", {}).get("variants", []) or []
 
+            POP_LABELS = {
+                "afr": "AFR", "amr": "AMR", "asj": "ASJ",
+                "eas": "EAS", "fin": "FIN", "nfe": "NFE", "sas": "SAS", "mid": "MID",
+            }
+            pop_map = {"european": "nfe", "african": "afr", "east asian": "eas", "south asian": "sas"}
+            pop_key = pop_map.get((population or "").lower())
+
             results = []
             for v in variants_raw[:30]:
                 exome = v.get("exome") or {}
                 genome = v.get("genome") or {}
                 af = exome.get("af") or genome.get("af")
 
+                # Build full per-population AF dict
+                all_pop_freq = {}
                 pop_filter = None
-                if population and exome.get("populations"):
-                    pop_map = {"european": "nfe", "african": "afr", "east asian": "eas", "south asian": "sas"}
-                    pop_key = pop_map.get(population.lower())
-                    if pop_key:
-                        for pop in exome["populations"]:
-                            if pop["id"] == pop_key:
-                                pop_filter = pop.get("af")
+                for pop in (exome.get("populations") or []):
+                    pid = pop.get("id", "").lower()
+                    if pid in POP_LABELS:
+                        all_pop_freq[POP_LABELS[pid]] = pop.get("af")
+                    if pop_key and pid == pop_key:
+                        pop_filter = pop.get("af")
 
                 results.append({
                     "variant_id": v.get("variant_id"),
                     "consequence": v.get("consequence"),
                     "allele_frequency": af,
                     "population_frequency": pop_filter,
+                    "all_population_frequencies": all_pop_freq,
                     "population": population,
                     "source": "gnomAD"
                 })
@@ -1312,8 +1321,10 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     for v in variant_list:
         v_dict = v.dict()
         if v.variant_id in freq_map:
-            v_dict["frequency"] = freq_map[v.variant_id].get("allele_frequency")
-            v_dict["population_frequency"] = freq_map[v.variant_id].get("population_frequency")
+            freq_entry = freq_map[v.variant_id]
+            v_dict["frequency"] = freq_entry.get("allele_frequency")
+            v_dict["population_frequency"] = freq_entry.get("population_frequency")
+            v_dict["all_population_frequencies"] = freq_entry.get("all_population_frequencies", {})
         results.append(v_dict)
 
     if not results and freq_list:

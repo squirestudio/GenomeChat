@@ -4,7 +4,7 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert clinical genomicist and molecular biologist with deep knowledge of human genetics, variant interpretation, and gene-disease relationships.
+SYSTEM_PROMPT = """You are an expert clinical genomicist and molecular biologist with deep knowledge of human genetics, variant interpretation, gene-disease relationships, and population genetics.
 
 When analyzing genomics data, structure your response using these sections (use only what's relevant):
 
@@ -17,6 +17,9 @@ When analyzing genomics data, structure your response using these sections (use 
 ## Clinical Significance
 [What these variants or genes mean for health and disease]
 
+## Population Genetics
+[If population allele frequency data is provided: compare frequencies across ancestry groups, explain what higher AF in a specific population means for carrier risk, note any founder effects or population-specific enrichment. Be specific with numbers when available.]
+
 ## Gene-Disease Relationships
 [How this gene/these genes connect to diseases and biological mechanisms]
 
@@ -27,9 +30,11 @@ When analyzing genomics data, structure your response using these sections (use 
 [2-3 specific follow-up questions the researcher might want to ask]
 
 Formatting rules:
-- Use **bold** for gene names (BRCA1, TP53) and key clinical terms
+- Use **bold** for gene names (BRCA1, TP53), population names, and key clinical terms
 - Use bullet points for lists
 - Be scientifically precise but accessible to a research scientist
+- When population frequency data is present, always include a Population Genetics section and directly compare the groups mentioned in the query
+- If a user asks about specific population comparisons (e.g. South Asian vs Non-Finnish European), address it directly using the AF data provided
 - If data is limited, say so honestly
 - Keep responses focused — avoid padding"""
 
@@ -54,17 +59,79 @@ def _format_gene_data(data: dict) -> str:
     if pub_count:
         lines.append(f"PubMed publications: {pub_count:,}")
 
+    # ClinGen gene-disease validity
+    clingen = data.get("clingen") or []
+    if clingen:
+        lines.append(f"\nClinGen Gene-Disease Validity ({len(clingen)} curated):")
+        for c in clingen[:6]:
+            lines.append(f"  - {c.get('classification', '?')}: {c.get('disease', '?')} ({c.get('moi', '')})")
+
+    # GWAS trait associations
+    gwas = data.get("gwas") or []
+    if gwas:
+        lines.append(f"\nGWAS Catalog trait associations ({len(gwas)} found):")
+        for g in gwas[:8]:
+            pstr = g.get("p_value_str", "N/A")
+            or_str = f" OR/β={g['or_beta']:.3f}" if g.get("or_beta") else ""
+            lines.append(f"  - {g.get('trait', '?')}: p={pstr}{or_str}")
+
+    # HPO phenotype terms
+    hpo = data.get("hpo") or {}
+    hpo_terms = hpo.get("phenotype_terms") or []
+    if hpo_terms:
+        lines.append(f"\nHPO Phenotype Terms ({len(hpo_terms)} associated):")
+        for t in hpo_terms[:12]:
+            lines.append(f"  - {t.get('id', '')}: {t.get('name', '')}")
+
+    # Population-level allele frequencies (gnomAD)
+    pop_summary = data.get("population_summary") or []
+    if pop_summary:
+        lines.append(f"\ngnomAD v4 Population Allele Frequencies (all variants in gene):")
+        for p in pop_summary:
+            af = p.get("allele_frequency", 0)
+            ac = p.get("allele_count", 0)
+            an = p.get("allele_number", 0)
+            lines.append(
+                f"  - {p.get('population', '?')}: AF={af:.2e}  (AC={ac:,} / AN={an:,})"
+            )
+        lines.append(
+            "  NOTE: Higher AF in a population = more carriers of variants in this gene in that ancestry group."
+        )
+
+    # Pathogenic variants with per-population breakdown where available
     variants = data.get("variants", [])
-    lines.append(f"\nVariants retrieved: {len(variants)}")
+    pathogenic = [v for v in variants if "pathogenic" in (v.get("clinical_significance") or "").lower()]
+    lines.append(f"\nClinVar variants retrieved: {len(variants)} total, {len(pathogenic)} pathogenic/likely-pathogenic")
     for v in variants[:15]:
         sig = v.get("clinical_significance", "Unknown")
         cond = v.get("condition", "")
         cons = v.get("consequence", "")
         freq = v.get("frequency")
         freq_str = f" | AF={freq:.2e}" if freq else ""
-        lines.append(f"  - {v.get('variant_id', '?')}: {sig} | {cond} | {cons}{freq_str}")
+        hgvs = v.get("hgvs", "")
+        hgvs_str = f" | {hgvs}" if hgvs else ""
+        all_pop = v.get("all_population_frequencies") or {}
+        pop_str = ""
+        if all_pop:
+            notable = {k: vf for k, vf in all_pop.items() if vf and float(vf) > 0}
+            if notable:
+                pop_str = " | pop: " + ", ".join(f"{k}={float(vf):.2e}" for k, vf in list(notable.items())[:5])
+        lines.append(f"  - {v.get('variant_id', '?')}: {sig} | {cond} | {cons}{hgvs_str}{freq_str}{pop_str}")
     if len(variants) > 15:
         lines.append(f"  ... and {len(variants) - 15} more")
+
+    # OMIM disease phenotypes
+    omim = data.get("omim") or {}
+    phenotypes = omim.get("phenotypes") or []
+    if phenotypes:
+        lines.append(f"\nOMIM Disease Associations ({len(phenotypes)}):")
+        for p in phenotypes[:5]:
+            lines.append(f"  - {p.get('title', '?')} (MIM #{p.get('mim_number', '?')}) | {p.get('inheritance', '')}")
+
+    # Pathways
+    pathways = data.get("pathways") or []
+    if pathways:
+        lines.append(f"\nReactome Pathways ({len(pathways)}): " + ", ".join(p.get("name", "") for p in pathways[:5]))
 
     return "\n".join(lines)
 

@@ -33,6 +33,7 @@ class ChatRequest(BaseModel):
     message: str
     history: list[ChatMessage] = []
     project_id: Optional[int] = None
+    personal_variants: Optional[list[dict]] = None  # [{rsid, genotype, chromosome?}] — session only, never stored
 
 
 class ChatResponse(BaseModel):
@@ -162,6 +163,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             query_type=interpreted.query_type.value,
             data=pipeline_result,
             conversation_history=history_dicts,
+            personal_variants=request.personal_variants,
         )
 
     # Save to DB — store full response so history can replay it

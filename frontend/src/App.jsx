@@ -5,6 +5,57 @@ import html2canvas from "html2canvas";
 // Registry so exportPDF can grab a live protein viewer snapshot (WebGL → PNG)
 const viewerRegistry = new Map(); // geneName -> $3Dmol viewer instance
 
+// ─── DNA File Parser (client-side only — never uploaded or stored) ────────────
+function parseDNAFile(text) {
+  const lines = text.split(/\r?\n/);
+  const variants = new Map(); // rsid -> { genotype, chromosome, position }
+  let format = "23andMe";
+
+  if (lines.some(l => l.startsWith("##fileformat=VCF"))) {
+    format = "VCF";
+  } else {
+    const header = lines.find(l => l.trim() && !l.startsWith("#"));
+    if (header && (header.includes("allele1") || header.includes("allele2"))) {
+      format = "AncestryDNA";
+    }
+  }
+
+  if (format === "VCF") {
+    for (const line of lines) {
+      if (line.startsWith("#") || !line.trim()) continue;
+      const cols = line.split("\t");
+      if (cols.length < 9) continue;
+      const [chrom, pos, id, ref, alt, , , , , ...samples] = cols;
+      if (!id || id === ".") continue;
+      const rsid = id.split(";").find(x => x.startsWith("rs")) || id;
+      const gt = (samples[0] || "").split(":")[0] || "";
+      const alleles = [ref, ...alt.split(",")];
+      const indices = gt.split(/[|/]/).map(Number);
+      const genotype = indices.map(i => alleles[i] || ".").join("");
+      variants.set(rsid, { genotype, chromosome: chrom, position: pos });
+    }
+  } else if (format === "AncestryDNA") {
+    for (const line of lines) {
+      if (line.startsWith("#") || !line.trim()) continue;
+      const cols = line.split("\t");
+      if (!cols[0] || cols[0] === "rsid" || !cols[0].startsWith("rs")) continue;
+      const [rsid, chromosome, position, allele1, allele2] = cols;
+      variants.set(rsid, { genotype: (allele1 + allele2).replace(/0/g, ""), chromosome, position });
+    }
+  } else {
+    // 23andMe
+    for (const line of lines) {
+      if (line.startsWith("#") || !line.trim()) continue;
+      const cols = line.split("\t");
+      if (!cols[0] || cols[0] === "rsid" || !cols[0].startsWith("rs")) continue;
+      const [rsid, chromosome, position, genotype] = cols;
+      variants.set(rsid, { genotype: (genotype || "").trim(), chromosome, position });
+    }
+  }
+
+  return { variants, totalCount: variants.size, format };
+}
+
 // ─── 3D Protein Viewer (AlphaFold) ───────────────────────────────────────────
 
 function load3Dmol() {
@@ -258,6 +309,104 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
   );
 }
 
+// ─── DNA Upload UI Components ─────────────────────────────────────────────────
+
+function ConsentModal({ onAccept, onClose }) {
+  const [agreed, setAgreed] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState(null);
+  const fileRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsing(true);
+    setError(null);
+    try {
+      const text = await file.text();
+      const result = parseDNAFile(text);
+      if (result.totalCount === 0) {
+        setError("No variants found. Please upload a 23andMe, AncestryDNA, or VCF file.");
+        setParsing(false);
+        return;
+      }
+      onAccept(result, file.name);
+    } catch {
+      setError("Failed to parse file. Please check the format and try again.");
+      setParsing(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "#0f172a", border: "1px solid rgba(14,165,233,0.25)", borderRadius: 16, padding: "1.75rem", maxWidth: 520, width: "100%", boxShadow: "0 25px 50px rgba(0,0,0,0.6)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
+          <div>
+            <p style={{ fontSize: "1rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>Upload DNA Data</p>
+            <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 3 }}>23andMe · AncestryDNA · VCF</p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
+          {[
+            { icon: "🔒", title: "Processed in your browser", body: "Your file is parsed entirely on your device. The raw data never leaves your browser." },
+            { icon: "🚫", title: "Nothing stored or transmitted", body: "Variants are held in session memory only and cleared when you close or refresh the tab." },
+            { icon: "⚕️", title: "Not medical advice", body: "This tool is for research and educational purposes. Consult a licensed genetic counselor for health decisions." },
+          ].map(({ icon, title, body }) => (
+            <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgba(30,41,59,0.4)", borderRadius: 10, border: "1px solid rgba(51,65,85,0.3)" }}>
+              <span style={{ fontSize: "0.95rem", flexShrink: 0, marginTop: 1 }}>{icon}</span>
+              <div>
+                <p style={{ fontSize: "0.73rem", fontWeight: 600, color: "#cbd5e1", margin: 0 }}>{title}</p>
+                <p style={{ fontSize: "0.68rem", color: "#64748b", marginTop: 2, lineHeight: 1.5 }}>{body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: "1.25rem", cursor: "pointer" }}>
+          <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
+            style={{ width: 15, height: 15, marginTop: 2, accentColor: "#0ea5e9", flexShrink: 0 }} />
+          <span style={{ fontSize: "0.72rem", color: "#94a3b8", lineHeight: 1.55 }}>
+            I understand this tool does not provide medical diagnoses, and my raw genetic data will not be stored, transmitted, or used for any purpose other than this session.
+          </span>
+        </label>
+
+        {error && <p style={{ fontSize: "0.72rem", color: "#f87171", marginBottom: "0.75rem" }}>{error}</p>}
+
+        <input ref={fileRef} type="file" accept=".txt,.csv,.vcf" style={{ display: "none" }} onChange={handleFile} />
+        <button
+          disabled={!agreed || parsing}
+          onClick={() => fileRef.current?.click()}
+          style={{ width: "100%", padding: "0.625rem", borderRadius: 10, background: agreed && !parsing ? "#0284c7" : "rgba(51,65,85,0.4)", border: "none", color: agreed && !parsing ? "white" : "#334155", fontSize: "0.8rem", fontWeight: 600, cursor: agreed && !parsing ? "pointer" : "not-allowed", transition: "background 0.15s" }}
+        >
+          {parsing ? "Parsing file…" : "Choose File"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DNASessionBanner({ dnaData, onClear }) {
+  if (!dnaData) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 1.25rem", background: "rgba(8,47,73,0.35)", borderBottom: "1px solid rgba(14,165,233,0.1)", fontSize: "0.68rem", flexShrink: 0 }}>
+      <span style={{ fontSize: "0.75rem" }}>🧬</span>
+      <span style={{ color: "#38bdf8", fontWeight: 600 }}>DNA session active</span>
+      <span style={{ color: "#1e3a5f" }}>·</span>
+      <span style={{ color: "#475569" }}>{dnaData.totalCount.toLocaleString()} variants</span>
+      <span style={{ color: "#1e3a5f" }}>·</span>
+      <span style={{ color: "#475569" }}>{dnaData.format}</span>
+      <span style={{ color: "#1e3a5f" }}>·</span>
+      <span style={{ color: "#1e3a5f" }}>not stored · session only</span>
+      <button onClick={onClear}
+        style={{ marginLeft: "auto", background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: "0.9rem", padding: "0 2px", lineHeight: 1 }}
+        title="Clear DNA data from session"
+      >×</button>
+    </div>
+  );
+}
+
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -346,7 +495,7 @@ const SIG_COLORS = {
   "Uncertain significance": { bg: "rgba(66,32,6,0.4)", color: "#fde68a", border: "rgba(161,98,7,0.3)" },
 };
 
-function VariantCard({ variant }) {
+function VariantCard({ variant, userVariant }) {
   const [expanded, setExpanded] = useState(false);
   const sig = variant.clinical_significance || "Unknown";
   const c = SIG_COLORS[sig] || { bg: "rgba(30,41,59,0.6)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" };
@@ -354,8 +503,15 @@ function VariantCard({ variant }) {
   return (
     <div
       onClick={() => hasDetail && setExpanded(e => !e)}
-      style={{ background: "rgba(30,41,59,0.35)", border: `1px solid ${expanded ? "rgba(14,165,233,0.35)" : "rgba(51,65,85,0.4)"}`, borderRadius: 10, padding: "0.75rem", cursor: hasDetail ? "pointer" : "default", transition: "border-color 0.15s" }}
+      style={{ background: "rgba(30,41,59,0.35)", border: `1px solid ${userVariant ? "rgba(14,165,233,0.4)" : expanded ? "rgba(14,165,233,0.35)" : "rgba(51,65,85,0.4)"}`, borderRadius: 10, padding: "0.75rem", cursor: hasDetail ? "pointer" : "default", transition: "border-color 0.15s" }}
     >
+      {userVariant && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0.2rem 0.5rem", background: "rgba(14,165,233,0.1)", borderRadius: 6, border: "1px solid rgba(14,165,233,0.2)" }}>
+          <span style={{ fontSize: "0.62rem", color: "#38bdf8", fontWeight: 600 }}>YOUR DATA</span>
+          <span style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#7dd3fc", fontWeight: 700 }}>{userVariant.genotype}</span>
+          {userVariant.chromosome && <span style={{ fontSize: "0.6rem", color: "#334155" }}>chr{userVariant.chromosome}</span>}
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#7dd3fc", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.variant_id}</p>
@@ -441,19 +597,35 @@ function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
   );
 }
 
-function DataSection({ data, queryType }) {
+function DataSection({ data, queryType, dnaData }) {
   const [expanded, setExpanded] = useState(false);
   if (!data) return null;
   const isGene = queryType === "gene_query";
   const items = isGene ? (data.variants || []) : (data.genes || []);
   const shown = expanded ? items : items.slice(0, 6);
   if (items.length === 0) return null;
+
+  // Count personal matches for the header badge
+  const matchCount = isGene && dnaData
+    ? items.filter(v => {
+        const rsid = v.variant_id?.startsWith("rs") ? v.variant_id : v.rsid;
+        return rsid && dnaData.variants.has(rsid);
+      }).length
+    : 0;
+
   return (
     <div style={{ marginTop: "1rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          {isGene ? `${items.length} Variants` : `${items.length} Associated Genes`}
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            {isGene ? `${items.length} Variants` : `${items.length} Associated Genes`}
+          </p>
+          {matchCount > 0 && (
+            <span style={{ fontSize: "0.62rem", padding: "0.15em 0.5em", borderRadius: 4, background: "rgba(14,165,233,0.15)", color: "#38bdf8", border: "1px solid rgba(14,165,233,0.25)" }}>
+              {matchCount} in your data
+            </span>
+          )}
+        </div>
         {items.length > 6 && (
           <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.75rem", color: "#38bdf8", background: "none", border: "none", cursor: "pointer" }}>
             {expanded ? "Show less" : `Show all ${items.length}`}
@@ -461,9 +633,12 @@ function DataSection({ data, queryType }) {
         )}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
-        {shown.map((item, i) =>
-          isGene ? <VariantCard key={item.variant_id || i} variant={item} /> : <GeneCard key={item.gene_symbol || i} gene={item} />
-        )}
+        {shown.map((item, i) => {
+          if (!isGene) return <GeneCard key={item.gene_symbol || i} gene={item} />;
+          const rsid = item.variant_id?.startsWith("rs") ? item.variant_id : item.rsid;
+          const userVariant = rsid && dnaData ? dnaData.variants.get(rsid) : null;
+          return <VariantCard key={item.variant_id || i} variant={item} userVariant={userVariant} />;
+        })}
       </div>
     </div>
   );
@@ -1498,7 +1673,7 @@ const SOURCE_COLORS = {
   Monarch: { color: "#a78bfa", bg: "rgba(76,29,149,0.25)", border: "rgba(109,40,217,0.2)" },
 };
 
-function AssistantMessage({ msg }) {
+function AssistantMessage({ msg, dnaData }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
@@ -1522,7 +1697,7 @@ function AssistantMessage({ msg }) {
           />
         )}
         <Markdown content={msg.content} />
-        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} />}
+        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} />}
         {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
         {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
         {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
@@ -1706,6 +1881,8 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [chatHistory, setChatHistory] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [dnaData, setDnaData] = useState(null); // { variants: Map, totalCount, format, filename }
+  const [showConsentModal, setShowConsentModal] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -1816,6 +1993,23 @@ export default function App() {
         body: JSON.stringify({ message: msg, history: buildHistory(), project_id: activeProjectId }),
       });
       const data = await r.json();
+
+      // If DNA is loaded, cross-reference returned variant rsIDs with user's data
+      // and attach matched variants so Claude can interpret them in a follow-up
+      if (dnaData && data.data?.variants?.length > 0) {
+        const matches = data.data.variants
+          .map(v => {
+            const rsid = v.variant_id?.startsWith("rs") ? v.variant_id : v.rsid;
+            if (!rsid) return null;
+            const uv = dnaData.variants.get(rsid);
+            if (!uv) return null;
+            return { rsid, genotype: uv.genotype, chromosome: uv.chromosome };
+          })
+          .filter(Boolean);
+        if (matches.length > 0) {
+          data._personalMatches = matches;
+        }
+      }
       if (!r.ok) {
         setMessages(prev => [...prev, { role: "assistant", content: `**Error:** ${data.detail || "Something went wrong."}` }]);
         return;
@@ -2133,6 +2327,13 @@ export default function App() {
           currentUser={currentUser}
         />
 
+        {showConsentModal && (
+          <ConsentModal
+            onAccept={(result, filename) => { setDnaData({ ...result, filename }); setShowConsentModal(false); }}
+            onClose={() => setShowConsentModal(false)}
+          />
+        )}
+
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           {/* Header */}
           <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", borderBottom: "1px solid rgba(30,41,59,0.6)", background: "rgba(15,23,42,0.4)", flexShrink: 0 }}>
@@ -2149,6 +2350,13 @@ export default function App() {
                   {exporting ? "Building PDF…" : "Export PDF"}
                 </button>
               )}
+              <button
+                onClick={() => dnaData ? setDnaData(null) : setShowConsentModal(true)}
+                style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
+                title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
+              >
+                {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
+              </button>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                 <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
@@ -2178,6 +2386,8 @@ export default function App() {
             </div>
           </header>
 
+          <DNASessionBanner dnaData={dnaData} onClear={() => setDnaData(null)} />
+
           {/* Messages */}
           <div style={{ flex: 1, overflowY: "auto", padding: messages.length === 0 ? 0 : "1.5rem 1.5rem 1rem" }}>
             {messages.length === 0 ? (
@@ -2197,13 +2407,38 @@ export default function App() {
                     </button>
                   ))}
                 </div>
+                <div style={{ marginTop: 20, maxWidth: 560, width: "100%" }}>
+                  {dnaData ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgba(8,47,73,0.3)", border: "1px solid rgba(14,165,233,0.2)" }}>
+                      <span style={{ fontSize: "1rem" }}>🧬</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#38bdf8", margin: 0 }}>{dnaData.totalCount.toLocaleString()} variants loaded</p>
+                        <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 2 }}>{dnaData.filename} · {dnaData.format} · session only</p>
+                      </div>
+                      <button onClick={() => setDnaData(null)} style={{ background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowConsentModal(true)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgba(30,41,59,0.25)", border: "1px dashed rgba(51,65,85,0.5)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.5)"}
+                    >
+                      <span style={{ fontSize: "1rem" }}>🧬</span>
+                      <div>
+                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#475569", margin: 0 }}>Upload your DNA data</p>
+                        <p style={{ fontSize: "0.68rem", color: "#334155", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
+                      </div>
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                 {messages.map((msg, i) =>
                   msg.role === "user"
                     ? <UserMessage key={i} content={msg.content} />
-                    : <AssistantMessage key={i} msg={msg} />
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} />
                 )}
                 {loading && <TypingIndicator />}
                 <div ref={bottomRef} />

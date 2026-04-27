@@ -26,6 +26,9 @@ When analyzing genomics data, structure your response using these sections (use 
 ## What This Means for Research
 [Practical implications and context]
 
+## Your Variants
+[ONLY include this section if personal variant data is present. Interpret the user's specific genotype(s) in context of the gene's known variants. Explain whether the genotype is homozygous reference (common), heterozygous carrier, or homozygous alternate. Note clinical significance if known. Always end with: "This is for educational purposes only — consult a licensed genetic counselor for clinical interpretation."]
+
 ## Suggested Follow-up Queries
 [2-3 specific follow-up questions the researcher might want to ask]
 
@@ -157,6 +160,7 @@ async def explain_results(
     query_type: str,
     data: dict,
     conversation_history: list = None,
+    personal_variants: list = None,
 ) -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:
@@ -170,11 +174,29 @@ async def explain_results(
         else _format_disease_data(data)
     )
 
+    personal_section = ""
+    if personal_variants:
+        personal_section = (
+            "\n\n## User's Personal Variants (from uploaded DNA file — session only, not stored)\n"
+            "IMPORTANT: The user has uploaded their own genetic data. The following variants from this gene "
+            "were found in their DNA file. Interpret these results carefully and note them specifically "
+            "in your response. Always remind the user this is not a clinical diagnosis.\n"
+        )
+        for v in personal_variants[:30]:
+            rsid = v.get("rsid", "unknown")
+            genotype = v.get("genotype", "?")
+            chrom = v.get("chromosome", "")
+            personal_section += f"- {rsid}: genotype {genotype}"
+            if chrom:
+                personal_section += f" (chr{chrom})"
+            personal_section += "\n"
+
     user_content = (
         f'User query: "{query}"\n\n'
-        f"Genomics data retrieved:\n{formatted}\n\n"
+        f"Genomics data retrieved:\n{formatted}{personal_section}\n\n"
         f"Please analyze this data. Explain the findings, clinical significance, "
         f"gene-disease relationships, and suggest follow-up research directions."
+        + ("\n\nNOTE: The user has personal genetic data loaded for this gene. Address their specific variants directly, but remind them this is for research purposes only and not a substitute for clinical genetic counseling." if personal_variants else "")
     )
 
     messages = list((conversation_history or [])[-6:])

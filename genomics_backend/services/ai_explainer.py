@@ -275,7 +275,7 @@ async def explain_comparison(
         return f"## {gene_a} vs {gene_b}\n\nData retrieved for both genes. Error generating AI comparison: {e}"
 
 
-async def answer_followup(question: str, conversation_history: list) -> str:
+async def answer_followup(question: str, conversation_history: list, personal_variants: list = None) -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:
         return "Configure an Anthropic API key to enable AI responses."
@@ -283,7 +283,18 @@ async def answer_followup(question: str, conversation_history: list) -> str:
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
     messages = list(conversation_history[-12:])
-    messages.append({"role": "user", "content": question})
+
+    content = question
+    if personal_variants:
+        lines = [f"- {v.get('rsid', '?')}: genotype {v.get('genotype', '?')}" for v in personal_variants[:200]]
+        content = (
+            f"{question}\n\n"
+            f"## User's Personal Variants (uploaded DNA file — session only, not stored)\n"
+            + "\n".join(lines)
+            + "\n\nPlease interpret these variants. Address them specifically and remind the user this is educational only, not a clinical diagnosis."
+        )
+
+    messages.append({"role": "user", "content": content})
 
     try:
         response = client.messages.create(

@@ -110,7 +110,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
 
     if interpreted.query_type == QueryType.UNKNOWN:
         # Not a genomics query — treat as follow-up conversation
-        content = await answer_followup(request.message, history_dicts)
+        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants)
         return ChatResponse(content=content)
 
     # Fetch genomics data

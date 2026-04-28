@@ -1,0 +1,39 @@
+# AncestryDNA raw data download
+# This file was generated for a SYNTHETIC test account — NOT real human DNA data.
+# rsIDs are real; genotypes are randomly assigned for testing purposes only.
+#
+# Below is a sample AncestryDNA-format file. Note the two-allele column format
+# differs from 23andMe's single concatenated genotype column.
+#
+rsid	chromosome	position	allele1	allele2
+rs4477212	1	82154	A	A
+rs3094315	1	752566	A	A
+rs2905035	1	779322	G	G
+rs2980300	1	828418	T	T
+rs3748595	1	1018704	A	G
+# BRCA1 region (chr17)
+rs1799950	17	41209079	A	G
+rs16942	17	41223094	A	A
+rs799917	17	41228504	A	G
+rs1799966	17	41234451	G	G
+# BRCA2 region (chr13)
+rs4987117	13	32314943	C	C
+rs1801406	13	32340301	G	G
+rs206076	13	32346826	A	C
+rs1799944	13	32914440	A	G
+# APOE (chr19) — Alzheimer's risk variant
+rs429358	19	45411941	T	C
+rs7412	19	45412079	C	C
+# MTHFR (chr1)
+rs1801133	1	11856378	A	G
+rs1801131	1	11854476	T	T
+# CYP2C19 (pharmacogenomics)
+rs4244285	10	96541616	G	A
+rs4986893	10	96540410	G	G
+# Factor V Leiden
+rs6025	1	169549811	G	G
+# HFE (hemochromatosis)
+rs1800562	6	26093141	G	G
+rs1799945	6	26091179	C	G
+# SLCO1B1 (statin sensitivity)
+rs4149056	12	21331549	T	C

@@ -1990,7 +1990,17 @@ export default function App() {
     try {
       const r = await apiFetch("/chat", {
         method: "POST",
-        body: JSON.stringify({ message: msg, history: buildHistory(), project_id: activeProjectId }),
+        body: JSON.stringify({
+          message: msg,
+          history: buildHistory(),
+          project_id: activeProjectId,
+          // Send up to 200 variants so Claude can answer general DNA questions.
+          // Real 23andMe files have 600k rows — we cap here to keep payload small.
+          // For large files the variant cards still show matches client-side.
+          personal_variants: dnaData
+            ? Array.from(dnaData.variants.entries()).slice(0, 200).map(([rsid, v]) => ({ rsid, ...v }))
+            : null,
+        }),
       });
       const data = await r.json();
 

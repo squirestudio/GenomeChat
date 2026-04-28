@@ -32,6 +32,7 @@ class InterpretedQuery(BaseModel):
 class VariantResult(BaseModel):
     variant_id: str
     gene: str
+    rsid: Optional[str] = None
     clinical_significance: Optional[str] = None
     condition: Optional[str] = None
     frequency: Optional[float] = None

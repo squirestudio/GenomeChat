@@ -148,9 +148,20 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
                 germline_obj = item.get("germline_classification", {})
                 review_status = germline_obj.get("review_status") if isinstance(germline_obj, dict) else None
 
+            # Extract rsID — ClinVar returns it as a plain integer in the "rsid" field
+            raw_rsid = item.get("rsid") or item.get("rs_id")
+            rsid = None
+            if raw_rsid:
+                try:
+                    rsid = f"rs{int(raw_rsid)}"
+                except (ValueError, TypeError):
+                    if str(raw_rsid).startswith("rs"):
+                        rsid = str(raw_rsid)
+
             variants.append(VariantResult(
                 variant_id=f"VCV{uid}",
                 gene=gene_symbol,
+                rsid=rsid,
                 clinical_significance=significance,
                 condition=condition_name,
                 consequence=title.split(" ")[0] if title else None,

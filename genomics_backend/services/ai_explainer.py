@@ -299,7 +299,7 @@ async def answer_followup(question: str, conversation_history: list, personal_va
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=900,
+            max_tokens=2500,
             system=SYSTEM_PROMPT,
             messages=messages,
         )

@@ -2435,10 +2435,16 @@ export default function App() {
                       onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.5)"}
                     >
                       <span style={{ fontSize: "1rem" }}>🧬</span>
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#475569", margin: 0 }}>Upload your DNA data</p>
                         <p style={{ fontSize: "0.68rem", color: "#334155", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
                       </div>
+                      <a
+                        href="https://raw.githubusercontent.com/squirestudio/GenomeChat/main/test_data/sample_23andme.txt"
+                        download="sample_23andme.txt"
+                        onClick={e => e.stopPropagation()}
+                        style={{ fontSize: "0.65rem", color: "#334155", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.2rem 0.5rem", whiteSpace: "nowrap", textDecoration: "none", flexShrink: 0 }}
+                      >↓ sample</a>
                     </button>
                   )}
                 </div>

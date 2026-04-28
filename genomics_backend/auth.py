@@ -82,6 +82,13 @@ def require_user(user: Optional[User] = Depends(get_current_user)) -> User:
 
 # ── OAuth routes ──────────────────────────────────────────────────────────────
 
+def _callback_url(request: Request) -> str:
+    """Build the OAuth callback URL. Uses BACKEND_URL env var if set (needed behind Railway proxy)."""
+    settings = get_settings()
+    base = settings.backend_url.rstrip("/") if settings.backend_url else str(request.base_url).rstrip("/")
+    return base + "/auth/google/callback"
+
+
 @router.get("/google")
 def google_login(request: Request):
     """Redirect user to Google's OAuth consent screen."""
@@ -89,7 +96,7 @@ def google_login(request: Request):
     if not settings.google_client_id:
         raise HTTPException(status_code=501, detail="Google OAuth not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET")
 
-    callback_url = str(request.base_url).rstrip("/") + "/auth/google/callback"
+    callback_url = _callback_url(request)
     params = (
         f"client_id={settings.google_client_id}"
         f"&redirect_uri={callback_url}"
@@ -105,7 +112,7 @@ def google_login(request: Request):
 async def google_callback(code: str, request: Request, db: Session = Depends(get_db)):
     """Exchange Google auth code for user profile, issue JWT, redirect to frontend."""
     settings = get_settings()
-    callback_url = str(request.base_url).rstrip("/") + "/auth/google/callback"
+    callback_url = _callback_url(request)
 
     async with httpx.AsyncClient() as client:
         # Exchange code for tokens

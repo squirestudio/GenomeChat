@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 168  # 7 days
     frontend_url: str = "http://localhost:3333"
+    # Explicit backend URL — avoids Railway proxy stripping https from request.base_url
+    # Set BACKEND_URL=https://your-service.railway.app in Railway env vars
+    backend_url: str = ""
 
     def get_database_url(self) -> str:
         # Railway provides DATABASE_URL as postgres:// but SQLAlchemy needs postgresql://

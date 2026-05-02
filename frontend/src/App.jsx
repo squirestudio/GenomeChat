@@ -80,6 +80,140 @@ function loadDnaFromSession() {
   } catch { return null; }
 }
 
+// ─── Notable Variants Lookup Table (client-side, no API needed) ──────────────
+const NOTABLE_VARIANTS = [
+  // Pharmacogenomics
+  { rsid: "rs4244285",  gene: "CYP2C19", category: "pharmacogenomics", name: "CYP2C19*2", riskAllele: "A", desc: "Poor metabolizer — reduced activation of clopidogrel, PPIs, antidepressants" },
+  { rsid: "rs4986893",  gene: "CYP2C19", category: "pharmacogenomics", name: "CYP2C19*3", riskAllele: "A", desc: "Poor metabolizer — compounded effect with *2" },
+  { rsid: "rs12248560", gene: "CYP2C19", category: "pharmacogenomics", name: "CYP2C19*17", riskAllele: "T", desc: "Rapid/ultrarapid metabolizer — may need higher doses of some drugs" },
+  { rsid: "rs4149056",  gene: "SLCO1B1", category: "pharmacogenomics", name: "SLCO1B1*5", riskAllele: "C", desc: "Reduced statin transport — increased risk of statin-induced myopathy" },
+  { rsid: "rs1800462",  gene: "TPMT",    category: "pharmacogenomics", name: "TPMT*2",   riskAllele: "A", desc: "Poor thiopurine metabolizer — risk of severe toxicity on azathioprine" },
+  { rsid: "rs1801280",  gene: "NAT2",    category: "pharmacogenomics", name: "NAT2 slow", riskAllele: "A", desc: "Slow acetylator — increased risk of adverse effects from isoniazid, dapsone" },
+  { rsid: "rs1799929",  gene: "NAT2",    category: "pharmacogenomics", name: "NAT2 slow", riskAllele: "A", desc: "Slow acetylator — contributes to drug accumulation" },
+  // Cardiovascular & Thrombosis
+  { rsid: "rs6025",     gene: "F5",      category: "cardiovascular", name: "Factor V Leiden", riskAllele: "A", desc: "Increased blood clot risk — 5-10× higher DVT/PE risk if homozygous" },
+  { rsid: "rs1799963",  gene: "F2",      category: "cardiovascular", name: "Prothrombin G20210A", riskAllele: "A", desc: "Elevated prothrombin — 3× increased venous thrombosis risk" },
+  { rsid: "rs1801133",  gene: "MTHFR",   category: "cardiovascular", name: "MTHFR C677T", riskAllele: "A", desc: "Reduced folate metabolism — elevated homocysteine, cardiovascular and neural tube implications" },
+  { rsid: "rs1801131",  gene: "MTHFR",   category: "cardiovascular", name: "MTHFR A1298C", riskAllele: "C", desc: "Mild folate pathway impact — compounded with C677T" },
+  { rsid: "rs2228671",  gene: "LDLR",    category: "cardiovascular", name: "LDLR variant", riskAllele: "T", desc: "Familial hypercholesterolemia marker — affects LDL receptor function" },
+  // Neurological & Alzheimer's
+  { rsid: "rs429358",   gene: "APOE",    category: "neurological", name: "APOE ε4", riskAllele: "C", desc: "Strongest genetic risk factor for late-onset Alzheimer's — 3-4× risk per allele" },
+  { rsid: "rs7412",     gene: "APOE",    category: "neurological", name: "APOE ε2", riskAllele: "T", desc: "APOE ε2 allele — associated with reduced Alzheimer's risk and longevity" },
+  // Cancer Risk
+  { rsid: "rs1799950",  gene: "BRCA1",   category: "cancer", name: "BRCA1 N372H", riskAllele: "G", desc: "Common BRCA1 variant — modest breast/ovarian cancer association" },
+  { rsid: "rs799917",   gene: "BRCA1",   category: "cancer", name: "BRCA1 S694S", riskAllele: "T", desc: "BRCA1 synonymous variant — population screening marker" },
+  { rsid: "rs1801406",  gene: "BRCA2",   category: "cancer", name: "BRCA2 N289H", riskAllele: "A", desc: "BRCA2 variant — associated with DNA repair pathway" },
+  { rsid: "rs206076",   gene: "BRCA2",   category: "cancer", name: "BRCA2 K3326*", riskAllele: "A", desc: "BRCA2 truncating variant — associated with elevated cancer risk" },
+  // Hereditary Conditions
+  { rsid: "rs1800562",  gene: "HFE",     category: "hereditary", name: "HFE C282Y", riskAllele: "A", desc: "Primary hemochromatosis variant — iron overload if homozygous" },
+  { rsid: "rs1799945",  gene: "HFE",     category: "hereditary", name: "HFE H63D", riskAllele: "C", desc: "Minor hemochromatosis variant — risk increases if compound heterozygous with C282Y" },
+  // Metabolism & Nutrition
+  { rsid: "rs13266634", gene: "SLC30A8", category: "metabolism", name: "SLC30A8 R325W", riskAllele: "T", desc: "Type 2 diabetes risk variant — affects zinc transport in pancreatic beta cells" },
+  { rsid: "rs1801282",  gene: "PPARG",   category: "metabolism", name: "PPARG Pro12Ala", riskAllele: "G", desc: "Protective variant for type 2 diabetes — improves insulin sensitivity" },
+];
+
+const CATEGORY_META = {
+  pharmacogenomics: { label: "Pharmacogenomics",    icon: "💊", color: "#818cf8", bg: "rgba(99,102,241,0.12)",  border: "rgba(99,102,241,0.25)" },
+  cardiovascular:   { label: "Cardiovascular",       icon: "❤️", color: "#f87171", bg: "rgba(239,68,68,0.1)",   border: "rgba(239,68,68,0.2)" },
+  neurological:     { label: "Neurological",         icon: "🧠", color: "#a78bfa", bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)" },
+  cancer:           { label: "Cancer Risk",           icon: "🔬", color: "#fb923c", bg: "rgba(249,115,22,0.1)",  border: "rgba(249,115,22,0.2)" },
+  hereditary:       { label: "Hereditary Conditions",icon: "🧬", color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.2)" },
+  metabolism:       { label: "Metabolism",            icon: "⚡", color: "#fbbf24", bg: "rgba(251,191,36,0.1)",  border: "rgba(251,191,36,0.2)" },
+};
+
+function computeDnaSummary(dnaData) {
+  if (!dnaData) return null;
+  const findings = [];
+  for (const nv of NOTABLE_VARIANTS) {
+    const userVariant = dnaData.variants.get(nv.rsid);
+    if (!userVariant) continue;
+    const genotype = userVariant.genotype || "";
+    const hasRisk = genotype.includes(nv.riskAllele);
+    const isHomozygous = genotype.length === 2 && genotype[0] === genotype[1];
+    findings.push({ ...nv, genotype, hasRisk, isHomozygous, userVariant });
+  }
+  // Group by category
+  const byCategory = {};
+  for (const f of findings) {
+    if (!byCategory[f.category]) byCategory[f.category] = [];
+    byCategory[f.category].push(f);
+  }
+  return { findings, byCategory, totalFound: findings.length };
+}
+
+function DNASummaryDashboard({ dnaData, onQuery }) {
+  const summary = computeDnaSummary(dnaData);
+  const [expanded, setExpanded] = useState(null);
+  if (!summary || summary.totalFound === 0) return null;
+
+  const categories = Object.keys(summary.byCategory);
+
+  return (
+    <div style={{ maxWidth: 760, width: "100%", marginTop: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <span style={{ fontSize: "1rem" }}>🧬</span>
+        <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "#94a3b8", margin: 0, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          Your DNA — {summary.totalFound} notable variant{summary.totalFound !== 1 ? "s" : ""} found
+        </p>
+        <span style={{ fontSize: "0.65rem", color: "#1e3a5f", marginLeft: "auto" }}>educational only · not medical advice</span>
+      </div>
+
+      {/* Category pills */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        {categories.map(cat => {
+          const meta = CATEGORY_META[cat];
+          const count = summary.byCategory[cat].length;
+          const isActive = expanded === cat;
+          return (
+            <button
+              key={cat}
+              onClick={() => setExpanded(isActive ? null : cat)}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "0.3rem 0.75rem", borderRadius: 100, background: isActive ? meta.bg : "rgba(15,23,42,0.5)", border: `1px solid ${isActive ? meta.border : "rgba(51,65,85,0.35)"}`, cursor: "pointer", transition: "all 0.15s" }}
+            >
+              <span style={{ fontSize: "0.8rem" }}>{meta.icon}</span>
+              <span style={{ fontSize: "0.7rem", fontWeight: 600, color: isActive ? meta.color : "#475569" }}>{meta.label}</span>
+              <span style={{ fontSize: "0.62rem", padding: "0.05em 0.4em", borderRadius: 4, background: isActive ? meta.bg : "rgba(30,41,59,0.5)", color: isActive ? meta.color : "#334155", border: `1px solid ${isActive ? meta.border : "rgba(51,65,85,0.3)"}` }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Expanded category findings */}
+      {expanded && summary.byCategory[expanded] && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 }}>
+          {summary.byCategory[expanded].map(f => {
+            const meta = CATEGORY_META[f.category];
+            return (
+              <button
+                key={f.rsid}
+                onClick={() => onQuery(f.gene)}
+                style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "0.75rem 1rem", borderRadius: 12, background: "rgba(15,23,42,0.5)", border: `1px solid ${meta.border}`, cursor: "pointer", textAlign: "left", transition: "border-color 0.15s", width: "100%" }}
+                onMouseEnter={e => e.currentTarget.style.background = meta.bg}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(15,23,42,0.5)"}
+              >
+                <div style={{ flexShrink: 0, marginTop: 2 }}>
+                  <span style={{ fontFamily: "monospace", fontSize: "0.7rem", padding: "0.15em 0.5em", borderRadius: 5, background: f.hasRisk ? meta.bg : "rgba(30,41,59,0.5)", color: f.hasRisk ? meta.color : "#475569", border: `1px solid ${f.hasRisk ? meta.border : "rgba(51,65,85,0.3)"}` }}>
+                    {f.genotype}
+                  </span>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: meta.color }}>{f.gene}</span>
+                    <span style={{ fontSize: "0.7rem", color: "#475569" }}>{f.name}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#334155" }}>{f.rsid}</span>
+                  </div>
+                  <p style={{ fontSize: "0.72rem", color: "#64748b", marginTop: 3, lineHeight: 1.5 }}>{f.desc}</p>
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "#334155", flexShrink: 0, marginTop: 2 }}>Ask →</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── 3D Protein Viewer (AlphaFold) ───────────────────────────────────────────
 
 function load3Dmol() {
@@ -2477,6 +2611,7 @@ export default function App() {
                     </button>
                   )}
                 </div>
+                <DNASummaryDashboard dnaData={dnaData} onQuery={sendMessage} />
               </div>
             ) : (
               <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.5rem" }}>

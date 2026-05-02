@@ -1984,15 +1984,16 @@ function TypingIndicator() {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser }) {
+function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser, open, onClose }) {
   const [newName, setNewName] = useState("");
   const [hoveredId, setHoveredId] = useState(null);
   return (
-    <aside style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(30,41,59,0.8)", background: "rgba(15,23,42,0.6)" }}>
-      <div style={{ padding: "1rem", borderBottom: "1px solid rgba(30,41,59,0.6)" }}>
-        <button onClick={onNewChat} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0.5rem 0.75rem", borderRadius: 10, background: "#0284c7", color: "white", fontSize: "0.8rem", fontWeight: 600, border: "none", cursor: "pointer" }}>
+    <aside className={`gc-sidebar${open ? " open" : ""}`}>
+      <div style={{ padding: "1rem", borderBottom: "1px solid rgba(30,41,59,0.6)", display: "flex", gap: 8 }}>
+        <button onClick={onNewChat} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0.5rem 0.75rem", borderRadius: 10, background: "#0284c7", color: "white", fontSize: "0.8rem", fontWeight: 600, border: "none", cursor: "pointer" }}>
           + New Chat
         </button>
+        <button onClick={onClose} className="gc-hamburger" style={{ padding: "0.5rem 0.6rem", borderRadius: 10, background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.4)", color: "#475569", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}>✕</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
         {!currentUser && chatHistory.length === 0 && (
@@ -2076,6 +2077,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [dnaData, setDnaData] = useState(() => loadDnaFromSession());
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const updateDnaData = useCallback((data) => {
     setDnaData(data);
@@ -2525,14 +2527,49 @@ export default function App() {
       <style>{`
         @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulse-dot { 0%,80%,100% { opacity:.2; transform:scale(.8); } 40% { opacity:1; transform:scale(1); } }
+        .gc-sidebar {
+          width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
+          border-right: 1px solid rgba(30,41,59,0.8); background: rgba(15,23,42,0.97);
+          transition: transform 0.25s ease;
+        }
+        .gc-sidebar-overlay { display: none; }
+        .gc-hamburger { display: none; }
+        .gc-header-subtitle { display: block; }
+        .gc-header-status-text { display: inline; }
+        .gc-export-btn { display: inline-flex !important; }
+        .gc-suggestions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; max-width: 560px; width: 100%; }
+        .gc-empty-pad { padding: 2rem; }
+        .gc-msg-pad { padding: 1.5rem 1.5rem 1rem; }
+        .gc-input-pad { padding: 0.875rem 1.5rem 1.25rem; }
+        @media (max-width: 640px) {
+          .gc-sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0; z-index: 200;
+            transform: translateX(-100%); width: 260px;
+          }
+          .gc-sidebar.open { transform: translateX(0); }
+          .gc-sidebar-overlay {
+            display: block; position: fixed; inset: 0; z-index: 199;
+            background: rgba(0,0,0,0.6);
+          }
+          .gc-hamburger { display: flex; }
+          .gc-header-subtitle { display: none; }
+          .gc-header-status-text { display: none; }
+          .gc-export-btn { display: none !important; }
+          .gc-suggestions { grid-template-columns: 1fr; max-width: 100%; }
+          .gc-empty-pad { padding: 1.25rem 1rem; }
+          .gc-msg-pad { padding: 1rem 0.75rem 0.75rem; }
+          .gc-input-pad { padding: 0.625rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
+        }
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+        {sidebarOpen && <div className="gc-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <Sidebar
           projects={projects} activeProjectId={activeProjectId}
-          onSelectProject={setActiveProjectId} onCreateProject={async name => { try { const r = await apiFetch("/projects", { method: "POST", body: JSON.stringify({ name }) }); if (r.ok) { const p = await r.json(); setActiveProjectId(p.id); loadProjects(); } } catch {} }}
+          onSelectProject={id => { setActiveProjectId(id); setSidebarOpen(false); }}
+          onCreateProject={async name => { try { const r = await apiFetch("/projects", { method: "POST", body: JSON.stringify({ name }) }); if (r.ok) { const p = await r.json(); setActiveProjectId(p.id); loadProjects(); } } catch {} }}
           onDeleteProject={async id => { try { await apiFetch(`/projects/${id}`, { method: "DELETE" }); if (activeProjectId === id) setActiveProjectId(null); loadProjects(); } catch {} }}
-          chatHistory={chatHistory} onNewChat={() => setMessages([])} onLoadHistory={loadHistory} onDeleteHistory={deleteHistory}
-          currentUser={currentUser}
+          chatHistory={chatHistory} onNewChat={() => { setMessages([]); setSidebarOpen(false); }} onLoadHistory={id => { loadHistory(id); setSidebarOpen(false); }} onDeleteHistory={deleteHistory}
+          currentUser={currentUser} open={sidebarOpen} onClose={() => setSidebarOpen(false)}
         />
 
         {showConsentModal && (
@@ -2546,15 +2583,19 @@ export default function App() {
           {/* Header */}
           <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", borderBottom: "1px solid rgba(30,41,59,0.6)", background: "rgba(15,23,42,0.4)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button className="gc-hamburger" onClick={() => setSidebarOpen(o => !o)}
+                style={{ padding: "0.3rem 0.4rem", borderRadius: 8, background: "none", border: "1px solid rgba(51,65,85,0.4)", color: "#475569", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, alignItems: "center", justifyContent: "center" }}>
+                ☰
+              </button>
               <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
               <div>
                 <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>GenomeChat</p>
-                <p style={{ fontSize: "0.7rem", color: "#334155", margin: 0 }}>Genomics research · Powered by Claude AI</p>
+                <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "#334155", margin: 0 }}>Genomics research · Powered by Claude AI</p>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {messages.length > 0 && (
-                <button onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "#334155" : "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
+                <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "#334155" : "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
                   {exporting ? "Building PDF…" : "Export PDF"}
                 </button>
               )}
@@ -2567,7 +2608,7 @@ export default function App() {
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
-                <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
+                <span className="gc-header-status-text" style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
               </div>
               {currentUser ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2597,9 +2638,9 @@ export default function App() {
           <DNASessionBanner dnaData={dnaData} onClear={() => updateDnaData(null)} />
 
           {/* Messages */}
-          <div style={{ flex: 1, overflowY: "auto", padding: messages.length === 0 ? 0 : "1.5rem 1.5rem 1rem" }}>
+          <div className={messages.length > 0 ? "gc-msg-pad" : ""} style={{ flex: 1, overflowY: "auto" }}>
             {messages.length === 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "2rem" }}>
+              <div className="gc-empty-pad" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
                 <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, marginBottom: 20, boxShadow: "0 8px 32px rgba(14,165,233,0.2)" }}>🧬</div>
                 <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#f1f5f9", margin: "0 0 8px" }}>
                   {dnaData ? "Your DNA — where would you like to start?" : "What would you like to research?"}
@@ -2613,7 +2654,7 @@ export default function App() {
                   const personal = getPersonalizedSuggestions(dnaData);
                   if (personal) {
                     return (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, maxWidth: 560, width: "100%" }}>
+                      <div className="gc-suggestions">
                         {personal.map(s => (
                           <button key={s.label} onClick={() => sendMessage(s.query)}
                             style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: s.bg, border: `1px solid ${s.border}`, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
@@ -2630,7 +2671,7 @@ export default function App() {
                     );
                   }
                   return (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, maxWidth: 560, width: "100%" }}>
+                    <div className="gc-suggestions">
                       {SUGGESTIONS.map(s => (
                         <button key={s.label} onClick={() => sendMessage(s.label)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
                           onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
@@ -2689,7 +2730,7 @@ export default function App() {
           </div>
 
           {/* Input */}
-          <div style={{ flexShrink: 0, padding: "0.875rem 1.5rem 1.25rem", borderTop: "1px solid rgba(30,41,59,0.5)", background: "rgba(15,23,42,0.3)" }}>
+          <div className="gc-input-pad" style={{ flexShrink: 0, borderTop: "1px solid rgba(30,41,59,0.5)", background: "rgba(15,23,42,0.3)" }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgba(30,41,59,0.55)", border: "1px solid rgba(51,65,85,0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
                 <textarea

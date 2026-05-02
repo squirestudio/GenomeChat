@@ -2621,6 +2621,11 @@ export default function App() {
         .gc-empty-pad { padding: 2rem; }
         .gc-msg-pad { padding: 1.5rem 1.5rem 1rem; }
         .gc-input-pad { padding: 0.875rem 1.5rem 1.25rem; }
+        .gc-empty-hero { width: 56px; height: 56px; border-radius: 16px; font-size: 26px; margin-bottom: 20px; }
+        .gc-empty-title { font-size: 1.25rem; margin: 0 0 8px; }
+        .gc-empty-subtitle { font-size: 0.875rem; margin-bottom: 28px; }
+        .gc-suggestion-item { display: flex; }
+        .gc-dna-upload-section { margin-top: 20px; max-width: 560px; width: 100%; }
         /* Mobile header: two-row layout */
         .gc-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; border-bottom: 1px solid rgba(30,41,59,0.6); background: rgba(15,23,42,0.4); flex-shrink: 0; }
         .gc-header-row2 { display: none; }
@@ -2639,9 +2644,17 @@ export default function App() {
           .gc-header-status-text { display: none; }
           .gc-export-btn { display: none !important; }
           .gc-suggestions { grid-template-columns: 1fr; max-width: 100%; }
-          .gc-empty-pad { padding: 1.25rem 1rem; }
+          .gc-empty-pad { padding: 1rem 1rem 1.5rem; }
           .gc-msg-pad { padding: 1rem 0.75rem 0.75rem; }
           .gc-input-pad { padding: 0.625rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
+          /* Mobile empty state: top-aligned so content isn't clipped */
+          .gc-empty-inner { justify-content: flex-start !important; padding-top: 1.25rem; }
+          .gc-empty-hero { width: 36px !important; height: 36px !important; font-size: 18px !important; margin-bottom: 10px !important; border-radius: 10px !important; }
+          .gc-empty-title { font-size: 1rem !important; margin: 0 0 4px !important; }
+          .gc-empty-subtitle { font-size: 0.78rem !important; margin-bottom: 16px !important; }
+          /* Hide suggestions beyond the 3rd on mobile */
+          .gc-suggestion-item:nth-child(n+4) { display: none !important; }
+          .gc-dna-upload-section { margin-top: 12px !important; }
           /* Two-row mobile header */
           .gc-header { flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
           .gc-header-row1 { padding: 0.55rem 0.875rem !important; border-bottom: 1px solid rgba(30,41,59,0.5); }
@@ -2765,12 +2778,12 @@ export default function App() {
           {/* Messages */}
           <div className={messages.length > 0 ? "gc-msg-pad" : ""} style={{ flex: 1, overflowY: "auto" }}>
             {messages.length === 0 ? (
-              <div className="gc-empty-pad" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, marginBottom: 20, boxShadow: "0 8px 32px rgba(14,165,233,0.2)" }}>🧬</div>
-                <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#f1f5f9", margin: "0 0 8px" }}>
+              <div className="gc-empty-pad gc-empty-inner" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                <div className="gc-empty-hero" style={{ background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 32px rgba(14,165,233,0.2)" }}>🧬</div>
+                <h2 className="gc-empty-title" style={{ fontWeight: 700, color: "#f1f5f9", textAlign: "center" }}>
                   {dnaData ? "Your DNA — where would you like to start?" : "What would you like to research?"}
                 </h2>
-                <p style={{ fontSize: "0.875rem", color: "#475569", marginBottom: 28, textAlign: "center", maxWidth: 420, lineHeight: 1.6 }}>
+                <p className="gc-empty-subtitle" style={{ color: "#475569", textAlign: "center", maxWidth: 420, lineHeight: 1.6 }}>
                   {dnaData
                     ? "These suggestions are based on notable variants found in your file."
                     : "Ask about genes, variants, or genetic diseases. I'll query live databases and explain the relationships."}
@@ -2781,8 +2794,8 @@ export default function App() {
                     return (
                       <div className="gc-suggestions">
                         {personal.map(s => (
-                          <button key={s.label} onClick={() => sendMessage(s.query)}
-                            style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: s.bg, border: `1px solid ${s.border}`, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
+                          <button key={s.label} className="gc-suggestion-item" onClick={() => sendMessage(s.query)}
+                            style={{ alignItems: "flex-start", gap: 10, padding: "0.75rem", borderRadius: 12, background: s.bg, border: `1px solid ${s.border}`, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
                             onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.15)"}
                             onMouseLeave={e => e.currentTarget.style.filter = ""}>
                             <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
@@ -2798,7 +2811,7 @@ export default function App() {
                   return (
                     <div className="gc-suggestions">
                       {SUGGESTIONS.map(s => (
-                        <button key={s.label} onClick={() => sendMessage(s.label)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
+                        <button key={s.label} className="gc-suggestion-item" onClick={() => sendMessage(s.label)} style={{ alignItems: "flex-start", gap: 10, padding: "0.75rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
                           onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
                           onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.35)"}>
                           <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
@@ -2808,7 +2821,7 @@ export default function App() {
                     </div>
                   );
                 })()}
-                <div style={{ marginTop: 20, maxWidth: 560, width: "100%" }}>
+                <div className="gc-dna-upload-section">
                   {dnaData ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgba(8,47,73,0.3)", border: "1px solid rgba(14,165,233,0.2)" }}>
                       <span style={{ fontSize: "1rem" }}>🧬</span>

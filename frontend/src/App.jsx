@@ -589,6 +589,41 @@ const SUGGESTIONS = [
   { label: "Which genes are linked to Parkinson's?", icon: "🔬" },
 ];
 
+function getPersonalizedSuggestions(dnaData) {
+  if (!dnaData) return null;
+  const summary = computeDnaSummary(dnaData);
+  if (!summary || summary.totalFound === 0) return null;
+
+  // Pick the most interesting finding per category, dedupe by gene
+  const seen = new Set();
+  const suggestions = [];
+  const categoryOrder = ["neurological", "pharmacogenomics", "cardiovascular", "cancer", "hereditary", "metabolism"];
+
+  for (const cat of categoryOrder) {
+    const findings = summary.byCategory[cat] || [];
+    // Prefer findings where user actually carries the risk allele
+    const sorted = [...findings].sort((a, b) => (b.hasRisk ? 1 : 0) - (a.hasRisk ? 1 : 0));
+    for (const f of sorted) {
+      if (seen.has(f.gene)) continue;
+      seen.add(f.gene);
+      const meta = CATEGORY_META[cat];
+      const zygosity = f.isHomozygous && f.hasRisk ? "homozygous " : f.hasRisk ? "heterozygous " : "";
+      suggestions.push({
+        label: `${f.gene} — I carry ${f.genotype} at ${f.rsid}`,
+        sublabel: `${zygosity}${f.name}`,
+        icon: meta.icon,
+        color: meta.color,
+        border: meta.border,
+        bg: meta.bg,
+        query: `${f.gene} variants — I have genotype ${f.genotype} at ${f.rsid} (${f.name})`,
+      });
+      if (suggestions.length === 6) break;
+    }
+    if (suggestions.length === 6) break;
+  }
+  return suggestions.length > 0 ? suggestions : null;
+}
+
 // ─── Markdown Renderer ───────────────────────────────────────────────────────
 
 function renderInline(text) {
@@ -2566,20 +2601,47 @@ export default function App() {
             {messages.length === 0 ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: "2rem" }}>
                 <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, marginBottom: 20, boxShadow: "0 8px 32px rgba(14,165,233,0.2)" }}>🧬</div>
-                <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#f1f5f9", margin: "0 0 8px" }}>What would you like to research?</h2>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#f1f5f9", margin: "0 0 8px" }}>
+                  {dnaData ? "Your DNA — where would you like to start?" : "What would you like to research?"}
+                </h2>
                 <p style={{ fontSize: "0.875rem", color: "#475569", marginBottom: 28, textAlign: "center", maxWidth: 420, lineHeight: 1.6 }}>
-                  Ask about genes, variants, or genetic diseases. I'll query live databases and explain the relationships.
+                  {dnaData
+                    ? "These suggestions are based on notable variants found in your file."
+                    : "Ask about genes, variants, or genetic diseases. I'll query live databases and explain the relationships."}
                 </p>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, maxWidth: 560, width: "100%" }}>
-                  {SUGGESTIONS.map(s => (
-                    <button key={s.label} onClick={() => sendMessage(s.label)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.35)"}>
-                      <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
-                      <span style={{ fontSize: "0.78rem", color: "#64748b", lineHeight: 1.5 }}>{s.label}</span>
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const personal = getPersonalizedSuggestions(dnaData);
+                  if (personal) {
+                    return (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, maxWidth: 560, width: "100%" }}>
+                        {personal.map(s => (
+                          <button key={s.label} onClick={() => sendMessage(s.query)}
+                            style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: s.bg, border: `1px solid ${s.border}`, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
+                            onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.15)"}
+                            onMouseLeave={e => e.currentTarget.style.filter = ""}>
+                            <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
+                            <div>
+                              <p style={{ fontSize: "0.78rem", fontWeight: 600, color: s.color, margin: 0, lineHeight: 1.4 }}>{s.label}</p>
+                              <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 2 }}>{s.sublabel}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, maxWidth: 560, width: "100%" }}>
+                      {SUGGESTIONS.map(s => (
+                        <button key={s.label} onClick={() => sendMessage(s.label)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.875rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
+                          onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
+                          onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.35)"}>
+                          <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
+                          <span style={{ fontSize: "0.78rem", color: "#64748b", lineHeight: 1.5 }}>{s.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div style={{ marginTop: 20, maxWidth: 560, width: "100%" }}>
                   {dnaData ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgba(8,47,73,0.3)", border: "1px solid rgba(14,165,233,0.2)" }}>

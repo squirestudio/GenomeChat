@@ -791,28 +791,58 @@ function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
   );
 }
 
+const SIG_FILTER_OPTIONS = ["All", "Pathogenic", "Likely pathogenic", "Uncertain significance", "Likely benign", "Benign"];
+const SIG_FILTER_SHORT = { "All": "All", "Pathogenic": "Path.", "Likely pathogenic": "Likely path.", "Uncertain significance": "VUS", "Likely benign": "Likely benign", "Benign": "Benign" };
+
 function DataSection({ data, queryType, dnaData }) {
   const [expanded, setExpanded] = useState(false);
+  const [sigFilter, setSigFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("default");
+  const [myDataOnly, setMyDataOnly] = useState(false);
+
   if (!data) return null;
   const isGene = queryType === "gene_query";
-  const items = isGene ? (data.variants || []) : (data.genes || []);
-  const shown = expanded ? items : items.slice(0, 6);
-  if (items.length === 0) return null;
+  const allItems = isGene ? (data.variants || []) : (data.genes || []);
+  if (allItems.length === 0) return null;
 
-  // Count personal matches for the header badge
-  const matchCount = isGene && dnaData
-    ? items.filter(v => {
-        const rsid = v.variant_id?.startsWith("rs") ? v.variant_id : v.rsid;
-        return rsid && dnaData.variants.has(rsid);
-      }).length
-    : 0;
+  const getUserVariant = (item) => {
+    if (!dnaData) return null;
+    const rsid = item.variant_id?.startsWith("rs") ? item.variant_id : item.rsid;
+    return rsid ? dnaData.variants.get(rsid) : null;
+  };
+
+  // Filter
+  let items = allItems;
+  if (isGene) {
+    if (sigFilter !== "All") items = items.filter(v => v.clinical_significance === sigFilter);
+    if (myDataOnly && dnaData) items = items.filter(v => getUserVariant(v));
+  }
+
+  // Sort
+  if (isGene) {
+    if (sortBy === "my_data_first") {
+      items = [...items].sort((a, b) => (getUserVariant(b) ? 1 : 0) - (getUserVariant(a) ? 1 : 0));
+    } else if (sortBy === "pathogenic_first") {
+      const order = { "Pathogenic": 0, "Likely pathogenic": 1, "Uncertain significance": 2, "Likely benign": 3, "Benign": 4 };
+      items = [...items].sort((a, b) => (order[a.clinical_significance] ?? 5) - (order[b.clinical_significance] ?? 5));
+    } else if (sortBy === "frequency") {
+      items = [...items].sort((a, b) => (a.frequency ?? 1) - (b.frequency ?? 1));
+    }
+  }
+
+  const matchCount = isGene && dnaData ? allItems.filter(v => getUserVariant(v)).length : 0;
+  const shown = expanded ? items : items.slice(0, 6);
+  const hasFilters = isGene && allItems.length > 3;
 
   return (
     <div style={{ marginTop: "1rem" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: hasFilters ? 10 : 8, flexWrap: "wrap", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            {isGene ? `${items.length} Variants` : `${items.length} Associated Genes`}
+            {isGene
+              ? `${items.length}${items.length !== allItems.length ? ` / ${allItems.length}` : ""} Variant${allItems.length !== 1 ? "s" : ""}`
+              : `${allItems.length} Associated Genes`}
           </p>
           {matchCount > 0 && (
             <span style={{ fontSize: "0.62rem", padding: "0.15em 0.5em", borderRadius: 4, background: "rgba(14,165,233,0.15)", color: "#38bdf8", border: "1px solid rgba(14,165,233,0.25)" }}>
@@ -820,20 +850,69 @@ function DataSection({ data, queryType, dnaData }) {
             </span>
           )}
         </div>
-        {items.length > 6 && (
-          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.75rem", color: "#38bdf8", background: "none", border: "none", cursor: "pointer" }}>
-            {expanded ? "Show less" : `Show all ${items.length}`}
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {items.length > 6 && (
+            <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#38bdf8", background: "none", border: "none", cursor: "pointer" }}>
+              {expanded ? "Show less" : `Show all ${items.length}`}
+            </button>
+          )}
+          {isGene && (
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+              style={{ fontSize: "0.68rem", color: "#64748b", background: "rgba(15,23,42,0.7)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.2rem 0.4rem", cursor: "pointer", outline: "none" }}>
+              <option value="default">Sort: Default</option>
+              <option value="pathogenic_first">Pathogenic first</option>
+              <option value="frequency">Rarest first</option>
+              {matchCount > 0 && <option value="my_data_first">My data first</option>}
+            </select>
+          )}
+        </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
-        {shown.map((item, i) => {
-          if (!isGene) return <GeneCard key={item.gene_symbol || i} gene={item} />;
-          const rsid = item.variant_id?.startsWith("rs") ? item.variant_id : item.rsid;
-          const userVariant = rsid && dnaData ? dnaData.variants.get(rsid) : null;
-          return <VariantCard key={item.variant_id || i} variant={item} userVariant={userVariant} />;
-        })}
-      </div>
+
+      {/* Filter bar — significance pills + my data toggle */}
+      {hasFilters && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {SIG_FILTER_OPTIONS.map(opt => {
+            const active = sigFilter === opt;
+            const c = opt === "All" ? null : SIG_COLORS[opt];
+            return (
+              <button key={opt} onClick={() => { setSigFilter(opt); setExpanded(false); }}
+                style={{ fontSize: "0.65rem", padding: "0.18em 0.55em", borderRadius: 100, cursor: "pointer", fontWeight: active ? 700 : 400, transition: "all 0.12s",
+                  background: active && c ? c.bg : active ? "rgba(14,165,233,0.15)" : "rgba(15,23,42,0.5)",
+                  color: active && c ? c.color : active ? "#38bdf8" : "#475569",
+                  border: `1px solid ${active && c ? c.border : active ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.3)"}` }}>
+                {SIG_FILTER_SHORT[opt]}
+              </button>
+            );
+          })}
+          {matchCount > 0 && dnaData && (
+            <button onClick={() => { setMyDataOnly(v => !v); setExpanded(false); }}
+              style={{ fontSize: "0.65rem", padding: "0.18em 0.6em", borderRadius: 100, cursor: "pointer", marginLeft: 4, transition: "all 0.12s",
+                background: myDataOnly ? "rgba(14,165,233,0.15)" : "rgba(15,23,42,0.5)",
+                color: myDataOnly ? "#38bdf8" : "#475569",
+                border: `1px solid ${myDataOnly ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.3)"}`,
+                fontWeight: myDataOnly ? 700 : 400 }}>
+              🧬 My data only
+            </button>
+          )}
+          {(sigFilter !== "All" || myDataOnly) && (
+            <button onClick={() => { setSigFilter("All"); setMyDataOnly(false); }}
+              style={{ fontSize: "0.62rem", color: "#334155", background: "none", border: "none", cursor: "pointer", marginLeft: 2 }}>
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <p style={{ fontSize: "0.75rem", color: "#334155", padding: "0.75rem 0" }}>No variants match the current filter.</p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
+          {shown.map((item, i) => {
+            if (!isGene) return <GeneCard key={item.gene_symbol || i} gene={item} />;
+            return <VariantCard key={item.variant_id || i} variant={item} userVariant={getUserVariant(item)} />;
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -510,6 +510,7 @@ function ConsentModal({ onAccept, onClose }) {
           {[
             { icon: "🔒", title: "Processed in your browser", body: "Your file is parsed entirely on your device. The raw data never leaves your browser." },
             { icon: "🚫", title: "Nothing stored or transmitted", body: "Variants are held in browser session memory only and cleared automatically when you close the tab. They are never sent to our servers." },
+            { icon: "💻", title: "Personal device only", body: "Do not upload your DNA data on a shared, public, or work computer. Session data persists until the tab is closed and could be accessed by the next user." },
             { icon: "⚕️", title: "Not medical advice", body: "This tool is for research and educational purposes. Consult a licensed genetic counselor for health decisions." },
           ].map(({ icon, title, body }) => (
             <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgba(30,41,59,0.4)", borderRadius: 10, border: "1px solid rgba(51,65,85,0.3)" }}>

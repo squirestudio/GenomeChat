@@ -56,6 +56,30 @@ function parseDNAFile(text) {
   return { variants, totalCount: variants.size, format };
 }
 
+// sessionStorage helpers — Map isn't JSON-serializable so we convert to/from entries
+const SESSION_KEY = "genomechat_dna_session";
+
+function saveDnaToSession(data) {
+  if (!data) { sessionStorage.removeItem(SESSION_KEY); return; }
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      entries: Array.from(data.variants.entries()),
+      totalCount: data.totalCount,
+      format: data.format,
+      filename: data.filename,
+    }));
+  } catch { /* quota exceeded or private mode — fail silently */ }
+}
+
+function loadDnaFromSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const { entries, totalCount, format, filename } = JSON.parse(raw);
+    return { variants: new Map(entries), totalCount, format, filename };
+  } catch { return null; }
+}
+
 // ─── 3D Protein Viewer (AlphaFold) ───────────────────────────────────────────
 
 function load3Dmol() {
@@ -351,7 +375,7 @@ function ConsentModal({ onAccept, onClose }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
           {[
             { icon: "🔒", title: "Processed in your browser", body: "Your file is parsed entirely on your device. The raw data never leaves your browser." },
-            { icon: "🚫", title: "Nothing stored or transmitted", body: "Variants are held in session memory only and cleared when you close or refresh the tab." },
+            { icon: "🚫", title: "Nothing stored or transmitted", body: "Variants are held in browser session memory only and cleared automatically when you close the tab. They are never sent to our servers." },
             { icon: "⚕️", title: "Not medical advice", body: "This tool is for research and educational purposes. Consult a licensed genetic counselor for health decisions." },
           ].map(({ icon, title, body }) => (
             <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgba(30,41,59,0.4)", borderRadius: 10, border: "1px solid rgba(51,65,85,0.3)" }}>
@@ -368,7 +392,7 @@ function ConsentModal({ onAccept, onClose }) {
           <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
             style={{ width: 15, height: 15, marginTop: 2, accentColor: "#0ea5e9", flexShrink: 0 }} />
           <span style={{ fontSize: "0.72rem", color: "#94a3b8", lineHeight: 1.55 }}>
-            I understand this tool does not provide medical diagnoses, and my raw genetic data will not be stored, transmitted, or used for any purpose other than this session.
+            I understand this tool does not provide medical diagnoses, and my raw genetic data will not be stored on any server, transmitted to any third party, or used for any purpose beyond this browser session. Data persists until I close this tab.
           </span>
         </label>
 
@@ -1881,8 +1905,13 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [chatHistory, setChatHistory] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
-  const [dnaData, setDnaData] = useState(null); // { variants: Map, totalCount, format, filename }
+  const [dnaData, setDnaData] = useState(() => loadDnaFromSession());
   const [showConsentModal, setShowConsentModal] = useState(false);
+
+  const updateDnaData = useCallback((data) => {
+    setDnaData(data);
+    saveDnaToSession(data);
+  }, []);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -2339,7 +2368,7 @@ export default function App() {
 
         {showConsentModal && (
           <ConsentModal
-            onAccept={(result, filename) => { setDnaData({ ...result, filename }); setShowConsentModal(false); }}
+            onAccept={(result, filename) => { updateDnaData({ ...result, filename }); setShowConsentModal(false); }}
             onClose={() => setShowConsentModal(false)}
           />
         )}
@@ -2361,7 +2390,7 @@ export default function App() {
                 </button>
               )}
               <button
-                onClick={() => dnaData ? setDnaData(null) : setShowConsentModal(true)}
+                onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
                 style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                 title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
               >
@@ -2396,7 +2425,7 @@ export default function App() {
             </div>
           </header>
 
-          <DNASessionBanner dnaData={dnaData} onClear={() => setDnaData(null)} />
+          <DNASessionBanner dnaData={dnaData} onClear={() => updateDnaData(null)} />
 
           {/* Messages */}
           <div style={{ flex: 1, overflowY: "auto", padding: messages.length === 0 ? 0 : "1.5rem 1.5rem 1rem" }}>
@@ -2425,7 +2454,7 @@ export default function App() {
                         <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#38bdf8", margin: 0 }}>{dnaData.totalCount.toLocaleString()} variants loaded</p>
                         <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 2 }}>{dnaData.filename} · {dnaData.format} · session only</p>
                       </div>
-                      <button onClick={() => setDnaData(null)} style={{ background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
+                      <button onClick={() => updateDnaData(null)} style={{ background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
                     </div>
                   ) : (
                     <button

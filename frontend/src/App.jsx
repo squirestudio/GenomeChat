@@ -2541,6 +2541,9 @@ export default function App() {
         .gc-empty-pad { padding: 2rem; }
         .gc-msg-pad { padding: 1.5rem 1.5rem 1rem; }
         .gc-input-pad { padding: 0.875rem 1.5rem 1.25rem; }
+        /* Mobile header: two-row layout */
+        .gc-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; border-bottom: 1px solid rgba(30,41,59,0.6); background: rgba(15,23,42,0.4); flex-shrink: 0; }
+        .gc-header-row2 { display: none; }
         @media (max-width: 640px) {
           .gc-sidebar {
             position: fixed; top: 0; left: 0; bottom: 0; z-index: 200;
@@ -2559,6 +2562,12 @@ export default function App() {
           .gc-empty-pad { padding: 1.25rem 1rem; }
           .gc-msg-pad { padding: 1rem 0.75rem 0.75rem; }
           .gc-input-pad { padding: 0.625rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
+          /* Two-row mobile header */
+          .gc-header { flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
+          .gc-header-row1 { padding: 0.55rem 0.875rem !important; border-bottom: 1px solid rgba(30,41,59,0.5); }
+          .gc-header-row2 { display: flex !important; align-items: center; padding: 0.4rem 0.875rem; gap: 8px; }
+          .gc-header-actions-desktop { display: none !important; }
+          .gc-header-actions-mobile { display: flex !important; }
         }
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
@@ -2581,57 +2590,93 @@ export default function App() {
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           {/* Header */}
-          <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", borderBottom: "1px solid rgba(30,41,59,0.6)", background: "rgba(15,23,42,0.4)", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button className="gc-hamburger" onClick={() => setSidebarOpen(o => !o)}
-                style={{ padding: "0.3rem 0.4rem", borderRadius: 8, background: "none", border: "1px solid rgba(51,65,85,0.4)", color: "#475569", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, alignItems: "center", justifyContent: "center" }}>
-                ☰
-              </button>
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
-              <div>
-                <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>GenomeChat</p>
-                <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "#334155", margin: 0 }}>Genomics research · Powered by Claude AI</p>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              {messages.length > 0 && (
-                <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "#334155" : "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
-                  {exporting ? "Building PDF…" : "Export PDF"}
+          <header className="gc-header">
+            {/* Row 1 (desktop: everything; mobile: hamburger + title + user) */}
+            <div className="gc-header-row1" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", width: "100%", boxSizing: "border-box" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="gc-hamburger" onClick={() => setSidebarOpen(o => !o)}
+                  style={{ padding: "0.3rem 0.4rem", borderRadius: 8, background: "none", border: "1px solid rgba(51,65,85,0.4)", color: "#475569", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, alignItems: "center", justifyContent: "center" }}>
+                  ☰
                 </button>
-              )}
-              <button
-                onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
-                style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
-                title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
-              >
-                {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
-              </button>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
-                <span className="gc-header-status-text" style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
+                <div>
+                  <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>GenomeChat</p>
+                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "#334155", margin: 0 }}>Genomics research · Powered by Claude AI</p>
+                </div>
               </div>
-              {currentUser ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* Desktop-only actions */}
+              <div className="gc-header-actions-desktop" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {messages.length > 0 && (
+                  <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "#334155" : "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
+                    {exporting ? "Building PDF…" : "Export PDF"}
+                  </button>
+                )}
+                <button
+                  onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
+                  style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
+                  title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
+                >
+                  {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
+                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
+                  <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
+                </div>
+                {currentUser ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>
+                      {currentUser.name?.[0]?.toUpperCase() || "?"}
+                    </div>
+                    <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); }}
+                      style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
+                      onMouseLeave={e => e.currentTarget.style.color = "#475569"}
+                    >Sign out</button>
+                  </div>
+                ) : (
+                  <a href={`${API}/auth/google`}
+                    style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "#94a3b8", background: "rgba(30,41,59,0.6)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.65rem", textDecoration: "none" }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.4)"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.4)"}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                    Sign in with Google
+                  </a>
+                )}
+              </div>
+              {/* Mobile-only: user avatar on right of title row */}
+              <div className="gc-header-actions-mobile" style={{ display: "none", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
+                {currentUser ? (
                   <div style={{ width: 26, height: 26, borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>
                     {currentUser.name?.[0]?.toUpperCase() || "?"}
                   </div>
+                ) : (
+                  <a href={`${API}/auth/google`} style={{ fontSize: "0.68rem", color: "#38bdf8", textDecoration: "none" }}>Sign in</a>
+                )}
+              </div>
+            </div>
+
+            {/* Row 2 — mobile only: DNA + sign out spread across full width */}
+            <div className="gc-header-row2" style={{ width: "100%", boxSizing: "border-box" }}>
+              <button
+                onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
+                style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.75rem", cursor: "pointer" }}
+              >
+                {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                {messages.length > 0 && (
+                  <button onClick={exportReport} disabled={exporting} style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer" }}>
+                    {exporting ? "Building…" : "Export PDF"}
+                  </button>
+                )}
+                {currentUser && (
                   <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); }}
                     style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                    onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
-                    onMouseLeave={e => e.currentTarget.style.color = "#475569"}
-                    title="Sign out"
                   >Sign out</button>
-                </div>
-              ) : (
-                <a href={`${API}/auth/google`}
-                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "#94a3b8", background: "rgba(30,41,59,0.6)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.65rem", textDecoration: "none", cursor: "pointer" }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.4)"}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.4)"}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                  Sign in with Google
-                </a>
-              )}
+                )}
+              </div>
             </div>
           </header>
 

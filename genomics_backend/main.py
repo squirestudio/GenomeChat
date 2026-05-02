@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
     project_id: Optional[int] = None
     personal_variants: Optional[list[dict]] = None  # [{rsid, genotype, chromosome?}] — session only, never stored
+    response_detail: Optional[str] = "standard"     # concise | standard | detailed
 
 
 class ChatResponse(BaseModel):
@@ -109,8 +110,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     interpreted = await interpret_query(request.message)
 
     if interpreted.query_type == QueryType.UNKNOWN:
-        # Not a genomics query — treat as follow-up conversation
-        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants)
+        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants, response_detail=request.response_detail)
         return ChatResponse(content=content)
 
     # Fetch genomics data
@@ -164,6 +164,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             data=pipeline_result,
             conversation_history=history_dicts,
             personal_variants=request.personal_variants,
+            response_detail=request.response_detail,
         )
 
     # Save to DB — store full response so history can replay it

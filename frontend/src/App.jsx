@@ -59,6 +59,33 @@ function parseDNAFile(text) {
 // sessionStorage helpers — Map isn't JSON-serializable so we convert to/from entries
 const SESSION_KEY = "genomechat_dna_session";
 
+// ─── Settings (persisted to localStorage) ────────────────────────────────────
+const SETTINGS_KEY = "genomechat_settings";
+
+const DEFAULT_SETTINGS = {
+  fontSize: "medium",          // small | medium | large
+  responseDetail: "standard",  // concise | standard | detailed
+  variantDefault: "collapsed", // collapsed | expanded
+  defaultSort: "default",      // default | pathogenic_first | frequency
+};
+
+const FONT_SIZE_MAP = { small: "14px", medium: "16px", large: "18px" };
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+  } catch { return { ...DEFAULT_SETTINGS }; }
+}
+
+function saveSettings(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
+}
+
+function applyFontSize(size) {
+  document.documentElement.style.fontSize = FONT_SIZE_MAP[size] || "16px";
+}
+
 function saveDnaToSession(data) {
   if (!data) { sessionStorage.removeItem(SESSION_KEY); return; }
   try {
@@ -467,6 +494,103 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
   );
 }
 
+// ─── Settings Panel ───────────────────────────────────────────────────────────
+
+function SettingSegment({ value, options, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      {options.map(opt => {
+        const active = value === opt.value;
+        return (
+          <button key={opt.value} onClick={() => onChange(opt.value)}
+            style={{ flex: 1, padding: "0.35rem 0.5rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: active ? 600 : 400, cursor: "pointer", transition: "all 0.15s", border: `1px solid ${active ? "rgba(14,165,233,0.4)" : "rgba(51,65,85,0.35)"}`, background: active ? "rgba(14,165,233,0.12)" : "rgba(15,23,42,0.5)", color: active ? "#38bdf8" : "#475569" }}>
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SettingsPanel({ settings, onChange, onClose }) {
+  const set = (key, val) => {
+    const next = { ...settings, [key]: val };
+    onChange(next);
+    saveSettings(next);
+    if (key === "fontSize") applyFontSize(val);
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.5)" }} />
+      {/* Drawer */}
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 301, width: 320, maxWidth: "100vw", background: "#0d1424", borderLeft: "1px solid rgba(30,41,59,0.8)", display: "flex", flexDirection: "column", boxShadow: "-8px 0 32px rgba(0,0,0,0.4)", animation: "slideInRight 0.2s ease-out" }}>
+        <style>{`@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: "1px solid rgba(30,41,59,0.6)", flexShrink: 0 }}>
+          <p style={{ fontSize: "0.9rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>Settings</p>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
+
+          <Section label="Text Size" hint="Adjusts all text across the app">
+            <SettingSegment value={settings.fontSize}
+              options={[{ value: "small", label: "Small" }, { value: "medium", label: "Medium" }, { value: "large", label: "Large" }]}
+              onChange={v => set("fontSize", v)} />
+          </Section>
+
+          <Section label="AI Response Detail" hint="Controls how thorough Claude's explanations are">
+            <SettingSegment value={settings.responseDetail}
+              options={[{ value: "concise", label: "Concise" }, { value: "standard", label: "Standard" }, { value: "detailed", label: "Detailed" }]}
+              onChange={v => set("responseDetail", v)} />
+            <p style={{ fontSize: "0.68rem", color: "#334155", marginTop: 6, lineHeight: 1.5 }}>
+              {settings.responseDetail === "concise" && "Shorter summaries focused on key findings only."}
+              {settings.responseDetail === "standard" && "Balanced explanations with clinical context and follow-up suggestions."}
+              {settings.responseDetail === "detailed" && "In-depth analysis including population genetics, mechanisms, and research context."}
+            </p>
+          </Section>
+
+          <Section label="Variant Cards" hint="Default state when results load">
+            <SettingSegment value={settings.variantDefault}
+              options={[{ value: "collapsed", label: "Collapsed" }, { value: "expanded", label: "Expanded" }]}
+              onChange={v => set("variantDefault", v)} />
+          </Section>
+
+          <Section label="Default Variant Sort" hint="Applied whenever a gene query loads">
+            <SettingSegment value={settings.defaultSort}
+              options={[{ value: "default", label: "Default" }, { value: "pathogenic_first", label: "Pathogenic" }, { value: "frequency", label: "Rarest" }]}
+              onChange={v => set("defaultSort", v)} />
+          </Section>
+
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "0.875rem 1.25rem", borderTop: "1px solid rgba(30,41,59,0.5)", flexShrink: 0 }}>
+          <p style={{ fontSize: "0.65rem", color: "#1e3a5f", margin: "0 0 8px", lineHeight: 1.5 }}>Preferences are saved locally in your browser and never sent to our servers.</p>
+          <button onClick={() => { onChange({ ...DEFAULT_SETTINGS }); saveSettings(DEFAULT_SETTINGS); applyFontSize(DEFAULT_SETTINGS.fontSize); }}
+            style={{ fontSize: "0.68rem", color: "#334155", background: "none", border: "1px solid rgba(51,65,85,0.35)", borderRadius: 6, padding: "0.25rem 0.6rem", cursor: "pointer" }}>
+            Reset to defaults
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Section({ label, hint, children }) {
+  return (
+    <div style={{ marginBottom: "1.5rem" }}>
+      <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
+      {hint && <p style={{ fontSize: "0.67rem", color: "#334155", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
+      {children}
+    </div>
+  );
+}
+
 // ─── DNA Upload UI Components ─────────────────────────────────────────────────
 
 function ConsentModal({ onAccept, onClose }) {
@@ -689,8 +813,8 @@ const SIG_COLORS = {
   "Uncertain significance": { bg: "rgba(66,32,6,0.4)", color: "#fde68a", border: "rgba(161,98,7,0.3)" },
 };
 
-function VariantCard({ variant, userVariant }) {
-  const [expanded, setExpanded] = useState(false);
+function VariantCard({ variant, userVariant, defaultExpanded }) {
+  const [expanded, setExpanded] = useState(defaultExpanded || false);
   const sig = variant.clinical_significance || "Unknown";
   const c = SIG_COLORS[sig] || { bg: "rgba(30,41,59,0.6)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" };
   const hasDetail = variant.condition || variant.consequence || variant.frequency != null || variant.review_status || variant.hgvs;
@@ -794,10 +918,10 @@ function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
 const SIG_FILTER_OPTIONS = ["All", "Pathogenic", "Likely pathogenic", "Uncertain significance", "Likely benign", "Benign"];
 const SIG_FILTER_SHORT = { "All": "All", "Pathogenic": "Path.", "Likely pathogenic": "Likely path.", "Uncertain significance": "VUS", "Likely benign": "Likely benign", "Benign": "Benign" };
 
-function DataSection({ data, queryType, dnaData }) {
+function DataSection({ data, queryType, dnaData, settings }) {
   const [expanded, setExpanded] = useState(false);
   const [sigFilter, setSigFilter] = useState("All");
-  const [sortBy, setSortBy] = useState("default");
+  const [sortBy, setSortBy] = useState(settings?.defaultSort || "default");
   const [myDataOnly, setMyDataOnly] = useState(false);
 
   if (!data) return null;
@@ -909,7 +1033,7 @@ function DataSection({ data, queryType, dnaData }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
           {shown.map((item, i) => {
             if (!isGene) return <GeneCard key={item.gene_symbol || i} gene={item} />;
-            return <VariantCard key={item.variant_id || i} variant={item} userVariant={getUserVariant(item)} />;
+            return <VariantCard key={item.variant_id || i} variant={item} userVariant={getUserVariant(item)} defaultExpanded={settings?.variantDefault === "expanded"} />;
           })}
         </div>
       )}
@@ -1946,7 +2070,7 @@ const SOURCE_COLORS = {
   Monarch: { color: "#a78bfa", bg: "rgba(76,29,149,0.25)", border: "rgba(109,40,217,0.2)" },
 };
 
-function AssistantMessage({ msg, dnaData }) {
+function AssistantMessage({ msg, dnaData, settings }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
@@ -1970,7 +2094,7 @@ function AssistantMessage({ msg, dnaData }) {
           />
         )}
         <Markdown content={msg.content} />
-        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} />}
+        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} settings={settings} />}
         {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
         {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
         {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
@@ -2158,6 +2282,10 @@ export default function App() {
   const [dnaData, setDnaData] = useState(() => loadDnaFromSession());
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settings, setSettings] = useState(() => loadSettings());
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => { applyFontSize(settings.fontSize); }, [settings.fontSize]);
 
   const updateDnaData = useCallback((data) => {
     setDnaData(data);
@@ -2274,6 +2402,7 @@ export default function App() {
           message: msg,
           history: buildHistory(),
           project_id: activeProjectId,
+          response_detail: settings.responseDetail,
           // Send up to 200 variants so Claude can answer general DNA questions.
           // Real 23andMe files have 600k rows — we cap here to keep payload small.
           // For large files the variant cards still show matches client-side.
@@ -2664,6 +2793,7 @@ export default function App() {
         }
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+        {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} />}
         {sidebarOpen && <div className="gc-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <Sidebar
           projects={projects} activeProjectId={activeProjectId}
@@ -2711,6 +2841,9 @@ export default function App() {
                 >
                   {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
                 </button>
+                <button onClick={() => setShowSettings(true)}
+                  style={{ fontSize: "0.85rem", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.5rem", cursor: "pointer", color: "#475569", lineHeight: 1 }}
+                  title="Settings">⚙️</button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                   <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
@@ -2764,6 +2897,8 @@ export default function App() {
                     {exporting ? "Building…" : "Export PDF"}
                   </button>
                 )}
+                <button onClick={() => setShowSettings(true)}
+                  style={{ fontSize: "0.85rem", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.25rem 0.45rem", cursor: "pointer", color: "#475569", lineHeight: 1 }}>⚙️</button>
                 {currentUser && (
                   <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); }}
                     style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "none", cursor: "pointer", padding: 0 }}
@@ -2859,7 +2994,7 @@ export default function App() {
                 {messages.map((msg, i) =>
                   msg.role === "user"
                     ? <UserMessage key={i} content={msg.content} />
-                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} />
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} />
                 )}
                 {loading && <TypingIndicator />}
                 <div ref={bottomRef} />

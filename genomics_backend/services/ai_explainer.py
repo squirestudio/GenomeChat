@@ -155,12 +155,19 @@ def _format_disease_data(data: dict) -> str:
     return "\n".join(lines)
 
 
+DETAIL_INSTRUCTIONS = {
+    "concise": "Be brief. Respond in 3-5 bullet points maximum. Skip population genetics and research context sections. Lead with the single most important clinical finding.",
+    "standard": "",  # default prompt, no override
+    "detailed": "Provide a thorough, in-depth analysis. Include all relevant sections: population genetics with specific numbers, molecular mechanisms, gene-disease relationships, research implications, and 3-4 specific follow-up queries. Do not abbreviate any section.",
+}
+
 async def explain_results(
     query: str,
     query_type: str,
     data: dict,
     conversation_history: list = None,
     personal_variants: list = None,
+    response_detail: str = "standard",
 ) -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:
@@ -198,6 +205,10 @@ async def explain_results(
         f"gene-disease relationships, and suggest follow-up research directions."
         + ("\n\nNOTE: The user has personal genetic data loaded for this gene. Address their specific variants directly, but remind them this is for research purposes only and not a substitute for clinical genetic counseling." if personal_variants else "")
     )
+
+    detail_note = DETAIL_INSTRUCTIONS.get(response_detail or "standard", "")
+    if detail_note:
+        user_content += f"\n\nINSTRUCTION: {detail_note}"
 
     messages = list((conversation_history or [])[-6:])
     messages.append({"role": "user", "content": user_content})
@@ -275,7 +286,7 @@ async def explain_comparison(
         return f"## {gene_a} vs {gene_b}\n\nData retrieved for both genes. Error generating AI comparison: {e}"
 
 
-async def answer_followup(question: str, conversation_history: list, personal_variants: list = None) -> str:
+async def answer_followup(question: str, conversation_history: list, personal_variants: list = None, response_detail: str = "standard") -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:
         return "Configure an Anthropic API key to enable AI responses."
@@ -293,6 +304,10 @@ async def answer_followup(question: str, conversation_history: list, personal_va
             + "\n".join(lines)
             + "\n\nPlease interpret these variants. Address them specifically and remind the user this is educational only, not a clinical diagnosis."
         )
+
+    detail_note = DETAIL_INSTRUCTIONS.get(response_detail or "standard", "")
+    if detail_note:
+        content += f"\n\nINSTRUCTION: {detail_note}"
 
     messages.append({"role": "user", "content": content})
 

@@ -514,7 +514,7 @@ function SettingSegment({ value, options, onChange }) {
 }
 
 function SettingsPanel({ settings, onChange, onClose }) {
-  const [keyDraft, setKeyDraft] = React.useState(settings.apiKey || "");
+  const [keyDraft, setKeyDraft] = useState(settings.apiKey || "");
 
   const set = (key, val) => {
     const next = { ...settings, [key]: val };

@@ -2842,7 +2842,7 @@ export default function App() {
                   {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
                 </button>
                 <button onClick={() => setShowSettings(true)}
-                  style={{ fontSize: "0.85rem", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.5rem", cursor: "pointer", color: "#475569", lineHeight: 1 }}
+                  style={{ fontSize: "1.1rem", background: "none", border: "none", padding: "0.1rem 0.2rem", cursor: "pointer", color: "#94a3b8", lineHeight: 1 }}
                   title="Settings">⚙️</button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
@@ -2898,7 +2898,7 @@ export default function App() {
                   </button>
                 )}
                 <button onClick={() => setShowSettings(true)}
-                  style={{ fontSize: "0.85rem", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.25rem 0.45rem", cursor: "pointer", color: "#475569", lineHeight: 1 }}>⚙️</button>
+                  style={{ fontSize: "1.1rem", background: "none", border: "none", padding: "0.1rem 0.2rem", cursor: "pointer", color: "#94a3b8", lineHeight: 1 }}>⚙️</button>
                 {currentUser && (
                   <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); }}
                     style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "none", cursor: "pointer", padding: 0 }}

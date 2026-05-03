@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # Explicit backend URL — avoids Railway proxy stripping https from request.base_url
     # Set BACKEND_URL=https://your-service.railway.app in Railway env vars
     backend_url: str = ""
+    # Stripe billing
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_unlock: str = ""   # $5 one-time unlimited unlock Price ID
+    stripe_price_credits: str = ""  # $3 fifty-query credits pack Price ID
+    # AES-256 encryption key for stored user API keys (Fernet — generate with Fernet.generate_key())
+    encryption_key: str = ""
 
     def get_database_url(self) -> str:
         # Railway provides DATABASE_URL as postgres:// but SQLAlchemy needs postgresql://

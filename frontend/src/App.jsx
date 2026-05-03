@@ -513,8 +513,9 @@ function SettingSegment({ value, options, onChange }) {
   );
 }
 
-function SettingsPanel({ settings, onChange, onClose }) {
-  const [keyDraft, setKeyDraft] = useState(settings.apiKey || "");
+function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh }) {
+  const [keyDraft, setKeyDraft] = useState("");
+  const [keySaving, setKeySaving] = useState(false);
 
   const set = (key, val) => {
     const next = { ...settings, [key]: val };
@@ -523,9 +524,23 @@ function SettingsPanel({ settings, onChange, onClose }) {
     if (key === "fontSize") applyFontSize(val);
   };
 
-  const saveKey = () => {
+  const saveServerKey = async () => {
     const trimmed = keyDraft.trim();
-    set("apiKey", trimmed);
+    if (!trimmed) return;
+    setKeySaving(true);
+    try {
+      const r = await apiFetch("/user/api-key", { method: "POST", body: JSON.stringify({ api_key: trimmed }) });
+      if (r.ok) { setKeyDraft(""); onUserRefresh(); }
+      else { const e = await r.json(); alert(e.detail || "Failed to save key"); }
+    } catch { alert("Network error saving key"); }
+    finally { setKeySaving(false); }
+  };
+
+  const removeServerKey = async () => {
+    try {
+      await apiFetch("/user/api-key", { method: "DELETE" });
+      onUserRefresh();
+    } catch {}
   };
 
   return (
@@ -574,11 +589,28 @@ function SettingsPanel({ settings, onChange, onClose }) {
               onChange={v => set("defaultSort", v)} />
           </Section>
 
-          <Section label="Your Anthropic API Key" hint="Use your own key — responses billed to your account, not the shared pool.">
-            {settings.apiKey ? (
+          <Section label="Usage">
+            {currentUser?.byok_unlocked ? (
+              <p style={{ fontSize: "0.72rem", color: "#34d399", margin: 0 }}>✓ Unlimited access</p>
+            ) : currentUser?.query_credits > 0 ? (
+              <p style={{ fontSize: "0.72rem", color: "#cbd5e1", margin: 0 }}>{currentUser.query_credits} purchased credits remaining</p>
+            ) : (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: "0.72rem", color: "#64748b" }}>{currentUser?.total_queries || 0} of {currentUser?.free_limit || 20} free queries used</span>
+                </div>
+                <div style={{ height: 4, background: "rgba(51,65,85,0.4)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 2, background: "linear-gradient(90deg,#0ea5e9,#7c3aed)", width: `${Math.min(100, ((currentUser?.total_queries || 0) / (currentUser?.free_limit || 20)) * 100)}%`, transition: "width 0.3s" }} />
+                </div>
+              </div>
+            )}
+          </Section>
+
+          <Section label="Your Anthropic API Key" hint="Use your own key — bypasses the query limit. Stored encrypted on your account.">
+            {currentUser?.has_stored_key ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: "0.72rem", color: "#34d399", flex: 1 }}>✓ Key saved ({settings.apiKey.slice(0, 12)}…)</span>
-                <button onClick={() => { setKeyDraft(""); set("apiKey", ""); }}
+                <span style={{ fontSize: "0.72rem", color: "#34d399", flex: 1 }}>✓ Key stored on your account</span>
+                <button onClick={removeServerKey}
                   style={{ fontSize: "0.68rem", color: "#f87171", background: "none", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 6, padding: "0.2rem 0.5rem", cursor: "pointer" }}>
                   Remove
                 </button>
@@ -589,18 +621,18 @@ function SettingsPanel({ settings, onChange, onClose }) {
                   type="password"
                   value={keyDraft}
                   onChange={e => setKeyDraft(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && saveKey()}
+                  onKeyDown={e => e.key === "Enter" && saveServerKey()}
                   placeholder="sk-ant-..."
                   style={{ flex: 1, fontSize: "0.72rem", background: "rgba(15,23,42,0.7)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.35rem 0.6rem", color: "#cbd5e1", outline: "none" }}
                 />
-                <button onClick={saveKey} disabled={!keyDraft.trim()}
+                <button onClick={saveServerKey} disabled={!keyDraft.trim() || keySaving}
                   style={{ fontSize: "0.68rem", color: keyDraft.trim() ? "#38bdf8" : "#334155", background: "none", border: `1px solid ${keyDraft.trim() ? "rgba(14,165,233,0.4)" : "rgba(51,65,85,0.3)"}`, borderRadius: 6, padding: "0.35rem 0.65rem", cursor: keyDraft.trim() ? "pointer" : "default" }}>
-                  Save
+                  {keySaving ? "…" : "Save"}
                 </button>
               </div>
             )}
             <p style={{ fontSize: "0.65rem", color: "#1e3a5f", marginTop: 6, lineHeight: 1.5 }}>
-              Get a key at console.anthropic.com. Stored locally in your browser only.
+              Get a key at console.anthropic.com. Encrypted and never returned to the client.
             </p>
           </Section>
 
@@ -626,6 +658,60 @@ function Section({ label, hint, children }) {
       {hint && <p style={{ fontSize: "0.67rem", color: "#334155", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
       {children}
     </div>
+  );
+}
+
+// ─── Upgrade / Billing Modal ──────────────────────────────────────────────────
+
+function UpgradeModal({ currentUser, onClose, onOpenSettings }) {
+  const startCheckout = async (type) => {
+    try {
+      const r = await apiFetch("/billing/checkout", { method: "POST", body: JSON.stringify({ type }) });
+      const { url } = await r.json();
+      window.location.href = url;
+    } catch {
+      alert("Could not start checkout. Please try again.");
+    }
+  };
+
+  const used = currentUser?.total_queries || 0;
+  const limit = currentUser?.free_limit || 20;
+  const credits = currentUser?.query_credits || 0;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "#0d1424", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 16, padding: "2rem", width: 380, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>You've used your free queries</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+        <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 0.5rem", lineHeight: 1.6 }}>
+          You've used {used} of {limit} free queries{credits > 0 ? ` — ${credits} purchased credits remaining` : ""}. Choose how to continue:
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, margin: "1.25rem 0" }}>
+          <button onClick={() => startCheckout("unlock")}
+            style={{ padding: "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: "pointer", textAlign: "left" }}>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#38bdf8", marginBottom: 3 }}>🔓 Unlock Unlimited — $5 one-time</div>
+            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Unlimited queries forever. Also enables storing your own API key.</div>
+          </button>
+          <button onClick={() => startCheckout("credits")}
+            style={{ padding: "0.8rem 1rem", borderRadius: 10, background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.4)", cursor: "pointer", textAlign: "left" }}>
+            <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#cbd5e1", marginBottom: 3 }}>⚡ Get 50 Queries — $3</div>
+            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Top up with a one-time credit pack.</div>
+          </button>
+        </div>
+
+        <p style={{ fontSize: "0.7rem", color: "#334155", margin: 0, lineHeight: 1.5 }}>
+          Want free unlimited access?{" "}
+          <button onClick={() => { onClose(); onOpenSettings(); }}
+            style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "0.7rem", padding: 0, textDecoration: "underline" }}>
+            Add your own Anthropic API key
+          </button>{" "}in Settings — billed directly to your Anthropic account.
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -2323,6 +2409,8 @@ export default function App() {
   const [settings, setSettings] = useState(() => loadSettings());
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
 
   useEffect(() => { applyFontSize(settings.fontSize); }, [settings.fontSize]);
 
@@ -2344,6 +2432,15 @@ export default function App() {
     // Handle shared query
     const shareToken = params.get("share");
     if (shareToken) loadSharedQuery(shareToken);
+
+    // Handle Stripe payment return
+    const paymentStatus = params.get("payment");
+    const paymentType = params.get("type");
+    if (paymentStatus === "success") {
+      setPaymentToast(paymentType === "unlock" ? "success_unlock" : "success_credits");
+      setTimeout(() => setPaymentToast(null), 6000);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
 
     checkHealth();
     fetchMe().then(() => { loadProjects(); loadChatHistory(); });
@@ -2442,15 +2539,22 @@ export default function App() {
           history: buildHistory(),
           project_id: activeProjectId,
           response_detail: settings.responseDetail,
-          user_api_key: settings.apiKey || null,
-          // Send up to 200 variants so Claude can answer general DNA questions.
-          // Real 23andMe files have 600k rows — we cap here to keep payload small.
-          // For large files the variant cards still show matches client-side.
+          // Only send a key from localStorage if the user has no server-stored key.
+          // Server-stored key is loaded automatically by the backend.
+          user_api_key: (!currentUser?.has_stored_key && settings.apiKey) ? settings.apiKey : null,
           personal_variants: dnaData
             ? Array.from(dnaData.variants.entries()).slice(0, 200).map(([rsid, v]) => ({ rsid, ...v }))
             : null,
         }),
       });
+
+      if (r.status === 402) {
+        const errData = await r.json();
+        setMessages(prev => prev.slice(0, -1)); // remove the optimistic user message
+        setShowUpgrade(true);
+        return;
+      }
+
       const data = await r.json();
 
       // If DNA is loaded, cross-reference returned variant rsIDs with user's data
@@ -2833,7 +2937,13 @@ export default function App() {
         }
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-        {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} />}
+        {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
+        {showUpgrade && <UpgradeModal currentUser={currentUser} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
+        {paymentToast && (
+          <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: "#0f3a20", border: "1px solid rgba(52,211,153,0.4)", borderRadius: 10, padding: "0.75rem 1.25rem", color: "#34d399", fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
+            {paymentToast === "success_unlock" ? "🔓 Unlimited access unlocked! Welcome to GenomeChat Pro." : "⚡ 50 query credits added to your account."}
+          </div>
+        )}
         {sidebarOpen && <div className="gc-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <Sidebar
           projects={projects} activeProjectId={activeProjectId}

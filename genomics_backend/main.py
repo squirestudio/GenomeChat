@@ -15,7 +15,9 @@ from services.ai_explainer import explain_results, explain_comparison, answer_fo
 from services.cache import cache
 from database.models import create_tables, get_db, Query as QueryModel
 from database.routes import router as projects_router, share_router
-from auth import router as auth_router, get_current_user
+from auth import router as auth_router, get_current_user, require_user
+from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.encryption import encrypt_key, decrypt_key
 from database.models import User
 
 logging.basicConfig(level=logging.INFO)
@@ -102,6 +104,25 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     """
     history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
 
+    # Enforce query limit for authenticated users
+    if current_user:
+        allowed, reason = user_can_query(current_user)
+        if not allowed:
+            raise HTTPException(status_code=402, detail={
+                "upgrade_required": True,
+                "total_queries": current_user.total_queries or 0,
+                "query_credits": current_user.query_credits or 0,
+                "free_limit": FREE_QUERY_LIMIT,
+            })
+
+    # Resolve API key: request body → server-stored → shared server key
+    user_api_key = request.user_api_key
+    if not user_api_key and current_user and current_user.encrypted_api_key:
+        try:
+            user_api_key = decrypt_key(current_user.encrypted_api_key)
+        except Exception:
+            pass
+
     # Check cache
     cached = cache.get(request.message)
     if cached:
@@ -111,7 +132,9 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     interpreted = await interpret_query(request.message)
 
     if interpreted.query_type == QueryType.UNKNOWN:
-        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants, response_detail=request.response_detail, user_api_key=request.user_api_key)
+        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants, response_detail=request.response_detail, user_api_key=user_api_key)
+        if current_user:
+            consume_query(current_user, db)
         return ChatResponse(content=content)
 
     # Fetch genomics data
@@ -157,7 +180,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             data_a=pipeline_result["data_a"],
             data_b=pipeline_result["data_b"],
             conversation_history=history_dicts,
-            user_api_key=request.user_api_key,
+            user_api_key=user_api_key,
         )
     else:
         explanation = await explain_results(
@@ -167,8 +190,12 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             conversation_history=history_dicts,
             personal_variants=request.personal_variants,
             response_detail=request.response_detail,
-            user_api_key=request.user_api_key,
+            user_api_key=user_api_key,
         )
+
+    # Count the query against the user's limit
+    if current_user:
+        consume_query(current_user, db)
 
     # Save to DB — store full response so history can replay it
     query_id = None
@@ -275,3 +302,70 @@ async def cache_stats():
 async def clear_cache():
     cache.clear()
     return {"message": "Cache cleared"}
+
+
+# ── Billing ───────────────────────────────────────────────────────────────────
+
+class CheckoutRequest(BaseModel):
+    type: str  # "unlock" | "credits"
+
+
+@app.post("/billing/checkout")
+async def billing_checkout(body: CheckoutRequest, current_user: User = Depends(require_user)):
+    settings = get_settings()
+    price_id = settings.stripe_price_unlock if body.type == "unlock" else settings.stripe_price_credits
+    if not price_id or not settings.stripe_secret_key:
+        raise HTTPException(status_code=501, detail="Billing not configured")
+    url = create_checkout_session(price_id, current_user.id, body.type)
+    return {"url": url}
+
+
+@app.post("/billing/webhook")
+async def billing_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = verify_webhook(payload, sig)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if event["type"] == "checkout.session.completed":
+        meta = event["data"]["object"].get("metadata", {})
+        user_id = int(meta.get("user_id", 0))
+        purchase_type = meta.get("purchase_type", "")
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            if purchase_type == "unlock":
+                user.byok_unlocked = True
+                logger.info(f"User {user_id} unlocked unlimited access")
+            elif purchase_type == "credits":
+                user.query_credits = (user.query_credits or 0) + CREDITS_PER_PACK
+                logger.info(f"User {user_id} purchased {CREDITS_PER_PACK} credits")
+            db.commit()
+    return {"received": True}
+
+
+# ── User API key storage ──────────────────────────────────────────────────────
+
+class ApiKeyRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/user/api-key")
+async def save_user_api_key(body: ApiKeyRequest, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    key = body.api_key.strip()
+    if not key or not key.startswith("sk-"):
+        raise HTTPException(status_code=400, detail="Invalid API key format")
+    settings = get_settings()
+    if not settings.encryption_key:
+        raise HTTPException(status_code=501, detail="Key storage not configured — set ENCRYPTION_KEY")
+    current_user.encrypted_api_key = encrypt_key(key)
+    db.commit()
+    return {"stored": True}
+
+
+@app.delete("/user/api-key")
+async def delete_user_api_key(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    current_user.encrypted_api_key = None
+    db.commit()
+    return {"removed": True}

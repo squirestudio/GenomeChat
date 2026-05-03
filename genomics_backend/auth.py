@@ -168,7 +168,17 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
     """Return current user info, or null if not authenticated."""
     if not user:
         return {"user": None}
-    return {"user": {"id": user.id, "email": user.email, "name": user.name}}
+    from services.billing import FREE_QUERY_LIMIT
+    return {"user": {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "byok_unlocked": bool(user.byok_unlocked),
+        "query_credits": user.query_credits or 0,
+        "total_queries": user.total_queries or 0,
+        "free_limit": FREE_QUERY_LIMIT,
+        "has_stored_key": bool(user.encrypted_api_key),
+    }}
 
 
 @router.post("/logout")

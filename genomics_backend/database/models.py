@@ -29,6 +29,12 @@ class User(Base):
     name = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Billing
+    byok_unlocked = Column(Boolean, default=False)   # paid $5 unlimited unlock
+    query_credits = Column(Integer, default=0)        # purchased query credits remaining
+    total_queries = Column(Integer, default=0)        # lifetime query count
+    # Encrypted Anthropic API key (Fernet AES-256); never returned to frontend
+    encrypted_api_key = Column(Text, nullable=True)
 
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
@@ -93,6 +99,10 @@ def _run_migrations():
     migrations = [
         "ALTER TABLE queries ADD COLUMN IF NOT EXISTS share_token VARCHAR(64) UNIQUE",
         "ALTER TABLE queries ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS byok_unlocked BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS query_credits INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_queries INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT",
     ]
     with engine.connect() as conn:
         for sql in migrations:

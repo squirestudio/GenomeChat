@@ -10,3 +10,5 @@ python-dotenv==1.0.1
 alembic==1.13.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.9
+stripe==10.5.0
+cryptography==42.0.8

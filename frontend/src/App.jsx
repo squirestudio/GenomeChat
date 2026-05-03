@@ -67,6 +67,7 @@ const DEFAULT_SETTINGS = {
   responseDetail: "standard",  // concise | standard | detailed
   variantDefault: "collapsed", // collapsed | expanded
   defaultSort: "default",      // default | pathogenic_first | frequency
+  apiKey: "",                  // optional user-supplied Anthropic key
 };
 
 const FONT_SIZE_MAP = { small: "14px", medium: "16px", large: "18px" };
@@ -513,11 +514,18 @@ function SettingSegment({ value, options, onChange }) {
 }
 
 function SettingsPanel({ settings, onChange, onClose }) {
+  const [keyDraft, setKeyDraft] = React.useState(settings.apiKey || "");
+
   const set = (key, val) => {
     const next = { ...settings, [key]: val };
     onChange(next);
     saveSettings(next);
     if (key === "fontSize") applyFontSize(val);
+  };
+
+  const saveKey = () => {
+    const trimmed = keyDraft.trim();
+    set("apiKey", trimmed);
   };
 
   return (
@@ -564,6 +572,36 @@ function SettingsPanel({ settings, onChange, onClose }) {
             <SettingSegment value={settings.defaultSort}
               options={[{ value: "default", label: "Default" }, { value: "pathogenic_first", label: "Pathogenic" }, { value: "frequency", label: "Rarest" }]}
               onChange={v => set("defaultSort", v)} />
+          </Section>
+
+          <Section label="Your Anthropic API Key" hint="Use your own key — responses billed to your account, not the shared pool.">
+            {settings.apiKey ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: "0.72rem", color: "#34d399", flex: 1 }}>✓ Key saved ({settings.apiKey.slice(0, 12)}…)</span>
+                <button onClick={() => { setKeyDraft(""); set("apiKey", ""); }}
+                  style={{ fontSize: "0.68rem", color: "#f87171", background: "none", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 6, padding: "0.2rem 0.5rem", cursor: "pointer" }}>
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="password"
+                  value={keyDraft}
+                  onChange={e => setKeyDraft(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && saveKey()}
+                  placeholder="sk-ant-..."
+                  style={{ flex: 1, fontSize: "0.72rem", background: "rgba(15,23,42,0.7)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.35rem 0.6rem", color: "#cbd5e1", outline: "none" }}
+                />
+                <button onClick={saveKey} disabled={!keyDraft.trim()}
+                  style={{ fontSize: "0.68rem", color: keyDraft.trim() ? "#38bdf8" : "#334155", background: "none", border: `1px solid ${keyDraft.trim() ? "rgba(14,165,233,0.4)" : "rgba(51,65,85,0.3)"}`, borderRadius: 6, padding: "0.35rem 0.65rem", cursor: keyDraft.trim() ? "pointer" : "default" }}>
+                  Save
+                </button>
+              </div>
+            )}
+            <p style={{ fontSize: "0.65rem", color: "#1e3a5f", marginTop: 6, lineHeight: 1.5 }}>
+              Get a key at console.anthropic.com. Stored locally in your browser only.
+            </p>
           </Section>
 
         </div>
@@ -2404,6 +2442,7 @@ export default function App() {
           history: buildHistory(),
           project_id: activeProjectId,
           response_detail: settings.responseDetail,
+          user_api_key: settings.apiKey || null,
           // Send up to 200 variants so Claude can answer general DNA questions.
           // Real 23andMe files have 600k rows — we cap here to keep payload small.
           // For large files the variant cards still show matches client-side.

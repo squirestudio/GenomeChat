@@ -35,6 +35,7 @@ class ChatRequest(BaseModel):
     project_id: Optional[int] = None
     personal_variants: Optional[list[dict]] = None  # [{rsid, genotype, chromosome?}] — session only, never stored
     response_detail: Optional[str] = "standard"     # concise | standard | detailed
+    user_api_key: Optional[str] = None              # user-supplied Anthropic key; never logged or stored
 
 
 class ChatResponse(BaseModel):
@@ -110,7 +111,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     interpreted = await interpret_query(request.message)
 
     if interpreted.query_type == QueryType.UNKNOWN:
-        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants, response_detail=request.response_detail)
+        content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants, response_detail=request.response_detail, user_api_key=request.user_api_key)
         return ChatResponse(content=content)
 
     # Fetch genomics data
@@ -156,6 +157,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             data_a=pipeline_result["data_a"],
             data_b=pipeline_result["data_b"],
             conversation_history=history_dicts,
+            user_api_key=request.user_api_key,
         )
     else:
         explanation = await explain_results(
@@ -165,6 +167,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             conversation_history=history_dicts,
             personal_variants=request.personal_variants,
             response_detail=request.response_detail,
+            user_api_key=request.user_api_key,
         )
 
     # Save to DB — store full response so history can replay it

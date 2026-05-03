@@ -168,12 +168,14 @@ async def explain_results(
     conversation_history: list = None,
     personal_variants: list = None,
     response_detail: str = "standard",
+    user_api_key: str = None,
 ) -> str:
     settings = get_settings()
-    if not settings.anthropic_api_key:
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
         return _fallback_explanation(query_type, data)
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.Anthropic(api_key=api_key)
 
     formatted = (
         _format_gene_data(data)
@@ -232,12 +234,14 @@ async def explain_comparison(
     data_a: dict,
     data_b: dict,
     conversation_history: list = None,
+    user_api_key: str = None,
 ) -> str:
     settings = get_settings()
-    if not settings.anthropic_api_key:
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
         return f"## {gene_a} vs {gene_b}\n\nComparison data retrieved. Add an Anthropic API key for AI-powered analysis."
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.Anthropic(api_key=api_key)
 
     def summarize(symbol, data):
         gi = data.get("gene_info") or {}
@@ -286,12 +290,13 @@ async def explain_comparison(
         return f"## {gene_a} vs {gene_b}\n\nData retrieved for both genes. Error generating AI comparison: {e}"
 
 
-async def answer_followup(question: str, conversation_history: list, personal_variants: list = None, response_detail: str = "standard") -> str:
+async def answer_followup(question: str, conversation_history: list, personal_variants: list = None, response_detail: str = "standard", user_api_key: str = None) -> str:
     settings = get_settings()
-    if not settings.anthropic_api_key:
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
         return "Configure an Anthropic API key to enable AI responses."
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.Anthropic(api_key=api_key)
 
     messages = list(conversation_history[-12:])
 

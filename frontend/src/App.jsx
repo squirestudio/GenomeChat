@@ -2492,6 +2492,9 @@ export default function App() {
       if (r.ok) {
         const { user } = await r.json();
         setCurrentUser(user);
+        if (user) {
+          try { localStorage.removeItem(ANON_QUERY_KEY); } catch {}
+        }
       }
     } catch {}
   };

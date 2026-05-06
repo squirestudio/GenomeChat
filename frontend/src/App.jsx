@@ -59,6 +59,17 @@ function parseDNAFile(text) {
 // sessionStorage helpers — Map isn't JSON-serializable so we convert to/from entries
 const SESSION_KEY = "genomechat_dna_session";
 
+// ─── Anonymous query counter ──────────────────────────────────────────────────
+const ANON_QUERY_KEY = "genomechat_anon_queries";
+const ANON_QUERY_LIMIT = 3;
+
+function getAnonQueryCount() {
+  try { return parseInt(localStorage.getItem(ANON_QUERY_KEY) || "0", 10); } catch { return 0; }
+}
+function incrementAnonQueryCount() {
+  try { localStorage.setItem(ANON_QUERY_KEY, String(getAnonQueryCount() + 1)); } catch {}
+}
+
 // ─── Settings (persisted to localStorage) ────────────────────────────────────
 const SETTINGS_KEY = "genomechat_settings";
 
@@ -658,6 +669,28 @@ function Section({ label, hint, children }) {
       {hint && <p style={{ fontSize: "0.67rem", color: "#334155", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
       {children}
     </div>
+  );
+}
+
+// ─── Sign-in Gate Modal (anonymous query limit) ───────────────────────────────
+
+function SignInGateModal({ onClose }) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "#0d1424", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 16, padding: "2rem", width: 360, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>Sign in to continue</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+        <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
+          You've used your {ANON_QUERY_LIMIT} free preview queries. Create a free account to get {20} queries — no credit card required.
+        </p>
+        <a href={`${API}/auth/google`} style={{ display: "block", padding: "0.75rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#38bdf8" }}>Sign in with Google — it's free</span>
+        </a>
+      </div>
+    </>
   );
 }
 
@@ -2410,6 +2443,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showSignInGate, setShowSignInGate] = useState(false);
   const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
 
   useEffect(() => { applyFontSize(settings.fontSize); }, [settings.fontSize]);
@@ -2527,6 +2561,16 @@ export default function App() {
     const msg = (text || input).trim();
     if (!msg || loading) return;
     setInput("");
+    // Gate anonymous users after ANON_QUERY_LIMIT queries
+    if (!currentUser) {
+      const count = getAnonQueryCount();
+      if (count >= ANON_QUERY_LIMIT) {
+        setShowSignInGate(true);
+        return;
+      }
+      incrementAnonQueryCount();
+    }
+
     const userMsg = { role: "user", content: msg };
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
@@ -2938,6 +2982,7 @@ export default function App() {
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
+        {showSignInGate && <SignInGateModal onClose={() => setShowSignInGate(false)} />}
         {showUpgrade && <UpgradeModal currentUser={currentUser} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
         {paymentToast && (
           <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: "#0f3a20", border: "1px solid rgba(52,211,153,0.4)", borderRadius: 10, padding: "0.75rem 1.25rem", color: "#34d399", fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>

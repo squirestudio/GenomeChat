@@ -4,7 +4,7 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-FREE_QUERY_LIMIT = 1
+FREE_QUERY_LIMIT = 20
 CREDITS_PER_PACK = 50
 
 

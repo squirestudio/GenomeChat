@@ -2,7 +2,7 @@ import time
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional, Any
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

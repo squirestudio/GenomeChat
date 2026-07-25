@@ -1,19 +1,40 @@
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
 from datetime import datetime
-from .models import get_db, Project, Query, AuditLog
+from .models import get_db, Project, Query, AuditLog, User
+from auth import get_current_user
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 share_router = APIRouter(tags=["sharing"])
 
 
+# ─── Ownership ────────────────────────────────────────────────────────────────
+# Ownership is always derived from the JWT, never from client-supplied input.
+# Anonymous callers own the unowned (user_id IS NULL) rows, which is what the
+# anonymous /chat path creates. Missing-vs-forbidden is deliberately not
+# distinguished — both return 404 so ids cannot be enumerated.
+
+def _owned_by(model, current_user: Optional[User]):
+    """SQLAlchemy filter scoping `model` to rows the caller owns."""
+    if current_user:
+        return model.user_id == current_user.id
+    return model.user_id.is_(None)
+
+
+def _require_owner(row, current_user: Optional[User]):
+    """Raise 404 unless the caller owns `row`."""
+    caller_id = current_user.id if current_user else None
+    if row.user_id != caller_id:
+        raise HTTPException(status_code=404, detail="Not found")
+    return row
+
+
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    user_id: Optional[int] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -55,10 +76,12 @@ class ProjectWithQueries(ProjectResponse):
 
 
 @router.get("", response_model=list[ProjectResponse])
-def list_projects(user_id: Optional[int] = None, db: Session = Depends(get_db)):
-    q = db.query(Project)
-    if user_id:
-        q = q.filter(Project.user_id == user_id)
+def list_projects(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    # user_id is intentionally NOT a query parameter — it comes from the token.
+    q = db.query(Project).filter(_owned_by(Project, current_user))
     projects = q.order_by(Project.updated_at.desc()).all()
     result = []
     for p in projects:
@@ -76,11 +99,15 @@ def list_projects(user_id: Optional[int] = None, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ProjectResponse, status_code=201)
-def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    data: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     project = Project(
         name=data.name,
         description=data.description,
-        user_id=data.user_id,
+        user_id=current_user.id if current_user else None,
     )
     db.add(project)
     db.commit()
@@ -97,10 +124,15 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{project_id}", response_model=ProjectWithQueries)
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    _require_owner(project, current_user)
     queries = [
         QueryResponse(
             id=q.id,
@@ -129,10 +161,16 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)
-def update_project(project_id: int, data: ProjectUpdate, db: Session = Depends(get_db)):
+def update_project(
+    project_id: int,
+    data: ProjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    _require_owner(project, current_user)
     if data.name is not None:
         project.name = data.name
     if data.description is not None:
@@ -152,21 +190,33 @@ def update_project(project_id: int, data: ProjectUpdate, db: Session = Depends(g
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project_id: int, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    _require_owner(project, current_user)
     db.delete(project)
     db.commit()
 
 
 @router.post("/{project_id}/queries", response_model=QueryResponse, status_code=201)
-def add_query_to_project(project_id: int, query_data: dict, db: Session = Depends(get_db)):
+def add_query_to_project(
+    project_id: int,
+    query_data: dict,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    _require_owner(project, current_user)
     query = Query(
         project_id=project_id,
+        user_id=current_user.id if current_user else None,
         query_text=query_data.get("query_text", ""),
         query_type=query_data.get("query_type"),
         target=query_data.get("target"),
@@ -194,15 +244,17 @@ def add_query_to_project(project_id: int, query_data: dict, db: Session = Depend
 
 
 @router.get("/queries/recent")
-def get_recent_queries(request: Request, limit: int = 30, db: Session = Depends(get_db)):
+def get_recent_queries(
+    limit: int = 30,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     """Return recent queries for the current user (or all anonymous if not signed in)."""
-    from auth import get_current_user
-    current_user = get_current_user(request, db)
-    q = db.query(Query).order_by(Query.created_at.desc())
-    if current_user:
-        q = q.filter(Query.user_id == current_user.id)
-    else:
-        q = q.filter(Query.user_id == None)  # noqa: E711 — anonymous only
+    q = (
+        db.query(Query)
+        .filter(_owned_by(Query, current_user))
+        .order_by(Query.created_at.desc())
+    )
     queries = q.limit(limit).all()
     result = []
     for q in queries:
@@ -223,10 +275,16 @@ def get_recent_queries(request: Request, limit: int = 30, db: Session = Depends(
 
 
 @router.delete("/{project_id}/queries/{query_id}", status_code=204)
-def delete_query(project_id: int, query_id: int, db: Session = Depends(get_db)):
+def delete_query(
+    project_id: int,
+    query_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     query = db.query(Query).filter(
         Query.id == query_id,
-        Query.project_id == project_id
+        Query.project_id == project_id,
+        _owned_by(Query, current_user),
     ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
@@ -237,23 +295,43 @@ def delete_query(project_id: int, query_id: int, db: Session = Depends(get_db)):
 # ─── Shared link endpoints (no /projects prefix) ─────────────────────────────
 
 @share_router.delete("/queries/{query_id}", status_code=204)
-def delete_query_by_id(query_id: int, request: Request, db: Session = Depends(get_db)):
-    """Delete a query. Authenticated users may only delete their own queries."""
-    from auth import get_current_user
-    current_user = get_current_user(request, db)
-    query = db.query(Query).filter(Query.id == query_id).first()
+def delete_query_by_id(
+    query_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    """Delete a query the caller owns.
+
+    The ownership test is part of the lookup rather than a follow-up check —
+    the previous `if current_user and query.user_id and ...` form let an
+    unauthenticated caller skip the comparison entirely and delete anything.
+    """
+    query = db.query(Query).filter(
+        Query.id == query_id,
+        _owned_by(Query, current_user),
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
-    if current_user and query.user_id and query.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your query")
     db.delete(query)
     db.commit()
 
 
 @share_router.post("/queries/{query_id}/share")
-def create_share_link(query_id: int, db: Session = Depends(get_db)):
-    """Generate or return existing share token for a query."""
-    query = db.query(Query).filter(Query.id == query_id).first()
+def create_share_link(
+    query_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    """Generate or return existing share token for a query the caller owns.
+
+    Without the ownership filter this was a read primitive for the whole table:
+    query ids are sequential, so anyone could mint a token for any id and then
+    fetch the full stored response through GET /share/{token}.
+    """
+    query = db.query(Query).filter(
+        Query.id == query_id,
+        _owned_by(Query, current_user),
+    ).first()
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
     if not query.share_token:

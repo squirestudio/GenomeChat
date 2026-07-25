@@ -95,6 +95,24 @@ Two separate limits, enforced in different places:
 - **Anonymous**: `ANON_QUERY_LIMIT = 3`, counted client-side in `localStorage` (`App.jsx`). Advisory only — it gates the sign-in modal, not the API.
 - **Authenticated**: `FREE_QUERY_LIMIT` in [services/billing.py](genomics_backend/services/billing.py), enforced server-side. `user_can_query()` returns 402 with an `upgrade_required` payload the frontend turns into the upgrade modal.
 
+### Access control
+
+Ownership is always derived from the JWT and **never** from client-supplied input. `database/routes.py` provides two helpers that every project/query route goes through:
+
+- `_owned_by(model, current_user)` — a filter applied inside the lookup, so a non-owner gets "not found" rather than a row it can then be checked against.
+- `_require_owner(row, current_user)` — for routes that must fetch by id first.
+
+Anonymous callers own the `user_id IS NULL` rows, which is what the anonymous `/chat` path creates. Both helpers return **404 rather than 403** on a non-owner, so sequential integer ids cannot be enumerated.
+
+Two patterns to avoid, both of which were live bugs:
+
+- Taking `user_id` as a query parameter or request-body field. It is attacker-controlled; read it from `current_user`.
+- Writing the ownership test as a post-lookup `if current_user and row.user_id and ...`. An unauthenticated caller makes that whole condition falsy and skips the check. Put the test in the query.
+
+`GET /share/{token}` is intentionally public — that is the point of a share link — but `POST /queries/{id}/share` is owner-only, so tokens can only be minted for rows you own.
+
+`JWT_SECRET` has no fixed default. If unset, [config.py](genomics_backend/config.py) generates a random per-process secret and logs a warning: sessions then break on restart, which is the correct failure mode versus shipping a publicly known signing key. Set it in any real deployment. Likewise `cors_origins` must not contain `"*"` — the middleware runs with `allow_credentials=True`, and Starlette echoes the request origin in that combination.
+
 Anthropic API key resolution order in `/chat`: request body → user's server-stored encrypted key → shared server key. Stored user keys are Fernet-encrypted ([services/encryption.py](genomics_backend/services/encryption.py)) with `ENCRYPTION_KEY` and are never returned to the frontend — `/auth/me` exposes only a `has_stored_key` boolean.
 
 Stripe: `/billing/checkout` creates a session carrying `user_id` + `purchase_type` in metadata; `/billing/webhook` reads that metadata back to grant either `byok_unlocked` (one-time unlimited) or `query_credits`. The webhook is the only place entitlements are granted.

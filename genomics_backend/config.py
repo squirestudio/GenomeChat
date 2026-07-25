@@ -1,12 +1,18 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-import os
+import logging
+import secrets
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
     database_url: str = "postgresql://genomechat:genomechat@localhost:5432/genomechat"
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3333", "http://localhost:5173", "http://localhost:5174", "https://genomechat.vercel.app", "*"]
+    # No "*" here: the CORS middleware runs with allow_credentials=True, and a
+    # wildcard in that mode makes Starlette echo back whatever Origin it is
+    # given. Add real deploy origins via the CORS_ORIGINS env var.
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3333", "http://localhost:5173", "http://localhost:5174", "https://genomechat.vercel.app"]
     cache_ttl_hours: int = 24
     cache_max_size: int = 1000
     request_timeout: int = 30
@@ -15,7 +21,12 @@ class Settings(BaseSettings):
     # Google OAuth
     google_client_id: str = ""
     google_client_secret: str = ""
-    jwt_secret: str = "change-this-in-production"
+    # Empty means "unset"; get_settings() substitutes a random per-process
+    # secret. There is deliberately no fixed placeholder default — a shipped
+    # constant is a publicly known signing key, and anyone holding it can mint
+    # a token for any user_id. Sessions that don't survive a restart are a far
+    # better failure mode than silent impersonation.
+    jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 168  # 7 days
     frontend_url: str = "http://localhost:3333"
@@ -44,4 +55,15 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    # Checked on the loaded value, not os.environ — pydantic-settings also
+    # reads .env, and looking only at the environment reports a false alarm
+    # whenever the secret is supplied through the file.
+    if not settings.jwt_secret:
+        settings.jwt_secret = secrets.token_urlsafe(64)
+        logger.warning(
+            "JWT_SECRET is not set — using a random per-process secret. Sessions "
+            "will be invalidated on every restart and will not work across "
+            "multiple instances. Set JWT_SECRET in your deployment environment."
+        )
+    return settings

@@ -38,6 +38,27 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     stripe_price_unlock: str = ""   # $5 one-time unlimited unlock Price ID
     stripe_price_credits: str = ""  # $3 fifty-query credits pack Price ID
+
+    # ── Test-mode allowlist ───────────────────────────────────────────────────
+    # Lets specific accounts run test-mode checkout against the *production*
+    # deployment, so billing can be exercised end to end with 4242 cards without
+    # a separate environment and without affecting anyone else. Every other user
+    # continues to get live keys. Empty list = nobody, which is the safe default.
+    stripe_test_emails: str = ""            # comma-separated
+    stripe_test_secret_key: str = ""
+    stripe_test_webhook_secret: str = ""
+    stripe_test_price_unlock: str = ""
+    stripe_test_price_credits: str = ""
+
+    def test_mode_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.stripe_test_emails.split(",") if e.strip()}
+
+    def test_mode_configured(self) -> bool:
+        return bool(
+            self.stripe_test_secret_key
+            and self.stripe_test_price_unlock
+            and self.stripe_test_price_credits
+        )
     # AES-256 encryption key for stored user API keys (Fernet — generate with Fernet.generate_key())
     encryption_key: str = ""
 

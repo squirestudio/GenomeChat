@@ -648,7 +648,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
 }
 
 /** Purchase buttons — rendered anywhere a user might want to buy, not only at the paywall. */
-function PurchaseOptions({ compact }) {
+function PurchaseOptions({ compact, testMode }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
 
@@ -660,6 +660,14 @@ function PurchaseOptions({ compact }) {
 
   return (
     <div>
+      {testMode && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "0.45rem 0.6rem", borderRadius: 8, background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.35)" }}>
+          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#fbbf24" }}>TEST MODE</span>
+          <span style={{ fontSize: "0.68rem", color: "#a3a3a3" }}>
+            No real charge — use card 4242 4242 4242 4242
+          </span>
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <button onClick={() => buy("unlock")} disabled={!!busy}
           style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "unlock" ? 0.5 : 1 }}>
@@ -722,7 +730,7 @@ function PlanSection({ currentUser }) {
           ? "You already have unlimited access — credits aren't needed."
           : "Purchase any time. Credits are added the moment payment completes."}
       >
-        <PurchaseOptions compact />
+        <PurchaseOptions compact testMode={currentUser.stripe_test_mode} />
       </Section>
     </>
   );
@@ -783,6 +791,9 @@ function PlanBadge({ currentUser, onClick, mobile }) {
     >
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: plan.color, flexShrink: 0 }} />
       {plan.short}
+      {currentUser.stripe_test_mode && (
+        <span style={{ color: "#fbbf24", fontSize: "0.82em", fontWeight: 700 }} title="Stripe test mode — purchases are not real">TEST</span>
+      )}
       {interactive && <span style={{ color: "#475569", fontSize: "0.9em" }}>+</span>}
     </button>
   );
@@ -812,7 +823,7 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
         </p>
 
         <div style={{ margin: "1.25rem 0" }}>
-          <PurchaseOptions />
+          <PurchaseOptions testMode={currentUser?.stripe_test_mode} />
         </div>
 
         <p style={{ fontSize: "0.7rem", color: "#334155", margin: 0, lineHeight: 1.5 }}>

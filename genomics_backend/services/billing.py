@@ -1,5 +1,7 @@
 import stripe
 import logging
+from typing import Optional
+
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -8,13 +10,38 @@ FREE_QUERY_LIMIT = 20
 CREDITS_PER_PACK = 50
 
 
-def _init_stripe():
-    stripe.api_key = get_settings().stripe_secret_key
+def is_test_mode_user(user) -> bool:
+    """True if this account should get test-mode Stripe on a live deployment.
 
-
-def create_checkout_session(price_id: str, user_id: int, purchase_type: str) -> str:
-    _init_stripe()
+    Allowlisted by email so billing can be exercised against production with
+    4242 cards. Requires the test credentials to actually be present — an email
+    on the list with no test keys configured falls through to live rather than
+    silently producing a broken checkout.
+    """
     settings = get_settings()
+    if not user or not getattr(user, "email", None):
+        return False
+    if not settings.test_mode_configured():
+        return False
+    return user.email.strip().lower() in settings.test_mode_emails()
+
+
+def stripe_credentials_for(test_mode: bool) -> tuple[str, str, str]:
+    """(secret_key, price_unlock, price_credits) for the requested mode."""
+    s = get_settings()
+    if test_mode:
+        return s.stripe_test_secret_key, s.stripe_test_price_unlock, s.stripe_test_price_credits
+    return s.stripe_secret_key, s.stripe_price_unlock, s.stripe_price_credits
+
+
+def create_checkout_session(user_id: int, purchase_type: str, test_mode: bool = False) -> str:
+    settings = get_settings()
+    secret_key, price_unlock, price_credits = stripe_credentials_for(test_mode)
+    price_id = price_unlock if purchase_type == "unlock" else price_credits
+    if not secret_key or not price_id:
+        raise ValueError("Stripe not configured for this mode")
+
+    stripe.api_key = secret_key
     session = stripe.checkout.Session.create(
         payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
@@ -23,13 +50,33 @@ def create_checkout_session(price_id: str, user_id: int, purchase_type: str) -> 
         success_url=f"{settings.frontend_url}?payment=success&type={purchase_type}",
         cancel_url=f"{settings.frontend_url}?payment=cancelled",
     )
+    if test_mode:
+        logger.info("TEST-MODE checkout created for user %s (%s)", user_id, purchase_type)
     return session.url
 
 
-def verify_webhook(payload: bytes, sig_header: str) -> dict:
-    _init_stripe()
+def verify_webhook(payload: bytes, sig_header: str) -> tuple[dict, bool]:
+    """Verify against the live secret, then the test secret. Returns (event, is_test).
+
+    Live and test are separate Stripe environments with separate endpoints and
+    separate signing secrets, so a deployment serving both has to accept either.
+    Each signature is checked independently — a test-mode event can never be
+    validated by the live secret, so this widens what is accepted without
+    weakening verification.
+    """
     settings = get_settings()
-    return stripe.Webhook.construct_event(payload, sig_header, settings.stripe_webhook_secret)
+    errors = []
+
+    for secret, is_test in ((settings.stripe_webhook_secret, False),
+                            (settings.stripe_test_webhook_secret, True)):
+        if not secret:
+            continue
+        try:
+            return stripe.Webhook.construct_event(payload, sig_header, secret), is_test
+        except Exception as e:
+            errors.append(f"{'test' if is_test else 'live'}: {e}")
+
+    raise ValueError("; ".join(errors) or "No webhook signing secret configured")
 
 
 def user_can_query(user, has_working_key: bool = False) -> tuple[bool, str]:

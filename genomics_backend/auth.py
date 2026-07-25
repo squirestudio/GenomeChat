@@ -168,7 +168,7 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
     """Return current user info, or null if not authenticated."""
     if not user:
         return {"user": None}
-    from services.billing import FREE_QUERY_LIMIT
+    from services.billing import FREE_QUERY_LIMIT, is_test_mode_user
     from services.encryption import try_decrypt_key
     # Reports whether the stored key actually works, not just that a row exists.
     # A user whose key cannot be decrypted is not on BYOK, and the UI must not
@@ -185,6 +185,9 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
         "has_stored_key": has_working_key,
         # True only when a key is stored but unusable — prompts re-entry.
         "stored_key_unusable": bool(user.encrypted_api_key) and not has_working_key,
+        # Drives the visible TEST MODE badge so an allowlisted account can never
+        # mistake a 4242 purchase for a real one.
+        "stripe_test_mode": is_test_mode_user(user),
     }}
 
 

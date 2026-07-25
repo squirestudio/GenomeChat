@@ -17,7 +17,7 @@ from services.cache import cache
 from database.models import create_tables, get_db, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, FREE_QUERY_LIMIT, CREDITS_PER_PACK
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 
@@ -157,6 +157,18 @@ def _validate_stripe_wiring() -> None:
 
     except Exception as e:
         logger.warning("Stripe: wiring check skipped (%s)", e)
+
+    # Test-mode allowlist — reported explicitly because it means specific
+    # accounts get free entitlements on a live deployment, which should never
+    # be a surprise.
+    emails = settings.test_mode_emails()
+    if emails and settings.test_mode_configured():
+        logger.info("Stripe TEST-MODE allowlist active for: %s", ", ".join(sorted(emails)))
+    elif emails:
+        logger.warning(
+            "STRIPE_TEST_EMAILS is set (%s) but test keys/prices are missing — "
+            "those accounts will fall through to LIVE checkout.", ", ".join(sorted(emails)),
+        )
 
 
 @asynccontextmanager
@@ -429,12 +441,14 @@ class CheckoutRequest(BaseModel):
 
 @app.post("/billing/checkout")
 async def billing_checkout(body: CheckoutRequest, current_user: User = Depends(require_user)):
-    settings = get_settings()
-    price_id = settings.stripe_price_unlock if body.type == "unlock" else settings.stripe_price_credits
-    if not price_id or not settings.stripe_secret_key:
+    # Allowlisted accounts get test-mode Stripe even on a live deployment, so
+    # billing can be exercised with 4242 cards without a separate environment.
+    test_mode = is_test_mode_user(current_user)
+    try:
+        url = create_checkout_session(current_user.id, body.type, test_mode=test_mode)
+    except ValueError:
         raise HTTPException(status_code=501, detail="Billing not configured")
-    url = create_checkout_session(price_id, current_user.id, body.type)
-    return {"url": url}
+    return {"url": url, "test_mode": test_mode}
 
 
 @app.post("/billing/webhook")
@@ -442,7 +456,9 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
     try:
-        event = verify_webhook(payload, sig)
+        # Accepts either the live or the test signing secret — a deployment
+        # serving allowlisted test users receives events from both environments.
+        event, is_test = verify_webhook(payload, sig)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -474,10 +490,10 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
             return {"received": True}
         if purchase_type == "unlock":
             user.byok_unlocked = True
-            logger.info(f"User {user_id} unlocked unlimited access")
+            logger.info("User %s unlocked unlimited access%s", user_id, " [TEST MODE]" if is_test else "")
         elif purchase_type == "credits":
             user.query_credits = (user.query_credits or 0) + CREDITS_PER_PACK
-            logger.info(f"User {user_id} purchased {CREDITS_PER_PACK} credits")
+            logger.info("User %s purchased %s credits%s", user_id, CREDITS_PER_PACK, " [TEST MODE]" if is_test else "")
         else:
             logger.error(
                 "Stripe event %s has unrecognized purchase_type %r — nothing granted",

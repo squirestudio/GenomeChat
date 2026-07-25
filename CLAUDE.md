@@ -26,8 +26,9 @@ Two independently deployed apps in one repo:
 ```bash
 # Backend — full stack (postgres + api, hot-reloaded via bind mount)
 cd genomics_backend && cp .env.example .env   # then set ANTHROPIC_API_KEY
-docker-compose up -d
-docker-compose --profile admin up -d          # adds pgAdmin on :5050
+docker compose up -d
+docker compose up -d --build                  # REQUIRED after any requirements.txt change
+docker compose --profile admin up -d          # adds pgAdmin on :5050
 
 # Backend — bare uvicorn (needs a reachable DATABASE_URL, or it degrades gracefully)
 cd genomics_backend && uvicorn main:app --reload --port 8000
@@ -41,6 +42,10 @@ npm run dev        # Vite dev server
 npm run build
 npm run lint       # eslint (flat config, frontend/eslint.config.js)
 ```
+
+**The stale-image trap.** `docker-compose.yml` bind-mounts `.:/app`, so source edits are picked up live — but dependencies are not. `docker compose up` reuses the existing image, so after any `requirements.txt` change you get fresh code running against stale `site-packages`, and the container crash-loops on `ModuleNotFoundError` at import time. The traceback points at the import line, which makes it look like a code bug; it isn't. Rebuild with `--build`.
+
+`genomics_backend/.dockerignore` excludes env files, `.git`, and bytecode from the build context — `.gitignore` has no effect on Docker builds, and the Dockerfile does `COPY . .`. Runtime is unaffected: compose passes secrets via `env_file`, Railway injects them from its dashboard, and pydantic-settings prefers real env vars over the `.env` file.
 
 There is no test suite — no pytest/vitest, no test files. `test_data/` holds sample 23andMe and AncestryDNA files for manually exercising the DNA upload path; `frontend/public/sample_23andme.txt` is the in-app downloadable sample. Verify changes by running the stack and issuing real queries.
 

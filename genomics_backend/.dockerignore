@@ -1,0 +1,30 @@
+# Secrets — .gitignore does not apply to Docker builds, and the Dockerfile
+# does `COPY . .`, so without these a local .env is baked into the image layer.
+.env
+.env.*
+*.env
+
+# Python bytecode and local virtualenvs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# VCS metadata — largest single build-context win
+.git/
+.gitignore
+
+# Local infra / tooling not used inside the image
+docker-compose.yml
+.dockerignore
+postgres_data/
+
+# OS and editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

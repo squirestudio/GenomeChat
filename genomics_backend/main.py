@@ -21,6 +21,9 @@ from services.encryption import encrypt_key, try_decrypt_key, is_configured as e
 from database.models import User
 
 logging.basicConfig(level=logging.INFO)
+# The Stripe SDK logs every HTTP request/response at INFO, which buries our own
+# startup diagnostics. Warnings and errors from it still come through.
+logging.getLogger("stripe").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
@@ -76,6 +79,73 @@ def _log_feature_status() -> None:
         logger.warning("Feature DISABLED: %s — related endpoints will return 501", name)
 
 
+def _validate_stripe_wiring() -> None:
+    """Check the Stripe key, price IDs, and webhook endpoint agree with each other.
+
+    A mismatch here is invisible in normal operation: checkout opens fine, the
+    customer pays, the charge lands in whichever account the API key belongs to
+    — and if the webhook endpoint was created in a *different* account, no event
+    is ever delivered and no entitlement is granted. The money arrives and the
+    user gets nothing, with no error anywhere. Verifying at boot turns that into
+    a log line. Never raises: Stripe being unreachable must not stop the app.
+    """
+    if not settings.stripe_secret_key:
+        return
+    try:
+        import stripe
+        stripe.api_key = settings.stripe_secret_key
+
+        account = stripe.Account.retrieve()
+        acct_id = account.get("id")
+        acct_name = (account.get("business_profile") or {}).get("name") or acct_id
+        logger.info("Stripe account: %s (%s)", acct_name, acct_id)
+
+        for label, price_id in (
+            ("STRIPE_PRICE_UNLOCK", settings.stripe_price_unlock),
+            ("STRIPE_PRICE_CREDITS", settings.stripe_price_credits),
+        ):
+            if not price_id:
+                continue
+            try:
+                stripe.Price.retrieve(price_id)
+            except Exception as e:
+                logger.error(
+                    "Stripe: %s (%s) does not exist in account %s — checkout will "
+                    "fail for that product. Is it from a different Stripe account?",
+                    label, price_id, acct_id,
+                )
+
+        if not settings.backend_url:
+            logger.warning("Stripe: BACKEND_URL unset — cannot verify the webhook endpoint.")
+            return
+
+        expected = settings.backend_url.rstrip("/") + "/billing/webhook"
+        endpoints = stripe.WebhookEndpoint.list(limit=100).get("data", [])
+        match = next((e for e in endpoints if (e.get("url") or "").rstrip("/") == expected), None)
+
+        if not match:
+            logger.error(
+                "Stripe: account %s has NO webhook endpoint pointing at %s. Payments "
+                "will succeed but credits/unlocks will never be granted. Create the "
+                "endpoint in THIS account (endpoints in other accounts never fire).",
+                acct_id, expected,
+            )
+        elif "checkout.session.completed" not in (match.get("enabled_events") or []) \
+                and "*" not in (match.get("enabled_events") or []):
+            logger.error(
+                "Stripe: webhook endpoint %s is not subscribed to "
+                "checkout.session.completed (subscribed: %s) — entitlements will "
+                "never be granted.", expected, match.get("enabled_events"),
+            )
+        elif match.get("status") != "enabled":
+            logger.error("Stripe: webhook endpoint %s is '%s', not enabled.", expected, match.get("status"))
+        else:
+            logger.info("Stripe webhook endpoint verified: %s", expected)
+
+    except Exception as e:
+        logger.warning("Stripe: wiring check skipped (%s)", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting GenomeChat API...")
@@ -85,6 +155,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database init failed (continuing without DB): {e}")
     _log_feature_status()
+    _validate_stripe_wiring()
     yield
     logger.info("Shutting down.")
 

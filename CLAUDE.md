@@ -43,7 +43,12 @@ npm run build
 npm run lint       # eslint (flat config, frontend/eslint.config.js)
 ```
 
-**The stale-image trap.** `docker-compose.yml` bind-mounts `.:/app`, so source edits are picked up live — but dependencies are not. `docker compose up` reuses the existing image, so after any `requirements.txt` change you get fresh code running against stale `site-packages`, and the container crash-loops on `ModuleNotFoundError` at import time. The traceback points at the import line, which makes it look like a code bug; it isn't. Rebuild with `--build`.
+**Dependency drift is guarded, not merely documented.** `docker-compose.yml` bind-mounts `.:/app`, so source edits are live but installed packages are not — they live in the image. Two mechanisms close that gap:
+
+- The Dockerfile writes the sha256 of the `requirements.txt` it installed from to `/opt/genomechat/requirements.sha256` — outside `/app`, so the bind mount cannot shadow it. [docker-entrypoint.sh](genomics_backend/docker-entrypoint.sh) compares it against the mounted file at boot and **refuses to start** on mismatch, printing the rebuild command. This replaces what used to be a `ModuleNotFoundError` traceback that read like a code bug.
+- `develop.watch` in the compose file rebuilds automatically on `requirements.txt` changes under `docker compose watch`.
+
+In production there is no bind mount, so the mounted and baked files are the same and the check is a no-op. If you add a dependency, rebuild — the container will tell you if you forget.
 
 `genomics_backend/.dockerignore` excludes env files, `.git`, and bytecode from the build context — `.gitignore` has no effect on Docker builds, and the Dockerfile does `COPY . .`. Runtime is unaffected: compose passes secrets via `env_file`, Railway injects them from its dashboard, and pydantic-settings prefers real env vars over the `.env` file.
 

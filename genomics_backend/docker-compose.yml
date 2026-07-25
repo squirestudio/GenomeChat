@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -32,6 +30,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # `docker compose watch` rebuilds automatically when dependencies change.
+    # Source is already live via the bind mount above, so only the rebuild
+    # trigger is needed here. If you use plain `up` instead, the entrypoint's
+    # checksum guard catches the same drift and refuses to start.
+    develop:
+      watch:
+        - action: rebuild
+          path: requirements.txt
 
   pgadmin:
     image: dpage/pgadmin4:latest

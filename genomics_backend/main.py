@@ -161,6 +161,10 @@ def _validate_stripe_wiring() -> None:
     # Test-mode allowlist — reported explicitly because it means specific
     # accounts get free entitlements on a live deployment, which should never
     # be a surprise.
+    unlimited = settings.unlimited_access_emails()
+    if unlimited:
+        logger.info("Unlimited-access allowlist active for: %s", ", ".join(sorted(unlimited)))
+
     emails = settings.test_mode_emails()
     if emails and settings.test_mode_configured():
         logger.info("Stripe TEST-MODE allowlist active for: %s", ", ".join(sorted(emails)))

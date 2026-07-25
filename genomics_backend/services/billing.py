@@ -26,6 +26,19 @@ def is_test_mode_user(user) -> bool:
     return user.email.strip().lower() in settings.test_mode_emails()
 
 
+def is_unlimited_user(user) -> bool:
+    """True if this account bypasses the query quota by configuration.
+
+    Independent of the Stripe test-mode list on purpose: an account that never
+    hits the paywall cannot exercise the purchase flow, so being able to turn
+    one off without the other is the point.
+    """
+    settings = get_settings()
+    if not user or not getattr(user, "email", None):
+        return False
+    return user.email.strip().lower() in settings.unlimited_access_emails()
+
+
 def stripe_credentials_for(test_mode: bool) -> tuple[str, str, str]:
     """(secret_key, price_unlock, price_credits) for the requested mode."""
     s = get_settings()
@@ -87,6 +100,8 @@ def user_can_query(user, has_working_key: bool = False) -> tuple[bool, str]:
     key as BYOK grants unlimited queries while the request falls back to the
     shared server key — i.e. the operator pays for them.
     """
+    if is_unlimited_user(user):
+        return True, "unlimited"
     if has_working_key:
         return True, "byok"
     if user.byok_unlocked:
@@ -104,8 +119,10 @@ def consume_query(user, db, has_working_key: bool = False):
     Same rule as user_can_query: only a key that actually decrypted exempts the
     user from spending credits.
     """
+    # total_queries still increments for allowlisted accounts — it is the usage
+    # record, not the quota — but their credits are never spent.
     user.total_queries = (user.total_queries or 0) + 1
-    if not user.byok_unlocked and not has_working_key:
+    if not user.byok_unlocked and not has_working_key and not is_unlimited_user(user):
         if (user.query_credits or 0) > 0:
             user.query_credits -= 1
     db.commit()

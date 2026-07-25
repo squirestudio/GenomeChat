@@ -50,8 +50,18 @@ class Settings(BaseSettings):
     stripe_test_price_unlock: str = ""
     stripe_test_price_credits: str = ""
 
+    # Accounts that bypass the query quota entirely — your own team, without
+    # buying credits or storing a key. Deliberately separate from
+    # stripe_test_emails: an account that never hits the paywall can never
+    # exercise the purchase flow, so the two lists must be independently
+    # toggleable. Empty = nobody.
+    unlimited_emails: str = ""              # comma-separated
+
     def test_mode_emails(self) -> set[str]:
         return {e.strip().lower() for e in self.stripe_test_emails.split(",") if e.strip()}
+
+    def unlimited_access_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.unlimited_emails.split(",") if e.strip()}
 
     def test_mode_configured(self) -> bool:
         return bool(

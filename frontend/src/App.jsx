@@ -979,6 +979,7 @@ async function startCheckout(type, onError) {
 /** Single source of truth for how a user's plan is described across the UI. */
 function getPlan(user) {
   if (!user) return { kind: "anon", label: "Not signed in", short: "Sign in", color: "#64748b" };
+  if (user.unlimited_access) return { kind: "unlocked", label: "Unlimited access (allowlisted)", short: "Unlimited", color: "#34d399" };
   if (user.byok_unlocked) return { kind: "unlocked", label: "Unlimited access", short: "Unlimited", color: "#34d399" };
   if (user.has_stored_key) return { kind: "byok", label: "Using your own API key", short: "Own key", color: "#34d399" };
   const credits = user.query_credits || 0;

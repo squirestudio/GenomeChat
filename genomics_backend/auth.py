@@ -168,7 +168,7 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
     """Return current user info, or null if not authenticated."""
     if not user:
         return {"user": None}
-    from services.billing import FREE_QUERY_LIMIT, is_test_mode_user
+    from services.billing import FREE_QUERY_LIMIT, is_test_mode_user, is_unlimited_user
     from services.encryption import try_decrypt_key
     # Reports whether the stored key actually works, not just that a row exists.
     # A user whose key cannot be decrypted is not on BYOK, and the UI must not
@@ -188,6 +188,8 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
         # Drives the visible TEST MODE badge so an allowlisted account can never
         # mistake a 4242 purchase for a real one.
         "stripe_test_mode": is_test_mode_user(user),
+        # Quota bypassed by configuration rather than by purchase.
+        "unlimited_access": is_unlimited_user(user),
     }}
 
 

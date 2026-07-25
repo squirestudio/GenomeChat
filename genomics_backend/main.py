@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
@@ -13,7 +14,7 @@ from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline
 from services.ai_explainer import explain_results, explain_comparison, answer_followup
 from services.cache import cache
-from database.models import create_tables, get_db, Query as QueryModel
+from database.models import create_tables, get_db, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, FREE_QUERY_LIMIT, CREDITS_PER_PACK
@@ -433,19 +434,44 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    event_id = event.get("id")
+
+    # Stripe delivers at-least-once: it retries failures for up to 3 days, and
+    # events can be resent by hand. Claim the event id first — the primary key
+    # turns a replay into a no-op rather than a second helping of credits.
+    if event_id:
+        try:
+            db.add(ProcessedStripeEvent(event_id=event_id, event_type=event.get("type")))
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            logger.info("Stripe event %s already processed — ignoring replay", event_id)
+            return {"received": True, "duplicate": True}
+
     if event["type"] == "checkout.session.completed":
         meta = event["data"]["object"].get("metadata", {})
         user_id = int(meta.get("user_id", 0))
         purchase_type = meta.get("purchase_type", "")
         user = db.query(User).filter(User.id == user_id).first()
-        if user:
-            if purchase_type == "unlock":
-                user.byok_unlocked = True
-                logger.info(f"User {user_id} unlocked unlimited access")
-            elif purchase_type == "credits":
-                user.query_credits = (user.query_credits or 0) + CREDITS_PER_PACK
-                logger.info(f"User {user_id} purchased {CREDITS_PER_PACK} credits")
-            db.commit()
+        if not user:
+            # Nothing to grant, but the money moved — this needs a human.
+            logger.error(
+                "Stripe event %s paid but no user matched metadata %s — entitlement NOT granted",
+                event_id, dict(meta),
+            )
+            return {"received": True}
+        if purchase_type == "unlock":
+            user.byok_unlocked = True
+            logger.info(f"User {user_id} unlocked unlimited access")
+        elif purchase_type == "credits":
+            user.query_credits = (user.query_credits or 0) + CREDITS_PER_PACK
+            logger.info(f"User {user_id} purchased {CREDITS_PER_PACK} credits")
+        else:
+            logger.error(
+                "Stripe event %s has unrecognized purchase_type %r — nothing granted",
+                event_id, purchase_type,
+            )
+        db.commit()
     return {"received": True}
 
 

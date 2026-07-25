@@ -74,6 +74,22 @@ class Query(Base):
     project = relationship("Project", back_populates="queries")
 
 
+class ProcessedStripeEvent(Base):
+    """Ledger of Stripe event ids already applied.
+
+    Stripe guarantees at-least-once delivery, not exactly-once: it retries
+    failed deliveries for up to 3 days, and events can be resent by hand. The
+    entitlement grants are additive (query_credits += N), so replaying one
+    event would hand out the credits again for a single payment. The primary
+    key makes a second apply impossible.
+    """
+    __tablename__ = "processed_stripe_events"
+
+    event_id = Column(String(255), primary_key=True)
+    event_type = Column(String(100))
+    processed_at = Column(DateTime, default=datetime.utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

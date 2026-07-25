@@ -119,6 +119,14 @@ Anthropic API key resolution order in `/chat`: request body → user's server-st
 
 Stripe: `/billing/checkout` creates a session carrying `user_id` + `purchase_type` in metadata; `/billing/webhook` reads that metadata back to grant either `byok_unlocked` (one-time unlimited) or `query_credits`. The webhook is the only place entitlements are granted.
 
+**The webhook must be idempotent.** Stripe delivers at-least-once — it retries failures for up to 3 days and events can be resent by hand. The grants are additive, so each event id is claimed in `processed_stripe_events` *before* anything is applied; a replay hits the primary key and returns `200 {"duplicate": true}` so Stripe stops retrying. Never apply an entitlement without claiming the id first.
+
+**Webhook endpoints are per-account and per-URL, and a mismatch is silent.** A destination registered in a different Stripe account than `STRIPE_SECRET_KEY` belongs to — or at the right host but the wrong path — produces no error anywhere: checkout opens, the customer pays, the charge lands, and no event is ever delivered. Both happened in practice. `_validate_stripe_wiring()` runs at boot and checks that the key's account contains both price IDs and an enabled endpoint at `BACKEND_URL + /billing/webhook` subscribed to `checkout.session.completed`. Watch for `Stripe webhook endpoint verified:` in the deploy log; an ERROR there means payments will succeed while entitlements silently never land.
+
+Two related traps: price IDs are also per-account and per-mode, so a live key with test-mode prices fails at checkout; and `FRONTEND_URL` builds the post-payment redirect, so if it points at localhost in production the webhook still works but the customer lands nowhere.
+
+**Never report a purchase as successful from the redirect alone.** `?payment=success` only means Stripe redirected — the frontend polls `/auth/me` until the entitlement actually appears, and says so plainly if it never does.
+
 Optional features (OAuth, Stripe, stored API keys, the shared Claude key) degrade to 501s when unconfigured. `_log_feature_status()` runs in the lifespan and logs each one as enabled or DISABLED at boot, so a misconfigured deploy is visible in the deploy log rather than discovered by a user hitting a dead button. Add new optional config to that list.
 
 ### Schema migrations

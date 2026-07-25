@@ -169,6 +169,11 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
     if not user:
         return {"user": None}
     from services.billing import FREE_QUERY_LIMIT
+    from services.encryption import try_decrypt_key
+    # Reports whether the stored key actually works, not just that a row exists.
+    # A user whose key cannot be decrypted is not on BYOK, and the UI must not
+    # tell them they are.
+    has_working_key = try_decrypt_key(user.encrypted_api_key) is not None
     return {"user": {
         "id": user.id,
         "email": user.email,
@@ -177,7 +182,9 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
         "query_credits": user.query_credits or 0,
         "total_queries": user.total_queries or 0,
         "free_limit": FREE_QUERY_LIMIT,
-        "has_stored_key": bool(user.encrypted_api_key),
+        "has_stored_key": has_working_key,
+        # True only when a key is stored but unusable — prompts re-entry.
+        "stored_key_unusable": bool(user.encrypted_api_key) and not has_working_key,
     }}
 
 

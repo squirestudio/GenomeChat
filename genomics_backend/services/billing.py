@@ -32,9 +32,15 @@ def verify_webhook(payload: bytes, sig_header: str) -> dict:
     return stripe.Webhook.construct_event(payload, sig_header, settings.stripe_webhook_secret)
 
 
-def user_can_query(user) -> tuple[bool, str]:
-    """Returns (allowed, reason). reason is 'free'|'credits'|'unlocked'|'byok'|'blocked'."""
-    if user.encrypted_api_key:
+def user_can_query(user, has_working_key: bool = False) -> tuple[bool, str]:
+    """Returns (allowed, reason). reason is 'free'|'credits'|'unlocked'|'byok'|'blocked'.
+
+    `has_working_key` must reflect a key that actually decrypted, not merely the
+    presence of a non-null encrypted_api_key column. Treating an undecryptable
+    key as BYOK grants unlimited queries while the request falls back to the
+    shared server key — i.e. the operator pays for them.
+    """
+    if has_working_key:
         return True, "byok"
     if user.byok_unlocked:
         return True, "unlocked"
@@ -45,10 +51,14 @@ def user_can_query(user) -> tuple[bool, str]:
     return False, "blocked"
 
 
-def consume_query(user, db):
-    """Increment counters after a successful query. Call inside an open db session."""
+def consume_query(user, db, has_working_key: bool = False):
+    """Increment counters after a successful query. Call inside an open db session.
+
+    Same rule as user_can_query: only a key that actually decrypted exempts the
+    user from spending credits.
+    """
     user.total_queries = (user.total_queries or 0) + 1
-    if not user.byok_unlocked and not user.encrypted_api_key:
+    if not user.byok_unlocked and not has_working_key:
         if (user.query_credits or 0) > 0:
             user.query_credits -= 1
     db.commit()

@@ -115,7 +115,11 @@ Two patterns to avoid, both of which were live bugs:
 
 Anthropic API key resolution order in `/chat`: request body → user's server-stored encrypted key → shared server key. Stored user keys are Fernet-encrypted ([services/encryption.py](genomics_backend/services/encryption.py)) with `ENCRYPTION_KEY` and are never returned to the frontend — `/auth/me` exposes only a `has_stored_key` boolean.
 
+**A stored key only counts as BYOK if it actually decrypts.** `user_can_query()` and `consume_query()` take an explicit `has_working_key`, resolved once in `/chat` before the quota check, and `/auth/me` reports usability rather than mere presence. Never reintroduce a presence-only test like `if user.encrypted_api_key` — that was a live billing hole: a non-null but undecryptable key (rotated `ENCRYPTION_KEY`, corrupted ciphertext) granted unlimited queries while the request silently fell back to the *shared server key*, so the operator paid for them. `try_decrypt_key()` returns `None` on any failure and logs at ERROR; callers must treat `None` as "no key", never as "proceed on the shared key with BYOK privileges".
+
 Stripe: `/billing/checkout` creates a session carrying `user_id` + `purchase_type` in metadata; `/billing/webhook` reads that metadata back to grant either `byok_unlocked` (one-time unlimited) or `query_credits`. The webhook is the only place entitlements are granted.
+
+Optional features (OAuth, Stripe, stored API keys, the shared Claude key) degrade to 501s when unconfigured. `_log_feature_status()` runs in the lifespan and logs each one as enabled or DISABLED at boot, so a misconfigured deploy is visible in the deploy log rather than discovered by a user hitting a dead button. Add new optional config to that list.
 
 ### Schema migrations
 

@@ -17,7 +17,7 @@ from database.models import create_tables, get_db, Query as QueryModel
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, FREE_QUERY_LIMIT, CREDITS_PER_PACK
-from services.encryption import encrypt_key, decrypt_key
+from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +51,31 @@ class ChatResponse(BaseModel):
     cached: bool = False
 
 
+def _log_feature_status() -> None:
+    """Report which optional features are live, at boot rather than on first use.
+
+    Each of these degrades quietly — a missing key surfaces as a 501 or a
+    disabled button that nobody notices until a user hits it. Saying so once at
+    startup makes a misconfigured deploy visible in the deploy log.
+    """
+    from services.encryption import is_configured as _enc_ok
+
+    checks = [
+        ("Claude API (shared server key)", bool(settings.anthropic_api_key)),
+        ("Google OAuth sign-in", bool(settings.google_client_id and settings.google_client_secret)),
+        ("Stripe billing", bool(settings.stripe_secret_key and settings.stripe_webhook_secret)),
+        ("Stripe price IDs", bool(settings.stripe_price_unlock and settings.stripe_price_credits)),
+        ("Stored user API keys (ENCRYPTION_KEY)", _enc_ok()),
+    ]
+    enabled = [name for name, ok in checks if ok]
+    disabled = [name for name, ok in checks if not ok]
+
+    for name in enabled:
+        logger.info("Feature enabled:  %s", name)
+    for name in disabled:
+        logger.warning("Feature DISABLED: %s — related endpoints will return 501", name)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting GenomeChat API...")
@@ -59,6 +84,7 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables created/verified.")
     except Exception as e:
         logger.warning(f"Database init failed (continuing without DB): {e}")
+    _log_feature_status()
     yield
     logger.info("Shutting down.")
 
@@ -104,24 +130,31 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     """
     history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
 
+    # Resolve API key first: request body → server-stored → shared server key.
+    # This has to happen before the quota check, because "is this user on their
+    # own key?" is what decides whether the quota applies at all. A stored key
+    # that fails to decrypt counts as no key — try_decrypt_key logs the reason.
+    user_api_key = request.user_api_key
+    if not user_api_key and current_user:
+        user_api_key = try_decrypt_key(current_user.encrypted_api_key)
+    # Only a user-supplied key exempts from quota; the shared server key does not.
+    has_working_key = bool(user_api_key)
+
     # Enforce query limit for authenticated users
     if current_user:
-        allowed, reason = user_can_query(current_user)
+        allowed, reason = user_can_query(current_user, has_working_key=has_working_key)
         if not allowed:
             raise HTTPException(status_code=402, detail={
                 "upgrade_required": True,
                 "total_queries": current_user.total_queries or 0,
                 "query_credits": current_user.query_credits or 0,
                 "free_limit": FREE_QUERY_LIMIT,
+                # Set when the user believes they are on BYOK but their stored
+                # key is unusable, so the UI can prompt a re-entry.
+                "stored_key_unusable": bool(
+                    current_user.encrypted_api_key and not has_working_key
+                ),
             })
-
-    # Resolve API key: request body → server-stored → shared server key
-    user_api_key = request.user_api_key
-    if not user_api_key and current_user and current_user.encrypted_api_key:
-        try:
-            user_api_key = decrypt_key(current_user.encrypted_api_key)
-        except Exception:
-            pass
 
     # Check cache
     cached = cache.get(request.message)
@@ -134,7 +167,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     if interpreted.query_type == QueryType.UNKNOWN:
         content = await answer_followup(request.message, history_dicts, personal_variants=request.personal_variants, response_detail=request.response_detail, user_api_key=user_api_key)
         if current_user:
-            consume_query(current_user, db)
+            consume_query(current_user, db, has_working_key=has_working_key)
         return ChatResponse(content=content)
 
     # Fetch genomics data
@@ -195,7 +228,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
 
     # Count the query against the user's limit
     if current_user:
-        consume_query(current_user, db)
+        consume_query(current_user, db, has_working_key=has_working_key)
 
     # Save to DB — store full response so history can replay it
     query_id = None
@@ -356,8 +389,9 @@ async def save_user_api_key(body: ApiKeyRequest, current_user: User = Depends(re
     key = body.api_key.strip()
     if not key or not key.startswith("sk-"):
         raise HTTPException(status_code=400, detail="Invalid API key format")
-    settings = get_settings()
-    if not settings.encryption_key:
+    # Checks the key is actually usable, not merely non-empty — a malformed
+    # ENCRYPTION_KEY would otherwise pass here and fail inside encrypt_key().
+    if not encryption_is_configured():
         raise HTTPException(status_code=501, detail="Key storage not configured — set ENCRYPTION_KEY")
     current_user.encrypted_api_key = encrypt_key(key)
     db.commit()

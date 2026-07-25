@@ -19,7 +19,7 @@ Two independently deployed apps in one repo:
 - `genomics_backend/` — FastAPI + SQLAlchemy + PostgreSQL. Deploys to Railway via `Dockerfile` (`railway.toml` sets healthcheck `/health`).
 - `frontend/` — React 19 + Vite 8 + Tailwind 4. Deploys to Vercel via `frontend/vercel.json` (SPA rewrite to `index.html`).
 
-`genomics_integrated_frontend_fixed.jsx` at the repo root is a superseded standalone prototype — nothing imports it. `frontend/README.md` is untouched Vite boilerplate. The root `package.json` only carries stray Tailwind devDeps; the real frontend manifest is `frontend/package.json`.
+`frontend/README.md` is untouched Vite boilerplate. The root `package.json` only carries stray Tailwind devDeps; the real frontend manifest is `frontend/package.json`.
 
 ## Commands
 

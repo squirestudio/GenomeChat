@@ -12,7 +12,17 @@ class Settings(BaseSettings):
     # No "*" here: the CORS middleware runs with allow_credentials=True, and a
     # wildcard in that mode makes Starlette echo back whatever Origin it is
     # given. Add real deploy origins via the CORS_ORIGINS env var.
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3333", "http://localhost:5173", "http://localhost:5174", "https://genomechat.vercel.app"]
+    #
+    # Every browser-facing origin must be listed explicitly, including both the
+    # apex and www forms of a custom domain — a visitor on the wrong one gets a
+    # site that loads but whose every API call is blocked by CORS. The old
+    # vercel.app origin stays so existing links keep working.
+    cors_origins: list[str] = [
+        "http://localhost:3000", "http://localhost:3333",
+        "http://localhost:5173", "http://localhost:5174",
+        "https://genomechat.vercel.app",
+        "https://mydna.chat", "https://www.mydna.chat",
+    ]
     cache_ttl_hours: int = 24
     cache_max_size: int = 1000
     request_timeout: int = 30

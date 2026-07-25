@@ -96,10 +96,13 @@ def _validate_stripe_wiring() -> None:
         import stripe
         stripe.api_key = settings.stripe_secret_key
 
+        mode = "TEST" if settings.stripe_secret_key.startswith("sk_test_") else "LIVE"
         account = stripe.Account.retrieve()
         acct_id = account.get("id")
         acct_name = (account.get("business_profile") or {}).get("name") or acct_id
-        logger.info("Stripe account: %s (%s)", acct_name, acct_id)
+        # Mode is worth stating outright: a deploy silently running test keys
+        # takes fake cards, and a dev box on live keys takes real ones.
+        logger.info("Stripe account: %s (%s) — %s MODE", acct_name, acct_id, mode)
 
         for label, price_id in (
             ("STRIPE_PRICE_UNLOCK", settings.stripe_price_unlock),
@@ -124,7 +127,16 @@ def _validate_stripe_wiring() -> None:
         endpoints = stripe.WebhookEndpoint.list(limit=100).get("data", [])
         match = next((e for e in endpoints if (e.get("url") or "").rstrip("/") == expected), None)
 
-        if not match:
+        # `stripe listen` forwards over its own channel instead of registering an
+        # endpoint, so a local URL having no match is the normal dev setup.
+        is_local = expected.startswith(("http://localhost", "http://127.0.0.1", "https://localhost"))
+
+        if not match and is_local:
+            logger.info(
+                "Stripe: no registered endpoint for %s — expected locally. Run: "
+                "stripe listen --forward-to localhost:8000/billing/webhook", expected,
+            )
+        elif not match:
             logger.error(
                 "Stripe: account %s has NO webhook endpoint pointing at %s. Payments "
                 "will succeed but credits/unlocks will never be granted. Create the "

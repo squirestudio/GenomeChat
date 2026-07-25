@@ -600,22 +600,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
               onChange={v => set("defaultSort", v)} />
           </Section>
 
-          <Section label="Usage">
-            {currentUser?.byok_unlocked ? (
-              <p style={{ fontSize: "0.72rem", color: "#34d399", margin: 0 }}>✓ Unlimited access</p>
-            ) : currentUser?.query_credits > 0 ? (
-              <p style={{ fontSize: "0.72rem", color: "#cbd5e1", margin: 0 }}>{currentUser.query_credits} purchased credits remaining</p>
-            ) : (
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                  <span style={{ fontSize: "0.72rem", color: "#64748b" }}>{currentUser?.total_queries || 0} of {currentUser?.free_limit || 20} free queries used</span>
-                </div>
-                <div style={{ height: 4, background: "rgba(51,65,85,0.4)", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 2, background: "linear-gradient(90deg,#0ea5e9,#7c3aed)", width: `${Math.min(100, ((currentUser?.total_queries || 0) / (currentUser?.free_limit || 20)) * 100)}%`, transition: "width 0.3s" }} />
-                </div>
-              </div>
-            )}
-          </Section>
+          <PlanSection currentUser={currentUser} />
 
           <Section label="Your Anthropic API Key" hint="Use your own key — bypasses the query limit. Stored encrypted on your account.">
             {currentUser?.has_stored_key ? (
@@ -662,6 +647,87 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
   );
 }
 
+/** Purchase buttons — rendered anywhere a user might want to buy, not only at the paywall. */
+function PurchaseOptions({ compact }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  const buy = async (type) => {
+    setError(null);
+    setBusy(type);
+    await startCheckout(type, (msg) => { setError(msg); setBusy(null); });
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <button onClick={() => buy("unlock")} disabled={!!busy}
+          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "unlock" ? 0.5 : 1 }}>
+          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "#38bdf8", marginBottom: 3 }}>
+            {busy === "unlock" ? "Opening checkout…" : "🔓 Unlock Unlimited — $5 one-time"}
+          </div>
+          <div style={{ fontSize: "0.7rem", color: "#64748b" }}>Unlimited queries forever. Also enables storing your own API key.</div>
+        </button>
+        <button onClick={() => buy("credits")} disabled={!!busy}
+          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.4)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "credits" ? 0.5 : 1 }}>
+          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "#cbd5e1", marginBottom: 3 }}>
+            {busy === "credits" ? "Opening checkout…" : "⚡ Get 50 Queries — $3"}
+          </div>
+          <div style={{ fontSize: "0.7rem", color: "#64748b" }}>Top up with a one-time credit pack.</div>
+        </button>
+      </div>
+      {error && (
+        <p style={{ fontSize: "0.68rem", color: "#f87171", margin: "8px 0 0", lineHeight: 1.5 }}>{error}</p>
+      )}
+    </div>
+  );
+}
+
+/** Plan status + usage meter + purchase options. Used in Settings. */
+function PlanSection({ currentUser }) {
+  const plan = getPlan(currentUser);
+
+  if (!currentUser) {
+    return (
+      <Section label="Plan">
+        <p style={{ fontSize: "0.72rem", color: "#64748b", margin: 0, lineHeight: 1.5 }}>
+          Sign in to view your usage and purchase queries.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <>
+      <Section label="Plan & Usage">
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: plan.kind === "free" ? 7 : 0 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: plan.color, flexShrink: 0 }} />
+          <span style={{ fontSize: "0.74rem", color: plan.kind === "free" ? "#cbd5e1" : plan.color }}>{plan.label}</span>
+        </div>
+        {plan.kind === "free" && (
+          <div style={{ height: 4, background: "rgba(51,65,85,0.4)", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ height: "100%", borderRadius: 2, background: plan.left === 0 ? "#f87171" : "linear-gradient(90deg,#0ea5e9,#7c3aed)", width: `${Math.min(100, (plan.used / plan.limit) * 100)}%`, transition: "width 0.3s" }} />
+          </div>
+        )}
+        {currentUser.stored_key_unusable && (
+          <p style={{ fontSize: "0.68rem", color: "#fbbf24", margin: "8px 0 0", lineHeight: 1.5 }}>
+            Your saved API key can no longer be read — please re-enter it below.
+          </p>
+        )}
+      </Section>
+
+      <Section
+        label={plan.kind === "unlocked" ? "Add More" : "Buy Queries"}
+        hint={plan.kind === "unlocked"
+          ? "You already have unlimited access — credits aren't needed."
+          : "Purchase any time. Credits are added the moment payment completes."}
+      >
+        <PurchaseOptions compact />
+      </Section>
+    </>
+  );
+}
+
 function Section({ label, hint, children }) {
   return (
     <div style={{ marginBottom: "1.5rem" }}>
@@ -696,44 +762,57 @@ function SignInGateModal({ onClose }) {
 
 // ─── Upgrade / Billing Modal ──────────────────────────────────────────────────
 
-function UpgradeModal({ currentUser, onClose, onOpenSettings }) {
-  const startCheckout = async (type) => {
-    try {
-      const r = await apiFetch("/billing/checkout", { method: "POST", body: JSON.stringify({ type }) });
-      const { url } = await r.json();
-      window.location.href = url;
-    } catch {
-      alert("Could not start checkout. Please try again.");
-    }
-  };
+/** Always-visible plan chip. Clicking it opens the purchase flow. */
+function PlanBadge({ currentUser, onClick, mobile }) {
+  if (!currentUser) return null;
+  const plan = getPlan(currentUser);
+  const interactive = plan.kind === "free" || plan.kind === "credits";
+  const border = plan.kind === "free" && plan.left === 0 ? "rgba(248,113,113,0.45)" : "rgba(51,65,85,0.4)";
 
+  return (
+    <button
+      onClick={onClick}
+      title={interactive ? `${plan.label} — click to buy more` : plan.label}
+      style={{
+        display: "flex", alignItems: "center", gap: 5,
+        fontSize: mobile ? "0.66rem" : "0.72rem", color: plan.color,
+        background: "rgba(30,41,59,0.6)", border: `1px solid ${border}`,
+        borderRadius: 8, padding: mobile ? "0.22rem 0.45rem" : "0.3rem 0.6rem",
+        cursor: "pointer", whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: plan.color, flexShrink: 0 }} />
+      {plan.short}
+      {interactive && <span style={{ color: "#475569", fontSize: "0.9em" }}>+</span>}
+    </button>
+  );
+}
+
+function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
+  const plan = getPlan(currentUser);
   const used = currentUser?.total_queries || 0;
   const limit = currentUser?.free_limit || 20;
   const credits = currentUser?.query_credits || 0;
+
+  // Reached either by hitting the limit (blocked) or by choosing to buy early.
+  const title = blocked ? "You've used your free queries" : "Buy queries";
 
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)" }} />
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "#0d1424", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 16, padding: "2rem", width: 380, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>You've used your free queries</h2>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>{title}</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
         <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 0.5rem", lineHeight: 1.6 }}>
-          You've used {used} of {limit} free queries{credits > 0 ? ` — ${credits} purchased credits remaining` : ""}. Choose how to continue:
+          {plan.kind === "unlocked"
+            ? "You already have unlimited access."
+            : `You've used ${used} of ${limit} free queries${credits > 0 ? ` — ${credits} purchased credits remaining` : ""}. Choose how to continue:`}
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, margin: "1.25rem 0" }}>
-          <button onClick={() => startCheckout("unlock")}
-            style={{ padding: "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: "pointer", textAlign: "left" }}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#38bdf8", marginBottom: 3 }}>🔓 Unlock Unlimited — $5 one-time</div>
-            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Unlimited queries forever. Also enables storing your own API key.</div>
-          </button>
-          <button onClick={() => startCheckout("credits")}
-            style={{ padding: "0.8rem 1rem", borderRadius: 10, background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.4)", cursor: "pointer", textAlign: "left" }}>
-            <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#cbd5e1", marginBottom: 3 }}>⚡ Get 50 Queries — $3</div>
-            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>Top up with a one-time credit pack.</div>
-          </button>
+        <div style={{ margin: "1.25rem 0" }}>
+          <PurchaseOptions />
         </div>
 
         <p style={{ fontSize: "0.7rem", color: "#334155", margin: 0, lineHeight: 1.5 }}>
@@ -861,6 +940,49 @@ const apiFetch = (path, opts = {}) => fetch(`${API}${path}`, {
   ...opts,
   headers: { "Content-Type": "application/json", ...authHeaders(), ...(opts.headers || {}) },
 });
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+
+// Shared by every purchase entry point. Reports failures through onError rather
+// than navigating: a non-ok response has no `url`, and assigning undefined to
+// window.location.href sends the browser to a broken page instead of surfacing
+// the problem (which is what a 501 from an unconfigured Stripe used to do).
+async function startCheckout(type, onError) {
+  const fail = (m) => (onError ? onError(m) : alert(m));
+  let r;
+  try {
+    r = await apiFetch("/billing/checkout", { method: "POST", body: JSON.stringify({ type }) });
+  } catch {
+    return fail("Couldn't reach the server. Check your connection and try again.");
+  }
+  if (!r.ok) {
+    if (r.status === 401) return fail("Please sign in before purchasing.");
+    if (r.status === 501) return fail("Payments aren't set up on the server yet.");
+    return fail("Couldn't start checkout. Please try again.");
+  }
+  const { url } = await r.json().catch(() => ({}));
+  if (!url) return fail("Checkout session came back without a URL.");
+  window.location.href = url;
+}
+
+/** Single source of truth for how a user's plan is described across the UI. */
+function getPlan(user) {
+  if (!user) return { kind: "anon", label: "Not signed in", short: "Sign in", color: "#64748b" };
+  if (user.byok_unlocked) return { kind: "unlocked", label: "Unlimited access", short: "Unlimited", color: "#34d399" };
+  if (user.has_stored_key) return { kind: "byok", label: "Using your own API key", short: "Own key", color: "#34d399" };
+  const credits = user.query_credits || 0;
+  if (credits > 0) return { kind: "credits", label: `${credits} purchased credits remaining`, short: `${credits} credits`, color: "#38bdf8", credits };
+  const used = user.total_queries || 0;
+  const limit = user.free_limit || 20;
+  const left = Math.max(0, limit - used);
+  return {
+    kind: "free",
+    label: `${used} of ${limit} free queries used`,
+    short: `${left} left`,
+    color: left === 0 ? "#f87171" : left <= 3 ? "#fbbf24" : "#64748b",
+    used, limit, left,
+  };
+}
 
 const SUGGESTIONS = [
   { label: "BRCA1 pathogenic variants", icon: "🧬" },
@@ -2598,7 +2720,7 @@ export default function App() {
       if (r.status === 402) {
         const errData = await r.json();
         setMessages(prev => prev.slice(0, -1)); // remove the optimistic user message
-        setShowUpgrade(true);
+        setShowUpgrade("blocked");
         return;
       }
 
@@ -2986,7 +3108,7 @@ export default function App() {
       <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
         {showSignInGate && <SignInGateModal onClose={() => setShowSignInGate(false)} />}
-        {showUpgrade && <UpgradeModal currentUser={currentUser} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
+        {showUpgrade && <UpgradeModal currentUser={currentUser} blocked={showUpgrade === "blocked"} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
         {paymentToast && (
           <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: "#0f3a20", border: "1px solid rgba(52,211,153,0.4)", borderRadius: 10, padding: "0.75rem 1.25rem", color: "#34d399", fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
             {paymentToast === "success_unlock" ? "🔓 Unlimited access unlocked! Welcome to GenomeChat Pro." : "⚡ 50 query credits added to your account."}
@@ -3043,6 +3165,7 @@ export default function App() {
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                   <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
                 </div>
+                <PlanBadge currentUser={currentUser} onClick={() => setShowUpgrade("buy")} />
                 {currentUser ? (
                   <div style={{ position: "relative" }}>
                     {showUserMenu && <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />}
@@ -3082,6 +3205,7 @@ export default function App() {
               {/* Mobile-only: user avatar on right of title row */}
               <div className="gc-header-actions-mobile" style={{ display: "none", alignItems: "center", gap: 8 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
+                <PlanBadge currentUser={currentUser} onClick={() => setShowUpgrade("buy")} mobile />
                 {currentUser ? (
                   <div style={{ position: "relative" }}>
                     {showUserMenu && <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />}

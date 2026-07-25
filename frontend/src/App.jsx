@@ -2589,18 +2589,49 @@ export default function App() {
     const shareToken = params.get("share");
     if (shareToken) loadSharedQuery(shareToken);
 
-    // Handle Stripe payment return
+    // Handle Stripe payment return.
+    // ?payment=success only means Stripe redirected us — it says nothing about
+    // whether the webhook ran and actually granted anything. Confirm against
+    // the server before claiming success, otherwise a failed webhook shows a
+    // cheerful "credits added" over an unchanged balance.
     const paymentStatus = params.get("payment");
     const paymentType = params.get("type");
-    if (paymentStatus === "success") {
-      setPaymentToast(paymentType === "unlock" ? "success_unlock" : "success_credits");
-      setTimeout(() => setPaymentToast(null), 6000);
-      window.history.replaceState({}, "", window.location.pathname);
-    }
+    const isPaymentReturn = paymentStatus === "success";
+    if (paymentStatus) window.history.replaceState({}, "", window.location.pathname);
 
     checkHealth();
-    fetchMe().then(() => { loadProjects(); loadChatHistory(); });
+    fetchMe().then((user) => {
+      loadProjects();
+      loadChatHistory();
+      if (isPaymentReturn) confirmPurchase(user, paymentType);
+    });
   }, []);
+
+  /**
+   * Poll /auth/me until the entitlement actually appears, then report honestly.
+   * Stripe delivers the webhook out-of-band, so a short delay is normal; a
+   * lasting absence means the webhook failed and the user must not be told
+   * their purchase succeeded.
+   */
+  const confirmPurchase = async (user, type) => {
+    const granted = (u) => (type === "unlock" ? !!u?.byok_unlocked : (u?.query_credits || 0) > 0);
+    if (granted(user)) {
+      setPaymentToast(type === "unlock" ? "success_unlock" : "success_credits");
+      setTimeout(() => setPaymentToast(null), 6000);
+      return;
+    }
+    setPaymentToast("pending");
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const fresh = await fetchMe();
+      if (granted(fresh)) {
+        setPaymentToast(type === "unlock" ? "success_unlock" : "success_credits");
+        setTimeout(() => setPaymentToast(null), 6000);
+        return;
+      }
+    }
+    setPaymentToast("failed");
+  };
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
   const checkHealth = async () => {
@@ -2617,8 +2648,10 @@ export default function App() {
         if (user) {
           try { localStorage.removeItem(ANON_QUERY_KEY); } catch {}
         }
+        return user;
       }
-    } catch {}
+    } catch { /* offline — caller treats as no change */ }
+    return null;
   };
 
   const loadProjects = async () => {
@@ -3109,11 +3142,26 @@ export default function App() {
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
         {showSignInGate && <SignInGateModal onClose={() => setShowSignInGate(false)} />}
         {showUpgrade && <UpgradeModal currentUser={currentUser} blocked={showUpgrade === "blocked"} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
-        {paymentToast && (
-          <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: "#0f3a20", border: "1px solid rgba(52,211,153,0.4)", borderRadius: 10, padding: "0.75rem 1.25rem", color: "#34d399", fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
-            {paymentToast === "success_unlock" ? "🔓 Unlimited access unlocked! Welcome to GenomeChat Pro." : "⚡ 50 query credits added to your account."}
-          </div>
-        )}
+        {paymentToast && (() => {
+          const tone = paymentToast === "failed"
+            ? { bg: "#3a1616", border: "rgba(248,113,113,0.45)", fg: "#f87171" }
+            : paymentToast === "pending"
+            ? { bg: "#1e293b", border: "rgba(148,163,184,0.35)", fg: "#cbd5e1" }
+            : { bg: "#0f3a20", border: "rgba(52,211,153,0.4)", fg: "#34d399" };
+          const text = paymentToast === "success_unlock"
+            ? "🔓 Unlimited access unlocked! Welcome to GenomeChat Pro."
+            : paymentToast === "success_credits"
+            ? "⚡ 50 query credits added to your account."
+            : paymentToast === "pending"
+            ? "Payment received — confirming with our server…"
+            : "Payment received, but your account hasn't updated yet. Nothing was lost — contact support and we'll apply it.";
+          return (
+            <div onClick={() => setPaymentToast(null)}
+              style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: tone.bg, border: `1px solid ${tone.border}`, borderRadius: 10, padding: "0.75rem 1.25rem", color: tone.fg, fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxWidth: "min(92vw, 460px)", textAlign: "center", cursor: "pointer", lineHeight: 1.5 }}>
+              {text}
+            </div>
+          );
+        })()}
         {sidebarOpen && <div className="gc-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
         <Sidebar
           projects={projects} activeProjectId={activeProjectId}

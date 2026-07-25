@@ -43,6 +43,10 @@ npm run build
 npm run lint       # eslint (flat config, frontend/eslint.config.js)
 ```
 
+**`restart` does not reload `.env`.** Compose reads `env_file` when it *creates* a container, so `docker compose restart` reuses the environment the container was born with. Editing `.env` and restarting looks like it worked and silently changes nothing — the same shape as the dependency trap below, and it is why a container kept reporting `LIVE MODE` after `.env` had been switched to test keys. Use `docker compose up -d` to recreate. The startup feature/Stripe lines are the tell: if they don't reflect your edit, the environment didn't reload.
+
+**Local development uses Stripe test keys; Railway uses live.** `scripts/setup_stripe_test.py` mirrors the live products into test mode and prints the `.env` lines (it refuses to run against an `sk_live_` key). `stripe listen --print-secret` supplies `STRIPE_WEBHOOK_SECRET`, and `stripe listen --forward-to localhost:8000/billing/webhook` forwards real events to the local container. Set `BACKEND_URL=http://localhost:8000` locally so the endpoint check knows not to expect a registered endpoint. `.env.live-backup` holds the live values — `cp .env.live-backup .env` switches back. Watch the boot line: `LIVE MODE` on a dev box means checkout charges a real card, and `TEST MODE` on Railway means production is quietly refusing real ones.
+
 **Dependency drift is guarded, not merely documented.** `docker-compose.yml` bind-mounts `.:/app`, so source edits are live but installed packages are not — they live in the image. Two mechanisms close that gap:
 
 - The Dockerfile writes the sha256 of the `requirements.txt` it installed from to `/opt/genomechat/requirements.sha256` — outside `/app`, so the bind mount cannot shadow it. [docker-entrypoint.sh](genomics_backend/docker-entrypoint.sh) compares it against the mounted file at boot and **refuses to start** on mismatch, printing the rebuild command. This replaces what used to be a `ModuleNotFoundError` traceback that read like a code bug.

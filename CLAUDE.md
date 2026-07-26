@@ -12,6 +12,12 @@ Both apps are deployed: backend on Railway, frontend on Vercel. Recent work has 
 
 Environment variables are set in the Railway and Vercel dashboards, not in the repo. The backend needs at minimum `ANTHROPIC_API_KEY` and `DATABASE_URL`; OAuth, Stripe, and stored-API-key features each stay disabled (returning 501) until their vars are set — see [config.py](genomics_backend/config.py) for the full list.
 
+## Deployment topology
+
+The public site is **https://mydna.chat** (apex A record → Vercel; `www` CNAME → Vercel). `genomechat.vercel.app` still resolves and is kept in the CORS allowlist so older links keep working. The API stays on `genomechat-production.up.railway.app` — users never see it, and moving it would mean changing `BACKEND_URL`, `VITE_API_URL`, the Google OAuth redirect URI, and both Stripe webhook endpoints together.
+
+Adding a browser-facing domain means three coordinated changes, and missing any one fails quietly: the origin must be in `cors_origins` ([config.py](genomics_backend/config.py) — list apex *and* www, there is no wildcard), `FRONTEND_URL` must point at it (it builds the post-sign-in and post-checkout redirects, so a stale value silently moves users to the old domain mid-flow), and Vercel needs the domain plus DNS.
+
 ## Repository layout
 
 Two independently deployed apps in one repo:

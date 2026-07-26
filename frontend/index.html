@@ -4,7 +4,24 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>MyDNA.chat — Genomics research powered by Claude</title>
+    <script>
+      // Set the theme before first paint. React applies it too, but that runs
+      // after mount — long enough for a dark-mode user to see a white flash.
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem("genomechat_settings") || "{}");
+          var t = s.theme || "light";
+          if (t === "system") {
+            t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark" : "light";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

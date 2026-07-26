@@ -74,6 +74,7 @@ function incrementAnonQueryCount() {
 const SETTINGS_KEY = "genomechat_settings";
 
 const DEFAULT_SETTINGS = {
+  theme: "light",              // light | dark | system — light is the default brand look
   fontSize: "medium",          // small | medium | large
   responseDetail: "standard",  // concise | standard | detailed
   variantDefault: "collapsed", // collapsed | expanded
@@ -96,6 +97,30 @@ function saveSettings(s) {
 
 function applyFontSize(size) {
   document.documentElement.style.fontSize = FONT_SIZE_MAP[size] || "16px";
+}
+
+// Theme is a data-theme attribute on <html>; index.css defines the token values
+// for each. "system" follows the OS preference and keeps following it, so a
+// user who changes it mid-session sees the app update without a reload.
+const prefersDark = () =>
+  window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+function resolveTheme(theme) {
+  return theme === "system" ? (prefersDark() ? "dark" : "light") : (theme || "light");
+}
+
+/** Resolve a CSS custom property to a concrete colour.
+ *  Needed for canvas/WebGL libraries (3Dmol, html2canvas) that parse colour
+ *  strings themselves and have no idea what var() means. */
+function cssVar(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch { return fallback; }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", resolveTheme(theme));
 }
 
 function saveDnaToSession(data) {
@@ -152,12 +177,12 @@ const NOTABLE_VARIANTS = [
 ];
 
 const CATEGORY_META = {
-  pharmacogenomics: { label: "Pharmacogenomics",    icon: "💊", color: "#818cf8", bg: "rgba(99,102,241,0.12)",  border: "rgba(99,102,241,0.25)" },
-  cardiovascular:   { label: "Cardiovascular",       icon: "❤️", color: "#f87171", bg: "rgba(239,68,68,0.1)",   border: "rgba(239,68,68,0.2)" },
-  neurological:     { label: "Neurological",         icon: "🧠", color: "#a78bfa", bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.25)" },
-  cancer:           { label: "Cancer Risk",           icon: "🔬", color: "#fb923c", bg: "rgba(249,115,22,0.1)",  border: "rgba(249,115,22,0.2)" },
-  hereditary:       { label: "Hereditary Conditions",icon: "🧬", color: "#34d399", bg: "rgba(52,211,153,0.1)",  border: "rgba(52,211,153,0.2)" },
-  metabolism:       { label: "Metabolism",            icon: "⚡", color: "#fbbf24", bg: "rgba(251,191,36,0.1)",  border: "rgba(251,191,36,0.2)" },
+  pharmacogenomics: { label: "Pharmacogenomics",    icon: "💊", color: "var(--violet-faint)", bg: "rgb(var(--c-indigo) / 0.12)",  border: "rgb(var(--c-indigo) / 0.25)" },
+  cardiovascular:   { label: "Cardiovascular",       icon: "❤️", color: "var(--danger)", bg: "rgb(var(--c-danger) / 0.1)",   border: "rgb(var(--c-danger) / 0.2)" },
+  neurological:     { label: "Neurological",         icon: "🧠", color: "var(--violet)", bg: "rgb(var(--c-violet) / 0.12)", border: "rgb(var(--c-violet) / 0.25)" },
+  cancer:           { label: "Cancer Risk",           icon: "🔬", color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
+  hereditary:       { label: "Hereditary Conditions",icon: "🧬", color: "var(--success)", bg: "rgb(var(--c-success) / 0.1)",  border: "rgb(var(--c-success) / 0.2)" },
+  metabolism:       { label: "Metabolism",            icon: "⚡", color: "var(--warning)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
 };
 
 function computeDnaSummary(dnaData) {
@@ -191,10 +216,10 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
     <div style={{ maxWidth: 760, width: "100%", marginTop: 28 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <span style={{ fontSize: "1rem" }}>🧬</span>
-        <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "#94a3b8", margin: 0, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+        <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-faint)", margin: 0, textTransform: "uppercase", letterSpacing: "0.07em" }}>
           Your DNA — {summary.totalFound} notable variant{summary.totalFound !== 1 ? "s" : ""} found
         </p>
-        <span style={{ fontSize: "0.65rem", color: "#1e3a5f", marginLeft: "auto" }}>educational only · not medical advice</span>
+        <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginLeft: "auto" }}>educational only · not medical advice</span>
       </div>
 
       {/* Category pills */}
@@ -207,11 +232,11 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
             <button
               key={cat}
               onClick={() => setExpanded(isActive ? null : cat)}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "0.3rem 0.75rem", borderRadius: 100, background: isActive ? meta.bg : "rgba(15,23,42,0.5)", border: `1px solid ${isActive ? meta.border : "rgba(51,65,85,0.35)"}`, cursor: "pointer", transition: "all 0.15s" }}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "0.3rem 0.75rem", borderRadius: 100, background: isActive ? meta.bg : "rgb(var(--c-deep) / 0.5)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.35)"}`, cursor: "pointer", transition: "all 0.15s" }}
             >
               <span style={{ fontSize: "0.8rem" }}>{meta.icon}</span>
-              <span style={{ fontSize: "0.7rem", fontWeight: 600, color: isActive ? meta.color : "#475569" }}>{meta.label}</span>
-              <span style={{ fontSize: "0.62rem", padding: "0.05em 0.4em", borderRadius: 4, background: isActive ? meta.bg : "rgba(30,41,59,0.5)", color: isActive ? meta.color : "#334155", border: `1px solid ${isActive ? meta.border : "rgba(51,65,85,0.3)"}` }}>{count}</span>
+              <span style={{ fontSize: "0.7rem", fontWeight: 600, color: isActive ? meta.color : "var(--text-dimmer)" }}>{meta.label}</span>
+              <span style={{ fontSize: "0.62rem", padding: "0.05em 0.4em", borderRadius: 4, background: isActive ? meta.bg : "rgb(var(--c-surface) / 0.5)", color: isActive ? meta.color : "var(--border-solid)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.3)"}` }}>{count}</span>
             </button>
           );
         })}
@@ -226,24 +251,24 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
               <button
                 key={f.rsid}
                 onClick={() => onQuery(f.gene)}
-                style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "0.75rem 1rem", borderRadius: 12, background: "rgba(15,23,42,0.5)", border: `1px solid ${meta.border}`, cursor: "pointer", textAlign: "left", transition: "border-color 0.15s", width: "100%" }}
+                style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "0.75rem 1rem", borderRadius: 12, background: "rgb(var(--c-deep) / 0.5)", border: `1px solid ${meta.border}`, cursor: "pointer", textAlign: "left", transition: "border-color 0.15s", width: "100%" }}
                 onMouseEnter={e => e.currentTarget.style.background = meta.bg}
-                onMouseLeave={e => e.currentTarget.style.background = "rgba(15,23,42,0.5)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgb(var(--c-deep) / 0.5)"}
               >
                 <div style={{ flexShrink: 0, marginTop: 2 }}>
-                  <span style={{ fontFamily: "monospace", fontSize: "0.7rem", padding: "0.15em 0.5em", borderRadius: 5, background: f.hasRisk ? meta.bg : "rgba(30,41,59,0.5)", color: f.hasRisk ? meta.color : "#475569", border: `1px solid ${f.hasRisk ? meta.border : "rgba(51,65,85,0.3)"}` }}>
+                  <span style={{ fontFamily: "monospace", fontSize: "0.7rem", padding: "0.15em 0.5em", borderRadius: 5, background: f.hasRisk ? meta.bg : "rgb(var(--c-surface) / 0.5)", color: f.hasRisk ? meta.color : "var(--text-dimmer)", border: `1px solid ${f.hasRisk ? meta.border : "rgb(var(--c-border) / 0.3)"}` }}>
                     {f.genotype}
                   </span>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: "0.78rem", fontWeight: 700, color: meta.color }}>{f.gene}</span>
-                    <span style={{ fontSize: "0.7rem", color: "#475569" }}>{f.name}</span>
-                    <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#334155" }}>{f.rsid}</span>
+                    <span style={{ fontSize: "0.7rem", color: "var(--text-dimmer)" }}>{f.name}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--border-solid)" }}>{f.rsid}</span>
                   </div>
-                  <p style={{ fontSize: "0.72rem", color: "#64748b", marginTop: 3, lineHeight: 1.5 }}>{f.desc}</p>
+                  <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginTop: 3, lineHeight: 1.5 }}>{f.desc}</p>
                 </div>
-                <span style={{ fontSize: "0.65rem", color: "#334155", flexShrink: 0, marginTop: 2 }}>Ask →</span>
+                <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", flexShrink: 0, marginTop: 2 }}>Ask →</span>
               </button>
             );
           })}
@@ -344,7 +369,7 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
       if (cancelled || !containerRef.current) return;
       try {
         const viewer = window.$3Dmol.createViewer(containerRef.current, {
-          backgroundColor: "#0a0f1e",
+          backgroundColor: cssVar("--bg-panel", "#ffffff"),
           antialias: true,
           preserveDrawingBuffer: true,
         });
@@ -420,25 +445,25 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
 
   const btnStyle = (active) => ({
     fontSize: "0.68rem", padding: "0.2rem 0.55rem", borderRadius: 5, cursor: "pointer",
-    background: active ? "rgba(14,165,233,0.25)" : "rgba(30,41,59,0.7)",
-    border: `1px solid ${active ? "rgba(14,165,233,0.6)" : "rgba(51,65,85,0.4)"}`,
-    color: active ? "#38bdf8" : "#94a3b8",
+    background: active ? "rgb(var(--c-accent) / 0.25)" : "rgb(var(--c-surface) / 0.7)",
+    border: `1px solid ${active ? "rgb(var(--c-accent) / 0.6)" : "rgb(var(--c-border) / 0.4)"}`,
+    color: active ? "var(--accent)" : "var(--text-faint)",
     transition: "all 0.15s",
   });
 
   const actionBtnStyle = {
     fontSize: "0.68rem", padding: "0.2rem 0.55rem", borderRadius: 5, cursor: "pointer",
-    background: "rgba(30,41,59,0.7)", border: "1px solid rgba(51,65,85,0.4)",
-    color: "#94a3b8", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
+    background: "rgb(var(--c-surface) / 0.7)", border: "1px solid rgb(var(--c-border) / 0.4)",
+    color: "var(--text-faint)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
   };
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(10,15,30,0.8)", border: "1px solid rgba(14,165,233,0.2)", borderRadius: 12, overflow: "hidden" }}>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.8)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.875rem", borderBottom: "1px solid rgba(14,165,233,0.1)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#38bdf8" }}>{geneName} — 3D Structure</span>
-          {entryId && <span style={{ fontSize: "0.65rem", color: "#334155", fontFamily: "monospace" }}>{entryId}</span>}
+          <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>{geneName} — 3D Structure</span>
+          {entryId && <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", fontFamily: "monospace" }}>{entryId}</span>}
         </div>
         {status === "ready" && (
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -450,12 +475,12 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
 
       {/* Representation toggles */}
       {status === "ready" && (
-        <div style={{ padding: "0.45rem 0.875rem", borderBottom: "1px solid rgba(14,165,233,0.07)", display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
-          <span style={{ fontSize: "0.65rem", color: "#475569", marginRight: 4 }}>View:</span>
+        <div style={{ padding: "0.45rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.07)", display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+          <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginRight: 4 }}>View:</span>
           {REPRESENTATIONS.map(r => (
             <button key={r} onClick={() => handleRep(r)} style={btnStyle(rep === r)}>{r}</button>
           ))}
-          <span style={{ fontSize: "0.65rem", color: "#475569", marginLeft: 8, marginRight: 4 }}>Color:</span>
+          <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginLeft: 8, marginRight: 4 }}>Color:</span>
           {COLOR_SCHEMES.map(s => (
             <button key={s} onClick={() => handleScheme(s)} style={btnStyle(scheme === s)}>{s}</button>
           ))}
@@ -467,37 +492,37 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
         {status === "loading" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid #0ea5e9", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
-            <p style={{ fontSize: "0.75rem", color: "#475569" }}>Loading AlphaFold structure…</p>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", border: "2px solid var(--accent-strong)", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+            <p style={{ fontSize: "0.75rem", color: "var(--text-dimmer)" }}>Loading AlphaFold structure…</p>
           </div>
         )}
         {status === "error" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <p style={{ fontSize: "0.75rem", color: "#475569" }}>Structure unavailable for this protein</p>
+            <p style={{ fontSize: "0.75rem", color: "var(--text-dimmer)" }}>Structure unavailable for this protein</p>
           </div>
         )}
       </div>
 
       {/* Footer: legend + export */}
       {status === "ready" && (
-        <div style={{ padding: "0.5rem 0.875rem", borderTop: "1px solid rgba(14,165,233,0.1)" }}>
+        <div style={{ padding: "0.5rem 0.875rem", borderTop: "1px solid rgb(var(--c-accent) / 0.1)" }}>
           {scheme === "pLDDT" && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: "0.4rem" }}>
-              <span style={{ fontSize: "0.65rem", color: "#475569" }}>pLDDT:</span>
+              <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)" }}>pLDDT:</span>
               {[["#0053D6","Very high >90"], ["#65CBF3","High 70–90"], ["#FFDB13","Medium 50–70"], ["#FF7D45","Low <50"]].map(([color, label]) => (
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
-                  <span style={{ fontSize: "0.63rem", color: "#475569" }}>{label}</span>
+                  <span style={{ fontSize: "0.63rem", color: "var(--text-dimmer)" }}>{label}</span>
                 </div>
               ))}
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.63rem", color: "#334155" }}>Export:</span>
+            <span style={{ fontSize: "0.63rem", color: "var(--border-solid)" }}>Export:</span>
             <a href={pdbUrl} download target="_blank" rel="noreferrer" style={actionBtnStyle}>↓ PDB file</a>
             <button onClick={downloadPymol} style={actionBtnStyle} title="Download PyMOL script to open in PyMOL desktop app">↓ PyMOL script (.pml)</button>
             <button onClick={openChimeraX} style={actionBtnStyle} title="Opens in ChimeraX if installed locally">⬡ Open in ChimeraX</button>
-            <span style={{ marginLeft: "auto", fontSize: "0.62rem", color: "#1e293b" }}>AlphaFold DB</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.62rem", color: "var(--border-solid)" }}>AlphaFold DB</span>
           </div>
         </div>
       )}
@@ -515,7 +540,7 @@ function SettingSegment({ value, options, onChange }) {
         const active = value === opt.value;
         return (
           <button key={opt.value} onClick={() => onChange(opt.value)}
-            style={{ flex: 1, padding: "0.35rem 0.5rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: active ? 600 : 400, cursor: "pointer", transition: "all 0.15s", border: `1px solid ${active ? "rgba(14,165,233,0.4)" : "rgba(51,65,85,0.35)"}`, background: active ? "rgba(14,165,233,0.12)" : "rgba(15,23,42,0.5)", color: active ? "#38bdf8" : "#475569" }}>
+            style={{ flex: 1, padding: "0.35rem 0.5rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: active ? 600 : 400, cursor: "pointer", transition: "all 0.15s", border: `1px solid ${active ? "rgb(var(--c-accent) / 0.4)" : "rgb(var(--c-border) / 0.35)"}`, background: active ? "rgb(var(--c-accent) / 0.12)" : "rgb(var(--c-deep) / 0.5)", color: active ? "var(--accent)" : "var(--text-dimmer)" }}>
             {opt.label}
           </button>
         );
@@ -557,19 +582,25 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
   return (
     <>
       {/* Backdrop */}
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.5)" }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgb(var(--c-shadow) / 0.5)" }} />
       {/* Drawer */}
-      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 301, width: 320, maxWidth: "100vw", background: "#0d1424", borderLeft: "1px solid rgba(30,41,59,0.8)", display: "flex", flexDirection: "column", boxShadow: "-8px 0 32px rgba(0,0,0,0.4)", animation: "slideInRight 0.2s ease-out" }}>
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 301, width: 320, maxWidth: "100vw", background: "var(--bg-elevated)", borderLeft: "1px solid rgb(var(--c-surface) / 0.8)", display: "flex", flexDirection: "column", boxShadow: "-8px 0 32px rgb(var(--c-shadow) / 0.4)", animation: "slideInRight 0.2s ease-out" }}>
         <style>{`@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }`}</style>
 
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: "1px solid rgba(30,41,59,0.6)", flexShrink: 0 }}>
-          <p style={{ fontSize: "0.9rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>Settings</p>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.6)", flexShrink: 0 }}>
+          <p style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Settings</p>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
+
+          <Section label="Appearance" hint="Light is the default; system follows your OS setting">
+            <SettingSegment value={settings.theme}
+              options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]}
+              onChange={v => set("theme", v)} />
+          </Section>
 
           <Section label="Text Size" hint="Adjusts all text across the app">
             <SettingSegment value={settings.fontSize}
@@ -581,7 +612,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
             <SettingSegment value={settings.responseDetail}
               options={[{ value: "concise", label: "Concise" }, { value: "standard", label: "Standard" }, { value: "detailed", label: "Detailed" }]}
               onChange={v => set("responseDetail", v)} />
-            <p style={{ fontSize: "0.68rem", color: "#334155", marginTop: 6, lineHeight: 1.5 }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--border-solid)", marginTop: 6, lineHeight: 1.5 }}>
               {settings.responseDetail === "concise" && "Shorter summaries focused on key findings only."}
               {settings.responseDetail === "standard" && "Balanced explanations with clinical context and follow-up suggestions."}
               {settings.responseDetail === "detailed" && "In-depth analysis including population genetics, mechanisms, and research context."}
@@ -605,9 +636,9 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
           <Section label="Your Anthropic API Key" hint="Use your own key — bypasses the query limit. Stored encrypted on your account.">
             {currentUser?.has_stored_key ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: "0.72rem", color: "#34d399", flex: 1 }}>✓ Key stored on your account</span>
+                <span style={{ fontSize: "0.72rem", color: "var(--success)", flex: 1 }}>✓ Key stored on your account</span>
                 <button onClick={removeServerKey}
-                  style={{ fontSize: "0.68rem", color: "#f87171", background: "none", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 6, padding: "0.2rem 0.5rem", cursor: "pointer" }}>
+                  style={{ fontSize: "0.68rem", color: "var(--danger)", background: "none", border: "1px solid rgb(var(--c-danger) / 0.3)", borderRadius: 6, padding: "0.2rem 0.5rem", cursor: "pointer" }}>
                   Remove
                 </button>
               </div>
@@ -619,15 +650,15 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
                   onChange={e => setKeyDraft(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && saveServerKey()}
                   placeholder="sk-ant-..."
-                  style={{ flex: 1, fontSize: "0.72rem", background: "rgba(15,23,42,0.7)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.35rem 0.6rem", color: "#cbd5e1", outline: "none" }}
+                  style={{ flex: 1, fontSize: "0.72rem", background: "rgb(var(--c-deep) / 0.7)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.35rem 0.6rem", color: "var(--text-muted)", outline: "none" }}
                 />
                 <button onClick={saveServerKey} disabled={!keyDraft.trim() || keySaving}
-                  style={{ fontSize: "0.68rem", color: keyDraft.trim() ? "#38bdf8" : "#334155", background: "none", border: `1px solid ${keyDraft.trim() ? "rgba(14,165,233,0.4)" : "rgba(51,65,85,0.3)"}`, borderRadius: 6, padding: "0.35rem 0.65rem", cursor: keyDraft.trim() ? "pointer" : "default" }}>
+                  style={{ fontSize: "0.68rem", color: keyDraft.trim() ? "var(--accent)" : "var(--border-solid)", background: "none", border: `1px solid ${keyDraft.trim() ? "rgb(var(--c-accent) / 0.4)" : "rgb(var(--c-border) / 0.3)"}`, borderRadius: 6, padding: "0.35rem 0.65rem", cursor: keyDraft.trim() ? "pointer" : "default" }}>
                   {keySaving ? "…" : "Save"}
                 </button>
               </div>
             )}
-            <p style={{ fontSize: "0.65rem", color: "#1e3a5f", marginTop: 6, lineHeight: 1.5 }}>
+            <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 6, lineHeight: 1.5 }}>
               Get a key at console.anthropic.com. Encrypted and never returned to the client.
             </p>
           </Section>
@@ -635,10 +666,10 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "0.875rem 1.25rem", borderTop: "1px solid rgba(30,41,59,0.5)", flexShrink: 0 }}>
-          <p style={{ fontSize: "0.65rem", color: "#1e3a5f", margin: "0 0 8px", lineHeight: 1.5 }}>Preferences are saved locally in your browser and never sent to our servers.</p>
-          <button onClick={() => { onChange({ ...DEFAULT_SETTINGS }); saveSettings(DEFAULT_SETTINGS); applyFontSize(DEFAULT_SETTINGS.fontSize); }}
-            style={{ fontSize: "0.68rem", color: "#334155", background: "none", border: "1px solid rgba(51,65,85,0.35)", borderRadius: 6, padding: "0.25rem 0.6rem", cursor: "pointer" }}>
+        <div style={{ padding: "0.875rem 1.25rem", borderTop: "1px solid rgb(var(--c-surface) / 0.5)", flexShrink: 0 }}>
+          <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", margin: "0 0 8px", lineHeight: 1.5 }}>Preferences are saved locally in your browser and never sent to our servers.</p>
+          <button onClick={() => { onChange({ ...DEFAULT_SETTINGS }); saveSettings(DEFAULT_SETTINGS); applyFontSize(DEFAULT_SETTINGS.fontSize); applyTheme(DEFAULT_SETTINGS.theme); }}
+            style={{ fontSize: "0.68rem", color: "var(--border-solid)", background: "none", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 6, padding: "0.25rem 0.6rem", cursor: "pointer" }}>
             Reset to defaults
           </button>
         </div>
@@ -661,31 +692,31 @@ function PurchaseOptions({ compact, testMode }) {
   return (
     <div>
       {testMode && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "0.45rem 0.6rem", borderRadius: 8, background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.35)" }}>
-          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#fbbf24" }}>TEST MODE</span>
-          <span style={{ fontSize: "0.68rem", color: "#a3a3a3" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "0.45rem 0.6rem", borderRadius: 8, background: "rgb(var(--c-warning) / 0.1)", border: "1px solid rgb(var(--c-warning) / 0.35)" }}>
+          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--warning)" }}>TEST MODE</span>
+          <span style={{ fontSize: "0.68rem", color: "var(--text-faint)" }}>
             No real charge — use card 4242 4242 4242 4242
           </span>
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <button onClick={() => buy("unlock")} disabled={!!busy}
-          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "unlock" ? 0.5 : 1 }}>
-          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "#38bdf8", marginBottom: 3 }}>
+          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))", border: "1px solid rgb(var(--c-accent) / 0.35)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "unlock" ? 0.5 : 1 }}>
+          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "var(--accent)", marginBottom: 3 }}>
             {busy === "unlock" ? "Opening checkout…" : "🔓 Unlock Unlimited — $5 one-time"}
           </div>
-          <div style={{ fontSize: "0.7rem", color: "#64748b" }}>Unlimited queries forever. Also enables storing your own API key.</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>Unlimited queries forever. Also enables storing your own API key.</div>
         </button>
         <button onClick={() => buy("credits")} disabled={!!busy}
-          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.4)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "credits" ? 0.5 : 1 }}>
-          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "#cbd5e1", marginBottom: 3 }}>
+          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "credits" ? 0.5 : 1 }}>
+          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "var(--text-muted)", marginBottom: 3 }}>
             {busy === "credits" ? "Opening checkout…" : "⚡ Get 50 Queries — $3"}
           </div>
-          <div style={{ fontSize: "0.7rem", color: "#64748b" }}>Top up with a one-time credit pack.</div>
+          <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>Top up with a one-time credit pack.</div>
         </button>
       </div>
       {error && (
-        <p style={{ fontSize: "0.68rem", color: "#f87171", margin: "8px 0 0", lineHeight: 1.5 }}>{error}</p>
+        <p style={{ fontSize: "0.68rem", color: "var(--danger)", margin: "8px 0 0", lineHeight: 1.5 }}>{error}</p>
       )}
     </div>
   );
@@ -698,7 +729,7 @@ function PlanSection({ currentUser }) {
   if (!currentUser) {
     return (
       <Section label="Plan">
-        <p style={{ fontSize: "0.72rem", color: "#64748b", margin: 0, lineHeight: 1.5 }}>
+        <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", margin: 0, lineHeight: 1.5 }}>
           Sign in to view your usage and purchase queries.
         </p>
       </Section>
@@ -710,15 +741,15 @@ function PlanSection({ currentUser }) {
       <Section label="Plan & Usage">
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: plan.kind === "free" ? 7 : 0 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: plan.color, flexShrink: 0 }} />
-          <span style={{ fontSize: "0.74rem", color: plan.kind === "free" ? "#cbd5e1" : plan.color }}>{plan.label}</span>
+          <span style={{ fontSize: "0.74rem", color: plan.kind === "free" ? "var(--text-muted)" : plan.color }}>{plan.label}</span>
         </div>
         {plan.kind === "free" && (
-          <div style={{ height: 4, background: "rgba(51,65,85,0.4)", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", borderRadius: 2, background: plan.left === 0 ? "#f87171" : "linear-gradient(90deg,#0ea5e9,#7c3aed)", width: `${Math.min(100, (plan.used / plan.limit) * 100)}%`, transition: "width 0.3s" }} />
+          <div style={{ height: 4, background: "rgb(var(--c-border) / 0.4)", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ height: "100%", borderRadius: 2, background: plan.left === 0 ? "var(--danger)" : "linear-gradient(90deg,var(--accent-strong),var(--violet-soft))", width: `${Math.min(100, (plan.used / plan.limit) * 100)}%`, transition: "width 0.3s" }} />
           </div>
         )}
         {currentUser.stored_key_unusable && (
-          <p style={{ fontSize: "0.68rem", color: "#fbbf24", margin: "8px 0 0", lineHeight: 1.5 }}>
+          <p style={{ fontSize: "0.68rem", color: "var(--warning)", margin: "8px 0 0", lineHeight: 1.5 }}>
             Your saved API key can no longer be read — please re-enter it below.
           </p>
         )}
@@ -739,8 +770,8 @@ function PlanSection({ currentUser }) {
 function Section({ label, hint, children }) {
   return (
     <div style={{ marginBottom: "1.5rem" }}>
-      <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
-      {hint && <p style={{ fontSize: "0.67rem", color: "#334155", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
+      <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
+      {hint && <p style={{ fontSize: "0.67rem", color: "var(--border-solid)", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
       {children}
     </div>
   );
@@ -751,17 +782,17 @@ function Section({ label, hint, children }) {
 function SignInGateModal({ onClose }) {
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)" }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "#0d1424", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 16, padding: "2rem", width: 360, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgb(var(--c-shadow) / 0.7)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "2rem", width: 360, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>Sign in to continue</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Sign in to continue</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
-        <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
           You've used your {ANON_QUERY_LIMIT} free preview queries. Create a free account to get {20} queries — no credit card required.
         </p>
-        <a href={`${API}/auth/google`} style={{ display: "block", padding: "0.75rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15))", border: "1px solid rgba(14,165,233,0.35)", cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
-          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#38bdf8" }}>Sign in with Google — it's free</span>
+        <a href={`${API}/auth/google`} style={{ display: "block", padding: "0.75rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))", border: "1px solid rgb(var(--c-accent) / 0.35)", cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
+          <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent)" }}>Sign in with Google — it's free</span>
         </a>
       </div>
     </>
@@ -775,7 +806,7 @@ function PlanBadge({ currentUser, onClick, mobile }) {
   if (!currentUser) return null;
   const plan = getPlan(currentUser);
   const interactive = plan.kind === "free" || plan.kind === "credits";
-  const border = plan.kind === "free" && plan.left === 0 ? "rgba(248,113,113,0.45)" : "rgba(51,65,85,0.4)";
+  const border = plan.kind === "free" && plan.left === 0 ? "rgb(var(--c-danger) / 0.45)" : "rgb(var(--c-border) / 0.4)";
 
   return (
     <button
@@ -784,7 +815,7 @@ function PlanBadge({ currentUser, onClick, mobile }) {
       style={{
         display: "flex", alignItems: "center", gap: 5,
         fontSize: mobile ? "0.66rem" : "0.72rem", color: plan.color,
-        background: "rgba(30,41,59,0.6)", border: `1px solid ${border}`,
+        background: "rgb(var(--c-surface) / 0.6)", border: `1px solid ${border}`,
         borderRadius: 8, padding: mobile ? "0.22rem 0.45rem" : "0.3rem 0.6rem",
         cursor: "pointer", whiteSpace: "nowrap",
       }}
@@ -792,9 +823,9 @@ function PlanBadge({ currentUser, onClick, mobile }) {
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: plan.color, flexShrink: 0 }} />
       {plan.short}
       {currentUser.stripe_test_mode && (
-        <span style={{ color: "#fbbf24", fontSize: "0.82em", fontWeight: 700 }} title="Stripe test mode — purchases are not real">TEST</span>
+        <span style={{ color: "var(--warning)", fontSize: "0.82em", fontWeight: 700 }} title="Stripe test mode — purchases are not real">TEST</span>
       )}
-      {interactive && <span style={{ color: "#475569", fontSize: "0.9em" }}>+</span>}
+      {interactive && <span style={{ color: "var(--text-dimmer)", fontSize: "0.9em" }}>+</span>}
     </button>
   );
 }
@@ -810,13 +841,13 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.7)" }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "#0d1424", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 16, padding: "2rem", width: 380, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)" }}>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgb(var(--c-shadow) / 0.7)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "2rem", width: 380, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>{title}</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>{title}</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
-        <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 0.5rem", lineHeight: 1.6 }}>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 0.5rem", lineHeight: 1.6 }}>
           {plan.kind === "unlocked"
             ? "You already have unlimited access."
             : `You've used ${used} of ${limit} free queries${credits > 0 ? ` — ${credits} purchased credits remaining` : ""}. Choose how to continue:`}
@@ -826,10 +857,10 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
           <PurchaseOptions testMode={currentUser?.stripe_test_mode} />
         </div>
 
-        <p style={{ fontSize: "0.7rem", color: "#334155", margin: 0, lineHeight: 1.5 }}>
+        <p style={{ fontSize: "0.7rem", color: "var(--border-solid)", margin: 0, lineHeight: 1.5 }}>
           Want free unlimited access?{" "}
           <button onClick={() => { onClose(); onOpenSettings(); }}
-            style={{ background: "none", border: "none", color: "#38bdf8", cursor: "pointer", fontSize: "0.7rem", padding: 0, textDecoration: "underline" }}>
+            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.7rem", padding: 0, textDecoration: "underline" }}>
             Add your own Anthropic API key
           </button>{" "}in Settings — billed directly to your Anthropic account.
         </p>
@@ -867,14 +898,14 @@ function ConsentModal({ onAccept, onClose }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-      <div style={{ background: "#0f172a", border: "1px solid rgba(14,165,233,0.25)", borderRadius: 16, padding: "1.75rem", maxWidth: 520, width: "100%", boxShadow: "0 25px 50px rgba(0,0,0,0.6)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgb(var(--c-shadow) / 0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "var(--bg-inset)", border: "1px solid rgb(var(--c-accent) / 0.25)", borderRadius: 16, padding: "1.75rem", maxWidth: 520, width: "100%", boxShadow: "0 25px 50px rgb(var(--c-shadow) / 0.6)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
           <div>
-            <p style={{ fontSize: "1rem", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>Upload DNA Data</p>
-            <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 3 }}>23andMe · AncestryDNA · VCF</p>
+            <p style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Upload DNA Data</p>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 3 }}>23andMe · AncestryDNA · VCF</p>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
@@ -884,11 +915,11 @@ function ConsentModal({ onAccept, onClose }) {
             { icon: "💻", title: "Personal device only", body: "Do not upload your DNA data on a shared, public, or work computer. Session data persists until the tab is closed and could be accessed by the next user." },
             { icon: "⚕️", title: "Not medical advice", body: "This tool is for research and educational purposes. Consult a licensed genetic counselor for health decisions." },
           ].map(({ icon, title, body }) => (
-            <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgba(30,41,59,0.4)", borderRadius: 10, border: "1px solid rgba(51,65,85,0.3)" }}>
+            <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgb(var(--c-surface) / 0.4)", borderRadius: 10, border: "1px solid rgb(var(--c-border) / 0.3)" }}>
               <span style={{ fontSize: "0.95rem", flexShrink: 0, marginTop: 1 }}>{icon}</span>
               <div>
-                <p style={{ fontSize: "0.73rem", fontWeight: 600, color: "#cbd5e1", margin: 0 }}>{title}</p>
-                <p style={{ fontSize: "0.68rem", color: "#64748b", marginTop: 2, lineHeight: 1.5 }}>{body}</p>
+                <p style={{ fontSize: "0.73rem", fontWeight: 600, color: "var(--text-muted)", margin: 0 }}>{title}</p>
+                <p style={{ fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 2, lineHeight: 1.5 }}>{body}</p>
               </div>
             </div>
           ))}
@@ -896,19 +927,19 @@ function ConsentModal({ onAccept, onClose }) {
 
         <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: "1.25rem", cursor: "pointer" }}>
           <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
-            style={{ width: 15, height: 15, marginTop: 2, accentColor: "#0ea5e9", flexShrink: 0 }} />
-          <span style={{ fontSize: "0.72rem", color: "#94a3b8", lineHeight: 1.55 }}>
+            style={{ width: 15, height: 15, marginTop: 2, accentColor: "var(--accent-strong)", flexShrink: 0 }} />
+          <span style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.55 }}>
             I understand this tool does not provide medical diagnoses, and my raw genetic data will not be stored on any server, transmitted to any third party, or used for any purpose beyond this browser session. Data persists until I close this tab.
           </span>
         </label>
 
-        {error && <p style={{ fontSize: "0.72rem", color: "#f87171", marginBottom: "0.75rem" }}>{error}</p>}
+        {error && <p style={{ fontSize: "0.72rem", color: "var(--danger)", marginBottom: "0.75rem" }}>{error}</p>}
 
         <input ref={fileRef} type="file" accept=".txt,.csv,.vcf" style={{ display: "none" }} onChange={handleFile} />
         <button
           disabled={!agreed || parsing}
           onClick={() => fileRef.current?.click()}
-          style={{ width: "100%", padding: "0.625rem", borderRadius: 10, background: agreed && !parsing ? "#0284c7" : "rgba(51,65,85,0.4)", border: "none", color: agreed && !parsing ? "white" : "#334155", fontSize: "0.8rem", fontWeight: 600, cursor: agreed && !parsing ? "pointer" : "not-allowed", transition: "background 0.15s" }}
+          style={{ width: "100%", padding: "0.625rem", borderRadius: 10, background: agreed && !parsing ? "var(--accent-deep)" : "rgb(var(--c-border) / 0.4)", border: "none", color: agreed && !parsing ? "white" : "var(--border-solid)", fontSize: "0.8rem", fontWeight: 600, cursor: agreed && !parsing ? "pointer" : "not-allowed", transition: "background 0.15s" }}
         >
           {parsing ? "Parsing file…" : "Choose File"}
         </button>
@@ -920,17 +951,17 @@ function ConsentModal({ onAccept, onClose }) {
 function DNASessionBanner({ dnaData, onClear }) {
   if (!dnaData) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 1.25rem", background: "rgba(8,47,73,0.35)", borderBottom: "1px solid rgba(14,165,233,0.1)", fontSize: "0.68rem", flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 1.25rem", background: "rgb(var(--c-accent) / 0.35)", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)", fontSize: "0.68rem", flexShrink: 0 }}>
       <span style={{ fontSize: "0.75rem" }}>🧬</span>
-      <span style={{ color: "#38bdf8", fontWeight: 600 }}>DNA session active</span>
-      <span style={{ color: "#1e3a5f" }}>·</span>
-      <span style={{ color: "#475569" }}>{dnaData.totalCount.toLocaleString()} variants</span>
-      <span style={{ color: "#1e3a5f" }}>·</span>
-      <span style={{ color: "#475569" }}>{dnaData.format}</span>
-      <span style={{ color: "#1e3a5f" }}>·</span>
-      <span style={{ color: "#1e3a5f" }}>not stored · session only</span>
+      <span style={{ color: "var(--accent)", fontWeight: 600 }}>DNA session active</span>
+      <span style={{ color: "var(--text-dimmer)" }}>·</span>
+      <span style={{ color: "var(--text-dimmer)" }}>{dnaData.totalCount.toLocaleString()} variants</span>
+      <span style={{ color: "var(--text-dimmer)" }}>·</span>
+      <span style={{ color: "var(--text-dimmer)" }}>{dnaData.format}</span>
+      <span style={{ color: "var(--text-dimmer)" }}>·</span>
+      <span style={{ color: "var(--text-dimmer)" }}>not stored · session only</span>
       <button onClick={onClear}
-        style={{ marginLeft: "auto", background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: "0.9rem", padding: "0 2px", lineHeight: 1 }}
+        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--border-solid)", cursor: "pointer", fontSize: "0.9rem", padding: "0 2px", lineHeight: 1 }}
         title="Clear DNA data from session"
       >×</button>
     </div>
@@ -978,12 +1009,12 @@ async function startCheckout(type, onError) {
 
 /** Single source of truth for how a user's plan is described across the UI. */
 function getPlan(user) {
-  if (!user) return { kind: "anon", label: "Not signed in", short: "Sign in", color: "#64748b" };
-  if (user.unlimited_access) return { kind: "unlocked", label: "Unlimited access (allowlisted)", short: "Unlimited", color: "#34d399" };
-  if (user.byok_unlocked) return { kind: "unlocked", label: "Unlimited access", short: "Unlimited", color: "#34d399" };
-  if (user.has_stored_key) return { kind: "byok", label: "Using your own API key", short: "Own key", color: "#34d399" };
+  if (!user) return { kind: "anon", label: "Not signed in", short: "Sign in", color: "var(--text-dim)" };
+  if (user.unlimited_access) return { kind: "unlocked", label: "Unlimited access (allowlisted)", short: "Unlimited", color: "var(--success)" };
+  if (user.byok_unlocked) return { kind: "unlocked", label: "Unlimited access", short: "Unlimited", color: "var(--success)" };
+  if (user.has_stored_key) return { kind: "byok", label: "Using your own API key", short: "Own key", color: "var(--success)" };
   const credits = user.query_credits || 0;
-  if (credits > 0) return { kind: "credits", label: `${credits} purchased credits remaining`, short: `${credits} credits`, color: "#38bdf8", credits };
+  if (credits > 0) return { kind: "credits", label: `${credits} purchased credits remaining`, short: `${credits} credits`, color: "var(--accent)", credits };
   const used = user.total_queries || 0;
   const limit = user.free_limit || 20;
   const left = Math.max(0, limit - used);
@@ -991,7 +1022,7 @@ function getPlan(user) {
     kind: "free",
     label: `${used} of ${limit} free queries used`,
     short: `${left} left`,
-    color: left === 0 ? "#f87171" : left <= 3 ? "#fbbf24" : "#64748b",
+    color: left === 0 ? "var(--danger)" : left <= 3 ? "var(--warning)" : "var(--text-dim)",
     used, limit, left,
   };
 }
@@ -1048,9 +1079,9 @@ function renderInline(text) {
   let last = 0, m;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[2]) parts.push(<strong key={m.index} style={{ color: "#e2e8f0", fontWeight: 600 }}>{m[2]}</strong>);
-    else if (m[3]) parts.push(<code key={m.index} style={{ fontFamily: "monospace", fontSize: "0.78em", background: "#1e293b", color: "#7dd3fc", padding: "0.1em 0.35em", borderRadius: 3 }}>{m[3]}</code>);
-    else if (m[4]) parts.push(<em key={m.index} style={{ color: "#cbd5e1" }}>{m[4]}</em>);
+    if (m[2]) parts.push(<strong key={m.index} style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{m[2]}</strong>);
+    else if (m[3]) parts.push(<code key={m.index} style={{ fontFamily: "monospace", fontSize: "0.78em", background: "var(--border-solid)", color: "var(--accent-soft)", padding: "0.1em 0.35em", borderRadius: 3 }}>{m[3]}</code>);
+    else if (m[4]) parts.push(<em key={m.index} style={{ color: "var(--text-muted)" }}>{m[4]}</em>);
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
@@ -1066,20 +1097,20 @@ function Markdown({ content }) {
     const line = lines[i];
     if (line.startsWith("## ")) {
       elements.push(
-        <h2 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "#f1f5f9", margin: "1.25rem 0 0.5rem", paddingBottom: "0.375rem", borderBottom: "1px solid #1e293b" }}>
+        <h2 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text)", margin: "1.25rem 0 0.5rem", paddingBottom: "0.375rem", borderBottom: "1px solid var(--border-solid)" }}>
           {renderInline(line.slice(3))}
         </h2>
       );
     } else if (line.startsWith("### ")) {
       elements.push(
-        <h3 key={i} style={{ fontSize: "0.8rem", fontWeight: 600, color: "#cbd5e1", margin: "0.875rem 0 0.25rem" }}>
+        <h3 key={i} style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", margin: "0.875rem 0 0.25rem" }}>
           {renderInline(line.slice(4))}
         </h3>
       );
     } else if (line.startsWith("- ") || line.startsWith("• ")) {
       const items = [];
       while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("• "))) {
-        items.push(<li key={i} style={{ color: "#94a3b8", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].slice(2))}</li>);
+        items.push(<li key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].slice(2))}</li>);
         i++;
       }
       elements.push(<ul key={`ul${i}`} style={{ paddingLeft: "1.25rem", listStyle: "disc", margin: "0.5rem 0" }}>{items}</ul>);
@@ -1087,7 +1118,7 @@ function Markdown({ content }) {
     } else if (line.trim() === "") {
       elements.push(<div key={i} style={{ height: "0.375rem" }} />);
     } else {
-      elements.push(<p key={i} style={{ color: "#94a3b8", fontSize: "0.875rem", lineHeight: 1.7, margin: "0.25rem 0" }}>{renderInline(line)}</p>);
+      elements.push(<p key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.7, margin: "0.25rem 0" }}>{renderInline(line)}</p>);
     }
     i++;
   }
@@ -1097,47 +1128,47 @@ function Markdown({ content }) {
 // ─── Data Cards ──────────────────────────────────────────────────────────────
 
 const SIG_COLORS = {
-  "Pathogenic": { bg: "rgba(127,29,29,0.4)", color: "#fca5a5", border: "rgba(185,28,28,0.3)" },
-  "Likely pathogenic": { bg: "rgba(124,45,18,0.4)", color: "#fdba74", border: "rgba(194,65,12,0.3)" },
-  "Benign": { bg: "rgba(5,46,22,0.4)", color: "#86efac", border: "rgba(21,128,61,0.3)" },
-  "Likely benign": { bg: "rgba(4,47,46,0.4)", color: "#5eead4", border: "rgba(15,118,110,0.3)" },
-  "Uncertain significance": { bg: "rgba(66,32,6,0.4)", color: "#fde68a", border: "rgba(161,98,7,0.3)" },
+  "Pathogenic": { bg: "rgb(var(--c-danger) / 0.4)", color: "var(--danger-soft)", border: "rgb(var(--c-danger) / 0.3)" },
+  "Likely pathogenic": { bg: "rgb(var(--c-warning) / 0.4)", color: "var(--warning-soft)", border: "rgb(var(--c-warning) / 0.3)" },
+  "Benign": { bg: "rgb(var(--c-success) / 0.4)", color: "var(--success-soft)", border: "rgb(var(--c-success) / 0.3)" },
+  "Likely benign": { bg: "rgb(var(--c-success) / 0.4)", color: "#5eead4", border: "rgb(var(--c-success) / 0.3)" },
+  "Uncertain significance": { bg: "rgb(var(--c-warning) / 0.4)", color: "var(--warning-soft)", border: "rgb(var(--c-warning) / 0.3)" },
 };
 
 function VariantCard({ variant, userVariant, defaultExpanded }) {
   const [expanded, setExpanded] = useState(defaultExpanded || false);
   const sig = variant.clinical_significance || "Unknown";
-  const c = SIG_COLORS[sig] || { bg: "rgba(30,41,59,0.6)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" };
+  const c = SIG_COLORS[sig] || { bg: "rgb(var(--c-surface) / 0.6)", color: "var(--text-faint)", border: "rgb(var(--c-border) / 0.4)" };
   const hasDetail = variant.condition || variant.consequence || variant.frequency != null || variant.review_status || variant.hgvs;
   return (
     <div
       onClick={() => hasDetail && setExpanded(e => !e)}
-      style={{ background: "rgba(30,41,59,0.35)", border: `1px solid ${userVariant ? "rgba(14,165,233,0.4)" : expanded ? "rgba(14,165,233,0.35)" : "rgba(51,65,85,0.4)"}`, borderRadius: 10, padding: "0.75rem", cursor: hasDetail ? "pointer" : "default", transition: "border-color 0.15s" }}
+      style={{ background: "rgb(var(--c-surface) / 0.35)", border: `1px solid ${userVariant ? "rgb(var(--c-accent) / 0.4)" : expanded ? "rgb(var(--c-accent) / 0.35)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 10, padding: "0.75rem", cursor: hasDetail ? "pointer" : "default", transition: "border-color 0.15s" }}
     >
       {userVariant && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0.2rem 0.5rem", background: "rgba(14,165,233,0.1)", borderRadius: 6, border: "1px solid rgba(14,165,233,0.2)" }}>
-          <span style={{ fontSize: "0.62rem", color: "#38bdf8", fontWeight: 600 }}>YOUR DATA</span>
-          <span style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "#7dd3fc", fontWeight: 700 }}>{userVariant.genotype}</span>
-          {userVariant.chromosome && <span style={{ fontSize: "0.6rem", color: "#334155" }}>chr{userVariant.chromosome}</span>}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0.2rem 0.5rem", background: "rgb(var(--c-accent) / 0.1)", borderRadius: 6, border: "1px solid rgb(var(--c-accent) / 0.2)" }}>
+          <span style={{ fontSize: "0.62rem", color: "var(--accent)", fontWeight: 600 }}>YOUR DATA</span>
+          <span style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "var(--accent-soft)", fontWeight: 700 }}>{userVariant.genotype}</span>
+          {userVariant.chromosome && <span style={{ fontSize: "0.6rem", color: "var(--border-solid)" }}>chr{userVariant.chromosome}</span>}
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
-          <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#7dd3fc", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.variant_id}</p>
-          {!expanded && variant.condition && <p style={{ fontSize: "0.72rem", color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.condition}</p>}
+          <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "var(--accent-soft)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.variant_id}</p>
+          {!expanded && variant.condition && <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{variant.condition}</p>}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <span style={{ fontSize: "0.7rem", padding: "0.2em 0.55em", borderRadius: 5, background: c.bg, color: c.color, border: `1px solid ${c.border}`, display: "inline-block" }}>{sig}</span>
           {!expanded && variant.frequency != null && (
-            <p style={{ fontSize: "0.7rem", color: "#475569", marginTop: 3 }}>
+            <p style={{ fontSize: "0.7rem", color: "var(--text-dimmer)", marginTop: 3 }}>
               AF {variant.frequency < 0.0001 ? variant.frequency.toExponential(1) : variant.frequency.toFixed(5)}
             </p>
           )}
-          {hasDetail && <p style={{ fontSize: "0.6rem", color: "#334155", marginTop: 3 }}>{expanded ? "▲ less" : "▼ more"}</p>}
+          {hasDetail && <p style={{ fontSize: "0.6rem", color: "var(--border-solid)", marginTop: 3 }}>{expanded ? "▲ less" : "▼ more"}</p>}
         </div>
       </div>
       {expanded && (
-        <div style={{ marginTop: "0.6rem", paddingTop: "0.6rem", borderTop: "1px solid rgba(51,65,85,0.3)", display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ marginTop: "0.6rem", paddingTop: "0.6rem", borderTop: "1px solid rgb(var(--c-border) / 0.3)", display: "flex", flexDirection: "column", gap: 4 }}>
           {variant.condition && <Row label="Condition" value={variant.condition} />}
           {variant.consequence && <Row label="Consequence" value={variant.consequence} mono />}
           {variant.hgvs && <Row label="HGVS" value={variant.hgvs} mono />}
@@ -1149,7 +1180,7 @@ function VariantCard({ variant, userVariant, defaultExpanded }) {
               href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${variant.variant_id?.replace(/[^0-9]/g, "")}/`}
               target="_blank" rel="noreferrer"
               onClick={e => e.stopPropagation()}
-              style={{ fontSize: "0.68rem", color: "#38bdf8", marginTop: 2 }}
+              style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: 2 }}
             >
               View in ClinVar ↗
             </a>
@@ -1163,23 +1194,23 @@ function VariantCard({ variant, userVariant, defaultExpanded }) {
 function Row({ label, value, mono }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-      <span style={{ fontSize: "0.65rem", color: "#334155", flexShrink: 0, width: 110 }}>{label}</span>
-      <span style={{ fontSize: mono ? "0.68rem" : "0.72rem", color: "#94a3b8", fontFamily: mono ? "monospace" : "inherit", wordBreak: "break-all" }}>{value}</span>
+      <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", flexShrink: 0, width: 110 }}>{label}</span>
+      <span style={{ fontSize: mono ? "0.68rem" : "0.72rem", color: "var(--text-faint)", fontFamily: mono ? "monospace" : "inherit", wordBreak: "break-all" }}>{value}</span>
     </div>
   );
 }
 
 function GeneCard({ gene }) {
   return (
-    <div style={{ background: "rgba(30,41,59,0.35)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 10, padding: "0.75rem" }}>
+    <div style={{ background: "rgb(var(--c-surface) / 0.35)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 10, padding: "0.75rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
-          <p style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "#c4b5fd", fontWeight: 700 }}>{gene.gene_symbol}</p>
-          {gene.description && <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{gene.description}</p>}
+          <p style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--violet-faint)", fontWeight: 700 }}>{gene.gene_symbol}</p>
+          {gene.description && <p style={{ fontSize: "0.75rem", color: "var(--text-dim)", marginTop: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{gene.description}</p>}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          {gene.chromosome && <span style={{ fontSize: "0.7rem", padding: "0.2em 0.55em", borderRadius: 5, background: "rgba(30,41,59,0.7)", color: "#64748b", border: "1px solid rgba(51,65,85,0.4)", display: "inline-block" }}>Chr {gene.chromosome}</span>}
-          {gene.publication_count > 0 && <p style={{ fontSize: "0.7rem", color: "#475569", marginTop: 3 }}>{gene.publication_count.toLocaleString()} pubs</p>}
+          {gene.chromosome && <span style={{ fontSize: "0.7rem", padding: "0.2em 0.55em", borderRadius: 5, background: "rgb(var(--c-surface) / 0.7)", color: "var(--text-dim)", border: "1px solid rgb(var(--c-border) / 0.4)", display: "inline-block" }}>Chr {gene.chromosome}</span>}
+          {gene.publication_count > 0 && <p style={{ fontSize: "0.7rem", color: "var(--text-dimmer)", marginTop: 3 }}>{gene.publication_count.toLocaleString()} pubs</p>}
         </div>
       </div>
     </div>
@@ -1189,19 +1220,19 @@ function GeneCard({ gene }) {
 function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
   if (!geneInfo) return null;
   return (
-    <div style={{ background: "rgba(8,47,73,0.4)", border: "1px solid rgba(14,116,144,0.25)", borderRadius: 10, padding: "0.75rem", marginBottom: "1rem" }}>
+    <div style={{ background: "rgb(var(--c-accent) / 0.4)", border: "1px solid rgb(var(--c-accent) / 0.25)", borderRadius: 10, padding: "0.75rem", marginBottom: "1rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <p style={{ fontFamily: "monospace", fontWeight: 700, color: "#7dd3fc", fontSize: "0.875rem" }}>{geneInfo.symbol}</p>
-          {geneInfo.description && <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: 3 }}>{geneInfo.description}</p>}
-          {proteinInfo?.protein_name && <p style={{ fontSize: "0.72rem", color: "#0ea5e9", opacity: 0.7, marginTop: 4 }}>Protein: {proteinInfo.protein_name}</p>}
+          <p style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--accent-soft)", fontSize: "0.875rem" }}>{geneInfo.symbol}</p>
+          {geneInfo.description && <p style={{ fontSize: "0.75rem", color: "var(--text-dim)", marginTop: 3 }}>{geneInfo.description}</p>}
+          {proteinInfo?.protein_name && <p style={{ fontSize: "0.72rem", color: "var(--accent-strong)", opacity: 0.7, marginTop: 4 }}>Protein: {proteinInfo.protein_name}</p>}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          {geneInfo.chromosome && <p style={{ fontSize: "0.72rem", color: "#475569" }}>Chr {geneInfo.chromosome}</p>}
-          {pubCount > 0 && <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 3 }}>{pubCount.toLocaleString()} publications</p>}
+          {geneInfo.chromosome && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)" }}>Chr {geneInfo.chromosome}</p>}
+          {pubCount > 0 && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 3 }}>{pubCount.toLocaleString()} publications</p>}
         </div>
       </div>
-      {proteinInfo?.function && <p style={{ fontSize: "0.72rem", color: "#475569", marginTop: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{proteinInfo.function}</p>}
+      {proteinInfo?.function && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{proteinInfo.function}</p>}
     </div>
   );
 }
@@ -1254,26 +1285,26 @@ function DataSection({ data, queryType, dnaData, settings }) {
       {/* Header row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: hasFilters ? 10 : 8, flexWrap: "wrap", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          <p style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-dimmer)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
             {isGene
               ? `${items.length}${items.length !== allItems.length ? ` / ${allItems.length}` : ""} Variant${allItems.length !== 1 ? "s" : ""}`
               : `${allItems.length} Associated Genes`}
           </p>
           {matchCount > 0 && (
-            <span style={{ fontSize: "0.62rem", padding: "0.15em 0.5em", borderRadius: 4, background: "rgba(14,165,233,0.15)", color: "#38bdf8", border: "1px solid rgba(14,165,233,0.25)" }}>
+            <span style={{ fontSize: "0.62rem", padding: "0.15em 0.5em", borderRadius: 4, background: "rgb(var(--c-accent) / 0.15)", color: "var(--accent)", border: "1px solid rgb(var(--c-accent) / 0.25)" }}>
               {matchCount} in your data
             </span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {items.length > 6 && (
-            <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#38bdf8", background: "none", border: "none", cursor: "pointer" }}>
+            <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "var(--accent)", background: "none", border: "none", cursor: "pointer" }}>
               {expanded ? "Show less" : `Show all ${items.length}`}
             </button>
           )}
           {isGene && (
             <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-              style={{ fontSize: "0.68rem", color: "#64748b", background: "rgba(15,23,42,0.7)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.2rem 0.4rem", cursor: "pointer", outline: "none" }}>
+              style={{ fontSize: "0.68rem", color: "var(--text-dim)", background: "rgb(var(--c-deep) / 0.7)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.2rem 0.4rem", cursor: "pointer", outline: "none" }}>
               <option value="default">Sort: Default</option>
               <option value="pathogenic_first">Pathogenic first</option>
               <option value="frequency">Rarest first</option>
@@ -1292,9 +1323,9 @@ function DataSection({ data, queryType, dnaData, settings }) {
             return (
               <button key={opt} onClick={() => { setSigFilter(opt); setExpanded(false); }}
                 style={{ fontSize: "0.65rem", padding: "0.18em 0.55em", borderRadius: 100, cursor: "pointer", fontWeight: active ? 700 : 400, transition: "all 0.12s",
-                  background: active && c ? c.bg : active ? "rgba(14,165,233,0.15)" : "rgba(15,23,42,0.5)",
-                  color: active && c ? c.color : active ? "#38bdf8" : "#475569",
-                  border: `1px solid ${active && c ? c.border : active ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.3)"}` }}>
+                  background: active && c ? c.bg : active ? "rgb(var(--c-accent) / 0.15)" : "rgb(var(--c-deep) / 0.5)",
+                  color: active && c ? c.color : active ? "var(--accent)" : "var(--text-dimmer)",
+                  border: `1px solid ${active && c ? c.border : active ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.3)"}` }}>
                 {SIG_FILTER_SHORT[opt]}
               </button>
             );
@@ -1302,16 +1333,16 @@ function DataSection({ data, queryType, dnaData, settings }) {
           {matchCount > 0 && dnaData && (
             <button onClick={() => { setMyDataOnly(v => !v); setExpanded(false); }}
               style={{ fontSize: "0.65rem", padding: "0.18em 0.6em", borderRadius: 100, cursor: "pointer", marginLeft: 4, transition: "all 0.12s",
-                background: myDataOnly ? "rgba(14,165,233,0.15)" : "rgba(15,23,42,0.5)",
-                color: myDataOnly ? "#38bdf8" : "#475569",
-                border: `1px solid ${myDataOnly ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.3)"}`,
+                background: myDataOnly ? "rgb(var(--c-accent) / 0.15)" : "rgb(var(--c-deep) / 0.5)",
+                color: myDataOnly ? "var(--accent)" : "var(--text-dimmer)",
+                border: `1px solid ${myDataOnly ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.3)"}`,
                 fontWeight: myDataOnly ? 700 : 400 }}>
               🧬 My data only
             </button>
           )}
           {(sigFilter !== "All" || myDataOnly) && (
             <button onClick={() => { setSigFilter("All"); setMyDataOnly(false); }}
-              style={{ fontSize: "0.62rem", color: "#334155", background: "none", border: "none", cursor: "pointer", marginLeft: 2 }}>
+              style={{ fontSize: "0.62rem", color: "var(--border-solid)", background: "none", border: "none", cursor: "pointer", marginLeft: 2 }}>
               Clear
             </button>
           )}
@@ -1319,7 +1350,7 @@ function DataSection({ data, queryType, dnaData, settings }) {
       )}
 
       {items.length === 0 ? (
-        <p style={{ fontSize: "0.75rem", color: "#334155", padding: "0.75rem 0" }}>No variants match the current filter.</p>
+        <p style={{ fontSize: "0.75rem", color: "var(--border-solid)", padding: "0.75rem 0" }}>No variants match the current filter.</p>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
           {shown.map((item, i) => {
@@ -1335,7 +1366,7 @@ function DataSection({ data, queryType, dnaData, settings }) {
 // ─── Pathway Viewer (Reactome) ───────────────────────────────────────────────
 
 const PATHWAY_COLORS = [
-  "#0ea5e9","#6366f1","#8b5cf6","#ec4899","#f59e0b",
+  "var(--accent-strong)","#6366f1","#8b5cf6","#ec4899","#f59e0b",
   "#10b981","#14b8a6","#f97316","#ef4444","#84cc16",
 ];
 
@@ -1345,10 +1376,10 @@ function PathwayViewer({ pathways }) {
   const shown = expanded ? pathways : pathways.slice(0, 8);
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(99,102,241,0.15)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a5b4fc" }}>Biological Pathways</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Reactome · {pathways.length} pathways</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.15)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Biological Pathways</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Reactome · {pathways.length} pathways</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexWrap: "wrap", gap: 6 }}>
         {shown.map((p, i) => (
@@ -1382,10 +1413,10 @@ function ExpressionChart({ expression }) {
   const max = Math.max(...top.map(e => e.median_tpm));
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(16,185,129,0.15)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#6ee7b7" }}>Tissue Expression</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>GTEx v8 · median TPM</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.15)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Tissue Expression</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>GTEx v8 · median TPM</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
         {top.map((e, i) => {
@@ -1393,11 +1424,11 @@ function ExpressionChart({ expression }) {
           const intensity = Math.max(0.3, pct / 100);
           return (
             <div key={e.tissue} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: "0.7rem", color: "#64748b", width: 140, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.tissue}</span>
-              <div style={{ flex: 1, height: 14, background: "rgba(30,41,59,0.5)", borderRadius: 3, overflow: "hidden" }}>
+              <span style={{ fontSize: "0.7rem", color: "var(--text-dim)", width: 140, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.tissue}</span>
+              <div style={{ flex: 1, height: 14, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 3, overflow: "hidden" }}>
                 <div style={{ width: `${pct}%`, height: "100%", background: `rgba(16,185,129,${intensity})`, borderRadius: 3, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
               </div>
-              <span style={{ fontSize: "0.68rem", color: "#475569", width: 50, textAlign: "right", flexShrink: 0 }}>{e.median_tpm}</span>
+              <span style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", width: 50, textAlign: "right", flexShrink: 0 }}>{e.median_tpm}</span>
             </div>
           );
         })}
@@ -1416,10 +1447,10 @@ function InteractionNetwork({ interactions, centerGene }) {
   const nodes = interactions.slice(0, 12);
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(245,158,11,0.15)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fcd34d" }}>Protein Interactions</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>STRING DB · {interactions.length} partners</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-warning) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.15)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--warning-soft)" }}>Protein Interactions</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>STRING DB · {interactions.length} partners</span>
       </div>
       <div style={{ display: "flex", gap: 0 }}>
         <svg width="400" height="360" style={{ flexShrink: 0 }}>
@@ -1433,29 +1464,29 @@ function InteractionNetwork({ interactions, centerGene }) {
                 stroke={`rgba(245,158,11,${opacity})`} strokeWidth={1 + node.interaction_score * 2} />
             );
           })}
-          <circle cx={cx} cy={cy} r={22} fill="rgba(14,165,233,0.2)" stroke="#0ea5e9" strokeWidth={1.5} />
-          <text x={cx} y={cy + 4} textAnchor="middle" fill="#7dd3fc" fontSize={10} fontWeight={700} fontFamily="monospace">{centerGene}</text>
+          <circle cx={cx} cy={cy} r={22} fill="rgb(var(--c-accent) / 0.2)" stroke="var(--accent-strong)" strokeWidth={1.5} />
+          <text x={cx} y={cy + 4} textAnchor="middle" fill="var(--accent-soft)" fontSize={10} fontWeight={700} fontFamily="monospace">{centerGene}</text>
           {nodes.map((node, i) => {
             const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
             const nx = cx + r * Math.cos(angle);
             const ny = cy + r * Math.sin(angle);
             return (
               <g key={`n${i}`}>
-                <circle cx={nx} cy={ny} r={16} fill="rgba(245,158,11,0.12)" stroke={`rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`} strokeWidth={1} />
-                <text x={nx} y={ny + 4} textAnchor="middle" fill="#fcd34d" fontSize={8} fontFamily="monospace">{node.gene}</text>
+                <circle cx={nx} cy={ny} r={16} fill="rgb(var(--c-warning) / 0.12)" stroke={`rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`} strokeWidth={1} />
+                <text x={nx} y={ny + 4} textAnchor="middle" fill="var(--warning-soft)" fontSize={8} fontFamily="monospace">{node.gene}</text>
               </g>
             );
           })}
         </svg>
         <div style={{ flex: 1, padding: "0.75rem 0.75rem 0.75rem 0", overflowY: "auto", maxHeight: 360 }}>
           {nodes.map((node, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.3rem 0", borderBottom: "1px solid rgba(30,41,59,0.4)" }}>
-              <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#fcd34d" }}>{node.gene}</span>
+            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.3rem 0", borderBottom: "1px solid rgb(var(--c-surface) / 0.4)" }}>
+              <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--warning-soft)" }}>{node.gene}</span>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 40, height: 4, background: "rgba(30,41,59,0.5)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: 40, height: 4, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 2, overflow: "hidden" }}>
                   <div style={{ width: `${node.score_pct}%`, height: "100%", background: `rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`, borderRadius: 2 }} />
                 </div>
-                <span style={{ fontSize: "0.65rem", color: "#475569" }}>{node.score_pct}%</span>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)" }}>{node.score_pct}%</span>
               </div>
             </div>
           ))}
@@ -1469,11 +1500,11 @@ function InteractionNetwork({ interactions, centerGene }) {
 
 const PHASE_LABEL = { 4: "Approved", 3: "Phase III", 2: "Phase II", 1: "Phase I", 0: "Preclinical" };
 const PHASE_COLOR = {
-  4: { bg: "rgba(5,46,22,0.4)", color: "#86efac", border: "rgba(21,128,61,0.3)" },
-  3: { bg: "rgba(8,47,73,0.4)", color: "#7dd3fc", border: "rgba(3,105,161,0.3)" },
-  2: { bg: "rgba(23,37,84,0.4)", color: "#93c5fd", border: "rgba(29,78,216,0.25)" },
-  1: { bg: "rgba(49,46,129,0.4)", color: "#c4b5fd", border: "rgba(109,40,217,0.3)" },
-  0: { bg: "rgba(30,41,59,0.5)", color: "#94a3b8", border: "rgba(51,65,85,0.4)" },
+  4: { bg: "rgb(var(--c-success) / 0.4)", color: "var(--success-soft)", border: "rgb(var(--c-success) / 0.3)" },
+  3: { bg: "rgb(var(--c-accent) / 0.4)", color: "var(--accent-soft)", border: "rgb(var(--c-accent) / 0.3)" },
+  2: { bg: "rgb(var(--c-accent) / 0.4)", color: "var(--accent-soft)", border: "rgb(var(--c-accent) / 0.25)" },
+  1: { bg: "rgb(var(--c-violet) / 0.4)", color: "var(--violet-faint)", border: "rgb(var(--c-violet) / 0.3)" },
+  0: { bg: "rgb(var(--c-surface) / 0.5)", color: "var(--text-faint)", border: "rgb(var(--c-border) / 0.4)" },
 };
 
 function DrugPanel({ drugs }) {
@@ -1482,33 +1513,33 @@ function DrugPanel({ drugs }) {
   const shown = expanded ? drugs : drugs.slice(0, 6);
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(134,239,172,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(134,239,172,0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#86efac" }}>Drug Interactions</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Open Targets · {drugs.length} compounds</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Drug Interactions</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Open Targets · {drugs.length} compounds</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {shown.map((drug, i) => {
           const phase = drug.phase ?? 0;
           const pc = PHASE_COLOR[Math.min(phase, 4)] || PHASE_COLOR[0];
           return (
-            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.5rem 0.6rem", background: "rgba(30,41,59,0.3)", borderRadius: 8, border: "1px solid rgba(51,65,85,0.25)" }}>
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.5rem 0.6rem", background: "rgb(var(--c-surface) / 0.3)", borderRadius: 8, border: "1px solid rgb(var(--c-border) / 0.25)" }}>
               <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: pc.bg, color: pc.color, border: `1px solid ${pc.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
                 {PHASE_LABEL[Math.min(phase, 4)] || `Phase ${phase}`}
               </span>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "#e2e8f0", fontWeight: 600 }}>{drug.name}</p>
-                {drug.mechanism && <p style={{ fontSize: "0.7rem", color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drug.mechanism}</p>}
-                {drug.indication && <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 1 }}>{drug.indication}</p>}
+                <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600 }}>{drug.name}</p>
+                {drug.mechanism && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drug.mechanism}</p>}
+                {drug.indication && <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 1 }}>{drug.indication}</p>}
               </div>
-              {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "#334155", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
+              {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "var(--border-solid)", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
             </div>
           );
         })}
       </div>
       {drugs.length > 6 && (
         <div style={{ padding: "0 0.875rem 0.625rem" }}>
-          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#86efac", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "var(--success-soft)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
             {expanded ? "Show less" : `+ ${drugs.length - 6} more compounds`}
           </button>
         </div>
@@ -1530,10 +1561,10 @@ function PopulationFrequencyChart({ populations }) {
   const max = Math.max(...populations.map(p => p.allele_frequency));
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(99,102,241,0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a5b4fc" }}>Population Frequencies</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>gnomAD r4 · aggregated AF by ancestry</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.15)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Population Frequencies</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>gnomAD r4 · aggregated AF by ancestry</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
         {populations.map((pop) => {
@@ -1544,11 +1575,11 @@ function PopulationFrequencyChart({ populations }) {
             : pop.allele_frequency.toFixed(5);
           return (
             <div key={pop.population_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: "0.68rem", color: "#64748b", width: 160, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pop.population}</span>
-              <div style={{ flex: 1, height: 14, background: "rgba(30,41,59,0.5)", borderRadius: 3, overflow: "hidden" }}>
+              <span style={{ fontSize: "0.68rem", color: "var(--text-dim)", width: 160, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pop.population}</span>
+              <div style={{ flex: 1, height: 14, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 3, overflow: "hidden" }}>
                 <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3, opacity: 0.8, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
               </div>
-              <span style={{ fontSize: "0.65rem", color: "#475569", width: 70, textAlign: "right", flexShrink: 0, fontFamily: "monospace" }}>{afDisplay}</span>
+              <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", width: 70, textAlign: "right", flexShrink: 0, fontFamily: "monospace" }}>{afDisplay}</span>
             </div>
           );
         })}
@@ -1560,9 +1591,9 @@ function PopulationFrequencyChart({ populations }) {
 // ─── Cancer Mutations Panel (COSMIC / NCI GDC) ───────────────────────────────
 
 const CONSEQUENCE_COLORS = {
-  "Missense": "#f97316", "Stop Gained": "#ef4444", "Frameshift": "#dc2626",
-  "Splice Acceptor": "#8b5cf6", "Splice Donor": "#7c3aed", "Synonymous": "#22c55e",
-  "Intron": "#64748b", "Start Lost": "#f59e0b", "Stop Lost": "#fb923c",
+  "Missense": "#f97316", "Stop Gained": "#ef4444", "Frameshift": "var(--danger)",
+  "Splice Acceptor": "#8b5cf6", "Splice Donor": "var(--violet-soft)", "Synonymous": "#22c55e",
+  "Intron": "var(--text-dim)", "Start Lost": "#f59e0b", "Stop Lost": "var(--warning-soft)",
 };
 
 function CancerMutationsPanel({ data }) {
@@ -1571,10 +1602,10 @@ function CancerMutationsPanel({ data }) {
   const max = Math.max(...cancer_types.map(c => c.mutation_count));
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(239,68,68,0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fca5a5" }}>Somatic Cancer Mutations</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>NCI GDC / TCGA · {total_mutations?.toLocaleString()} mutations</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger-soft)" }}>Somatic Cancer Mutations</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>NCI GDC / TCGA · {total_mutations?.toLocaleString()} mutations</span>
       </div>
 
       <div style={{ display: "flex", gap: 0 }}>
@@ -1584,11 +1615,11 @@ function CancerMutationsPanel({ data }) {
             const pct = max > 0 ? (c.mutation_count / max) * 100 : 0;
             return (
               <div key={c.project_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: "0.68rem", color: "#64748b", width: 150, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.cancer_type}</span>
-                <div style={{ flex: 1, height: 14, background: "rgba(30,41,59,0.5)", borderRadius: 3, overflow: "hidden" }}>
+                <span style={{ fontSize: "0.68rem", color: "var(--text-dim)", width: 150, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.cancer_type}</span>
+                <div style={{ flex: 1, height: 14, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 3, overflow: "hidden" }}>
                   <div style={{ width: `${pct}%`, height: "100%", background: `rgba(239,68,68,${0.3 + (pct / 100) * 0.6})`, borderRadius: 3, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
                 </div>
-                <span style={{ fontSize: "0.65rem", color: "#475569", width: 40, textAlign: "right", flexShrink: 0 }}>{c.mutation_count}</span>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", width: 40, textAlign: "right", flexShrink: 0 }}>{c.mutation_count}</span>
               </div>
             );
           })}
@@ -1596,17 +1627,17 @@ function CancerMutationsPanel({ data }) {
 
         {/* Consequence type breakdown */}
         {consequence_types?.length > 0 && (
-          <div style={{ width: 160, padding: "0.75rem", borderLeft: "1px solid rgba(30,41,59,0.5)", display: "flex", flexDirection: "column", gap: 5 }}>
-            <p style={{ fontSize: "0.63rem", color: "#334155", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Mutation Type</p>
+          <div style={{ width: 160, padding: "0.75rem", borderLeft: "1px solid rgb(var(--c-surface) / 0.5)", display: "flex", flexDirection: "column", gap: 5 }}>
+            <p style={{ fontSize: "0.63rem", color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Mutation Type</p>
             {consequence_types.map((ct, i) => {
               const color = CONSEQUENCE_COLORS[ct.type] || "#6366f1";
               return (
                 <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
                     <div style={{ width: 6, height: 6, borderRadius: 1, background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: "0.65rem", color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ct.type}</span>
+                    <span style={{ fontSize: "0.65rem", color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ct.type}</span>
                   </div>
-                  <span style={{ fontSize: "0.63rem", color: "#475569", flexShrink: 0 }}>{ct.count}</span>
+                  <span style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", flexShrink: 0 }}>{ct.count}</span>
                 </div>
               );
             })}
@@ -1620,50 +1651,50 @@ function CancerMutationsPanel({ data }) {
 // ─── ClinGen Panel ────────────────────────────────────────────────────────────
 
 const CLINGEN_STYLE = {
-  "Definitive":           { color: "#86efac", bg: "rgba(5,46,22,0.5)",   border: "rgba(21,128,61,0.4)" },
-  "Strong":               { color: "#7dd3fc", bg: "rgba(8,47,73,0.5)",   border: "rgba(3,105,161,0.4)" },
-  "Moderate":             { color: "#fde68a", bg: "rgba(66,32,6,0.4)",   border: "rgba(161,98,7,0.35)" },
-  "Limited":              { color: "#fdba74", bg: "rgba(124,45,18,0.4)", border: "rgba(194,65,12,0.3)" },
-  "Disputed":             { color: "#fca5a5", bg: "rgba(127,29,29,0.4)", border: "rgba(185,28,28,0.3)" },
-  "Refuted":              { color: "#f87171", bg: "rgba(127,29,29,0.5)", border: "rgba(185,28,28,0.4)" },
-  "No Reported Evidence": { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" },
+  "Definitive":           { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.5)",   border: "rgb(var(--c-success) / 0.4)" },
+  "Strong":               { color: "var(--accent-soft)", bg: "rgb(var(--c-accent) / 0.5)",   border: "rgb(var(--c-accent) / 0.4)" },
+  "Moderate":             { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.4)",   border: "rgb(var(--c-warning) / 0.35)" },
+  "Limited":              { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.4)", border: "rgb(var(--c-warning) / 0.3)" },
+  "Disputed":             { color: "var(--danger-soft)", bg: "rgb(var(--c-danger) / 0.4)", border: "rgb(var(--c-danger) / 0.3)" },
+  "Refuted":              { color: "var(--danger)", bg: "rgb(var(--c-danger) / 0.5)", border: "rgb(var(--c-danger) / 0.4)" },
+  "No Reported Evidence": { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" },
 };
 
 function ClinGenPanel({ curations }) {
   if (!curations?.length) return null;
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(134,239,172,0.18)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(134,239,172,0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#86efac" }}>ClinGen Gene-Disease Validity</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Expert curated · {curations.length} associations</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>ClinGen Gene-Disease Validity</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Expert curated · {curations.length} associations</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {curations.map((c, i) => {
           const cs = CLINGEN_STYLE[c.classification] || CLINGEN_STYLE["No Reported Evidence"];
           return (
             <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-              <div style={{ padding: "0.5rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(134,239,172,0.3)"}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.25)"}
+              <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-success) / 0.3)"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
               >
                 <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: cs.bg, color: cs.color, border: `1px solid ${cs.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
                   {c.classification}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: "0.73rem", color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.disease}</p>
+                  <p style={{ fontSize: "0.73rem", color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.disease}</p>
                   {(c.moi || c.gcep) && (
-                    <p style={{ fontSize: "0.63rem", color: "#475569", marginTop: 2 }}>
+                    <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2 }}>
                       {[c.moi, c.gcep].filter(Boolean).join(" · ")}
                     </p>
                   )}
                 </div>
-                <span style={{ fontSize: "0.6rem", color: "#334155", flexShrink: 0 }}>↗</span>
+                <span style={{ fontSize: "0.6rem", color: "var(--border-solid)", flexShrink: 0 }}>↗</span>
               </div>
             </a>
           );
         })}
       </div>
-      <div style={{ padding: "0.35rem 0.875rem 0.6rem", borderTop: "1px solid rgba(30,41,59,0.4)", display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div style={{ padding: "0.35rem 0.875rem 0.6rem", borderTop: "1px solid rgb(var(--c-surface) / 0.4)", display: "flex", flexWrap: "wrap", gap: 6 }}>
         {Object.entries(CLINGEN_STYLE).map(([label, s]) => (
           <div key={label} style={{ display: "flex", alignItems: "center", gap: 3 }}>
             <span style={{ fontSize: "0.58rem", padding: "0.1em 0.35em", borderRadius: 3, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>{label}</span>
@@ -1685,10 +1716,10 @@ function PublicationTimeline({ timeline }) {
   const BAR_H = 80;
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(251,191,36,0.18)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(251,191,36,0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#fbbf24" }}>Publication Timeline</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>PubMed · papers per year</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-warning) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--warning)" }}>Publication Timeline</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>PubMed · papers per year</span>
       </div>
       <div style={{ padding: "0.75rem 0.875rem 0.6rem" }}>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: BAR_H + 24 }}>
@@ -1698,11 +1729,11 @@ function PublicationTimeline({ timeline }) {
             return (
               <div key={year} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}
                 title={`${year}: ${count.toLocaleString()} publications`}>
-                <span style={{ fontSize: "0.58rem", color: count > 0 ? "#fbbf24" : "#334155", lineHeight: 1 }}>
+                <span style={{ fontSize: "0.58rem", color: count > 0 ? "var(--warning)" : "var(--border-solid)", lineHeight: 1 }}>
                   {count > 0 ? (count >= 1000 ? `${(count/1000).toFixed(1)}k` : count) : ""}
                 </span>
                 <div style={{ width: "100%", height: barH, background: `rgba(251,191,36,${opacity})`, borderRadius: "3px 3px 0 0", transition: "height 0.3s" }} />
-                <span style={{ fontSize: "0.58rem", color: "#475569", transform: "rotate(-45deg)", transformOrigin: "top center", marginTop: 2, whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: "0.58rem", color: "var(--text-dimmer)", transform: "rotate(-45deg)", transformOrigin: "top center", marginTop: 2, whiteSpace: "nowrap" }}>
                   {String(year).slice(2)}
                 </span>
               </div>
@@ -1720,31 +1751,31 @@ function GWASPanel({ gwas }) {
   if (!gwas?.length) return null;
 
   const sigColor = (p) => {
-    if (p === null || p === undefined) return "#94a3b8";
-    if (p < 5e-8) return "#f87171";   // genome-wide significant
-    if (p < 1e-5) return "#fb923c";   // suggestive
-    return "#fbbf24";                  // nominal
+    if (p === null || p === undefined) return "var(--text-faint)";
+    if (p < 5e-8) return "var(--danger)";   // genome-wide significant
+    if (p < 1e-5) return "var(--warning-soft)";   // suggestive
+    return "var(--warning)";                  // nominal
   };
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(248,113,113,0.18)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(248,113,113,0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#f87171" }}>GWAS Catalog</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Trait associations · {gwas.length} results</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger)" }}>GWAS Catalog</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Trait associations · {gwas.length} results</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
         {gwas.map((a, i) => (
           <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <div style={{ padding: "0.45rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(248,113,113,0.3)"}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.25)"}
+            <div style={{ padding: "0.45rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-danger) / 0.3)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: "0.73rem", color: "#e2e8f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.trait}</p>
+                <p style={{ fontSize: "0.73rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.trait}</p>
                 <div style={{ display: "flex", gap: 8, marginTop: 2, alignItems: "center" }}>
-                  {a.risk_allele && <span style={{ fontSize: "0.62rem", color: "#64748b" }}>{a.risk_allele}</span>}
-                  {a.or_beta != null && <span style={{ fontSize: "0.62rem", color: "#64748b" }}>OR/β={a.or_beta.toFixed(2)}</span>}
-                  {a.pmid && <span style={{ fontSize: "0.62rem", color: "#475569" }}>PMID:{a.pmid}</span>}
+                  {a.risk_allele && <span style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>{a.risk_allele}</span>}
+                  {a.or_beta != null && <span style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>OR/β={a.or_beta.toFixed(2)}</span>}
+                  {a.pmid && <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>PMID:{a.pmid}</span>}
                 </div>
               </div>
               <span style={{ fontSize: "0.65rem", fontFamily: "monospace", color: sigColor(a.p_value), flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -1754,11 +1785,11 @@ function GWASPanel({ gwas }) {
           </a>
         ))}
       </div>
-      <div style={{ padding: "0.35rem 0.875rem 0.5rem", borderTop: "1px solid rgba(30,41,59,0.4)", display: "flex", gap: 12, alignItems: "center" }}>
-        {[["< 5×10⁻⁸", "#f87171", "Genome-wide"], ["< 1×10⁻⁵", "#fb923c", "Suggestive"], ["other", "#fbbf24", "Nominal"]].map(([thr, col, lbl]) => (
+      <div style={{ padding: "0.35rem 0.875rem 0.5rem", borderTop: "1px solid rgb(var(--c-surface) / 0.4)", display: "flex", gap: 12, alignItems: "center" }}>
+        {[["< 5×10⁻⁸", "var(--danger)", "Genome-wide"], ["< 1×10⁻⁵", "var(--warning-soft)", "Suggestive"], ["other", "var(--warning)", "Nominal"]].map(([thr, col, lbl]) => (
           <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: col }} />
-            <span style={{ fontSize: "0.62rem", color: "#475569" }}>{lbl}</span>
+            <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{lbl}</span>
           </div>
         ))}
       </div>
@@ -1783,23 +1814,23 @@ function PhenotypePanel({ hpo, monarch }) {
   const Tab = ({ id, label, count }) => (
     <button onClick={() => setActiveTab(id)} style={{
       fontSize: "0.7rem", padding: "0.3rem 0.65rem", border: "none", cursor: "pointer",
-      background: activeTab === id ? "rgba(139,92,246,0.15)" : "transparent",
-      color: activeTab === id ? "#a78bfa" : "#475569",
-      borderBottom: activeTab === id ? "2px solid #a78bfa" : "2px solid transparent",
+      background: activeTab === id ? "rgb(var(--c-violet) / 0.15)" : "transparent",
+      color: activeTab === id ? "var(--violet)" : "var(--text-dimmer)",
+      borderBottom: activeTab === id ? "2px solid var(--violet)" : "2px solid transparent",
     }}>
-      {label}{count > 0 ? <span style={{ marginLeft: 4, fontSize: "0.62rem", color: "#334155" }}>({count})</span> : null}
+      {label}{count > 0 ? <span style={{ marginLeft: 4, fontSize: "0.62rem", color: "var(--border-solid)" }}>({count})</span> : null}
     </button>
   );
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(167,139,250,0.18)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(167,139,250,0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a78bfa" }}>Phenotype Associations</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>HPO · Monarch Initiative</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.1)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet)" }}>Phenotype Associations</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>HPO · Monarch Initiative</span>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid rgba(30,41,59,0.5)", paddingLeft: "0.5rem" }}>
+      <div style={{ display: "flex", borderBottom: "1px solid rgb(var(--c-surface) / 0.5)", paddingLeft: "0.5rem" }}>
         {hasHPO && <Tab id="hpo" label="HPO Terms" count={hpoTerms.length} />}
         {hpoDiseases.length > 0 && <Tab id="hpo_disease" label="HPO Diseases" count={hpoDiseases.length} />}
         {hasMonarch && <Tab id="monarch" label="Monarch" count={monarchDiseases.length + monarchPhenos.length} />}
@@ -1808,23 +1839,23 @@ function PhenotypePanel({ hpo, monarch }) {
       <div style={{ padding: "0.65rem 0.75rem", maxHeight: 260, overflowY: "auto" }}>
         {activeTab === "hpo" && hpoTerms.map((t, i) => (
           <a key={i} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "flex-start" }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.2)"}
+            <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "flex-start" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.2)"}
             >
-              <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)", flexShrink: 0, fontFamily: "monospace" }}>{t.id}</span>
+              <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgb(var(--c-violet) / 0.15)", color: "var(--violet)", border: "1px solid rgb(var(--c-violet) / 0.2)", flexShrink: 0, fontFamily: "monospace" }}>{t.id}</span>
               <div style={{ flex: 1 }}>
-                <p style={{ fontSize: "0.72rem", color: "#e2e8f0" }}>{t.name}</p>
-                {t.definition && <p style={{ fontSize: "0.62rem", color: "#475569", marginTop: 1, lineHeight: 1.4 }}>{t.definition.slice(0, 120)}{t.definition.length > 120 ? "…" : ""}</p>}
+                <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{t.name}</p>
+                {t.definition && <p style={{ fontSize: "0.62rem", color: "var(--text-dimmer)", marginTop: 1, lineHeight: 1.4 }}>{t.definition.slice(0, 120)}{t.definition.length > 120 ? "…" : ""}</p>}
               </div>
             </div>
           </a>
         ))}
 
         {activeTab === "hpo_disease" && hpoDiseases.map((d, i) => (
-          <div key={i} style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgba(139,92,246,0.1)", color: "#7c3aed", border: "1px solid rgba(109,40,217,0.2)", flexShrink: 0, fontFamily: "monospace" }}>{d.db}</span>
-            <p style={{ fontSize: "0.72rem", color: "#e2e8f0" }}>{d.name}</p>
+          <div key={i} style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgb(var(--c-violet) / 0.1)", color: "var(--violet-soft)", border: "1px solid rgb(var(--c-violet) / 0.2)", flexShrink: 0, fontFamily: "monospace" }}>{d.db}</span>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{d.name}</p>
           </div>
         ))}
 
@@ -1832,18 +1863,18 @@ function PhenotypePanel({ hpo, monarch }) {
           <>
             {monarchDiseases.length > 0 && (
               <>
-                <p style={{ fontSize: "0.65rem", color: "#475569", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.08em" }}>Disease Associations</p>
+                <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.08em" }}>Disease Associations</p>
                 {monarchDiseases.map((d, i) => (
                   <a key={i} href={d.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                    <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.2)"}
+                    <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.2)"}
                     >
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: "0.72rem", color: "#e2e8f0" }}>{d.name}</p>
-                        {d.predicate && <p style={{ fontSize: "0.62rem", color: "#475569", marginTop: 1 }}>{d.predicate}</p>}
+                        <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{d.name}</p>
+                        {d.predicate && <p style={{ fontSize: "0.62rem", color: "var(--text-dimmer)", marginTop: 1 }}>{d.predicate}</p>}
                       </div>
-                      <span style={{ fontSize: "0.6rem", fontFamily: "monospace", color: "#334155" }}>↗</span>
+                      <span style={{ fontSize: "0.6rem", fontFamily: "monospace", color: "var(--border-solid)" }}>↗</span>
                     </div>
                   </a>
                 ))}
@@ -1851,14 +1882,14 @@ function PhenotypePanel({ hpo, monarch }) {
             )}
             {monarchPhenos.length > 0 && (
               <>
-                <p style={{ fontSize: "0.65rem", color: "#475569", margin: "8px 0 5px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Phenotypic Features</p>
+                <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", margin: "8px 0 5px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Phenotypic Features</p>
                 {monarchPhenos.map((p, i) => (
                   <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                    <div style={{ padding: "0.35rem 0.6rem", marginBottom: 3, background: "rgba(30,41,59,0.2)", border: "1px solid rgba(51,65,85,0.15)", borderRadius: 6 }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.25)"}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.15)"}
+                    <div style={{ padding: "0.35rem 0.6rem", marginBottom: 3, background: "rgb(var(--c-surface) / 0.2)", border: "1px solid rgb(var(--c-border) / 0.15)", borderRadius: 6 }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.25)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.15)"}
                     >
-                      <p style={{ fontSize: "0.7rem", color: "#94a3b8" }}>{p.name}</p>
+                      <p style={{ fontSize: "0.7rem", color: "var(--text-faint)" }}>{p.name}</p>
                     </div>
                   </a>
                 ))}
@@ -1874,12 +1905,12 @@ function PhenotypePanel({ hpo, monarch }) {
 // ─── PharmGKB Panel ──────────────────────────────────────────────────────────
 
 const PGX_LEVEL_STYLE = {
-  "1A": { color: "#86efac", bg: "rgba(5,46,22,0.5)",   border: "rgba(21,128,61,0.4)" },
-  "1B": { color: "#6ee7b7", bg: "rgba(5,46,22,0.35)",  border: "rgba(21,128,61,0.3)" },
-  "2A": { color: "#7dd3fc", bg: "rgba(8,47,73,0.5)",   border: "rgba(3,105,161,0.4)" },
-  "2B": { color: "#93c5fd", bg: "rgba(23,37,84,0.4)",  border: "rgba(29,78,216,0.25)" },
-  "3":  { color: "#fde68a", bg: "rgba(66,32,6,0.4)",   border: "rgba(161,98,7,0.3)" },
-  "4":  { color: "#94a3b8", bg: "rgba(30,41,59,0.5)",  border: "rgba(51,65,85,0.4)" },
+  "1A": { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.5)",   border: "rgb(var(--c-success) / 0.4)" },
+  "1B": { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.35)",  border: "rgb(var(--c-success) / 0.3)" },
+  "2A": { color: "var(--accent-soft)", bg: "rgb(var(--c-accent) / 0.5)",   border: "rgb(var(--c-accent) / 0.4)" },
+  "2B": { color: "var(--accent-soft)", bg: "rgb(var(--c-accent) / 0.4)",  border: "rgb(var(--c-accent) / 0.25)" },
+  "3":  { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.4)",   border: "rgb(var(--c-warning) / 0.3)" },
+  "4":  { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)",  border: "rgb(var(--c-border) / 0.4)" },
 };
 
 function PharmGKBPanel({ pgkb }) {
@@ -1891,23 +1922,23 @@ function PharmGKBPanel({ pgkb }) {
   const tabBtn = (id, label, count) => (
     <button onClick={() => setTab(id)} style={{
       fontSize: "0.7rem", padding: "0.25rem 0.65rem", borderRadius: 6, cursor: "pointer", border: "none",
-      background: tab === id ? "rgba(14,165,233,0.2)" : "transparent",
-      color: tab === id ? "#38bdf8" : "#475569",
-      borderBottom: tab === id ? "2px solid #0ea5e9" : "2px solid transparent",
+      background: tab === id ? "rgb(var(--c-accent) / 0.2)" : "transparent",
+      color: tab === id ? "var(--accent)" : "var(--text-dimmer)",
+      borderBottom: tab === id ? "2px solid var(--accent-strong)" : "2px solid transparent",
     }}>
-      {label} {count > 0 && <span style={{ fontSize: "0.62rem", color: tab === id ? "#38bdf8" : "#334155" }}>({count})</span>}
+      {label} {count > 0 && <span style={{ fontSize: "0.62rem", color: tab === id ? "var(--accent)" : "var(--border-solid)" }}>({count})</span>}
     </button>
   );
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(56,189,248,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(56,189,248,0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#38bdf8" }}>Pharmacogenomics</span>
-        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "#334155", textDecoration: "none" }}>PharmGKB ↗</a>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>Pharmacogenomics</span>
+        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "var(--border-solid)", textDecoration: "none" }}>PharmGKB ↗</a>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 2, padding: "0 0.875rem", borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+      <div style={{ display: "flex", gap: 2, padding: "0 0.875rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.5)" }}>
         {tabBtn("annotations", "Clinical Annotations", annotations.length)}
         {tabBtn("drugs", "Related Drugs", relatedDrugs.length)}
       </div>
@@ -1915,29 +1946,29 @@ function PharmGKBPanel({ pgkb }) {
       <div style={{ padding: "0.75rem" }}>
         {tab === "annotations" && (
           annotations.length === 0
-            ? <p style={{ fontSize: "0.72rem", color: "#475569", padding: "0.5rem 0" }}>No clinical annotations found for this gene.</p>
+            ? <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", padding: "0.5rem 0" }}>No clinical annotations found for this gene.</p>
             : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {annotations.map((ann, i) => {
                   const ls = PGX_LEVEL_STYLE[ann.level] || PGX_LEVEL_STYLE["4"];
                   return (
                     <a key={i} href={ann.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                      <div style={{ padding: "0.5rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.25)", borderRadius: 8, display: "flex", gap: 10, alignItems: "flex-start" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(56,189,248,0.3)"}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.25)"}
+                      <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", gap: 10, alignItems: "flex-start" }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.3)"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
                       >
                         <span title={ann.level_label} style={{ fontSize: "0.65rem", padding: "0.2em 0.5em", borderRadius: 4, background: ls.bg, color: ls.color, border: `1px solid ${ls.border}`, flexShrink: 0, cursor: "help", whiteSpace: "nowrap" }}>
                           Level {ann.level}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           {ann.drugs.length > 0 && (
-                            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#e2e8f0", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {ann.drugs.join(", ")}
                             </p>
                           )}
-                          {ann.phenotype && <p style={{ fontSize: "0.7rem", color: "#64748b", marginTop: 2 }}>{ann.phenotype}</p>}
-                          {ann.variant && <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 1, fontFamily: "monospace" }}>{ann.variant}</p>}
+                          {ann.phenotype && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2 }}>{ann.phenotype}</p>}
+                          {ann.variant && <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 1, fontFamily: "monospace" }}>{ann.variant}</p>}
                         </div>
-                        <span style={{ fontSize: "0.6rem", color: "#334155", flexShrink: 0 }}>↗</span>
+                        <span style={{ fontSize: "0.6rem", color: "var(--border-solid)", flexShrink: 0 }}>↗</span>
                       </div>
                     </a>
                   );
@@ -1947,13 +1978,13 @@ function PharmGKBPanel({ pgkb }) {
 
         {tab === "drugs" && (
           relatedDrugs.length === 0
-            ? <p style={{ fontSize: "0.72rem", color: "#475569", padding: "0.5rem 0" }}>No related drugs found.</p>
+            ? <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", padding: "0.5rem 0" }}>No related drugs found.</p>
             : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {relatedDrugs.map((d, i) => (
                   <a key={i} href={d.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                    <span style={{ display: "inline-block", fontSize: "0.72rem", padding: "0.25rem 0.65rem", borderRadius: 100, background: "rgba(14,165,233,0.1)", border: "1px solid rgba(14,165,233,0.2)", color: "#38bdf8", cursor: "pointer" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "rgba(14,165,233,0.2)"}
-                      onMouseLeave={e => e.currentTarget.style.background = "rgba(14,165,233,0.1)"}
+                    <span style={{ display: "inline-block", fontSize: "0.72rem", padding: "0.25rem 0.65rem", borderRadius: 100, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.2)", color: "var(--accent)", cursor: "pointer" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-accent) / 0.2)"}
+                      onMouseLeave={e => e.currentTarget.style.background = "rgb(var(--c-accent) / 0.1)"}
                     >
                       {d.name}
                     </span>
@@ -1965,13 +1996,13 @@ function PharmGKBPanel({ pgkb }) {
 
       {/* Level legend */}
       {tab === "annotations" && annotations.length > 0 && (
-        <div style={{ padding: "0.4rem 0.875rem 0.6rem", borderTop: "1px solid rgba(30,41,59,0.4)", display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ padding: "0.4rem 0.875rem 0.6rem", borderTop: "1px solid rgb(var(--c-surface) / 0.4)", display: "flex", flexWrap: "wrap", gap: 8 }}>
           {Object.entries(PGX_LEVEL_STYLE).map(([level, s]) => (
             <div key={level} style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <span style={{ fontSize: "0.6rem", padding: "0.1em 0.35em", borderRadius: 3, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>{level}</span>
             </div>
           ))}
-          <span style={{ fontSize: "0.6rem", color: "#334155", marginLeft: 4 }}>1A = highest evidence → 4 = case reports</span>
+          <span style={{ fontSize: "0.6rem", color: "var(--border-solid)", marginLeft: 4 }}>1A = highest evidence → 4 = case reports</span>
         </div>
       )}
     </div>
@@ -1981,14 +2012,14 @@ function PharmGKBPanel({ pgkb }) {
 // ─── Variant Domain Map (Lollipop) ───────────────────────────────────────────
 
 const LOLLIPOP_SIG_COLOR = (sig) => {
-  if (!sig) return "#94a3b8";
+  if (!sig) return "var(--text-faint)";
   const s = sig.toLowerCase();
   if (s.includes("pathogenic") && !s.includes("likely")) return "#ef4444";
   if (s.includes("likely pathogenic")) return "#f97316";
   if (s.includes("benign") && !s.includes("likely")) return "#22c55e";
   if (s.includes("likely benign")) return "#14b8a6";
   if (s.includes("uncertain")) return "#eab308";
-  return "#94a3b8";
+  return "var(--text-faint)";
 };
 
 const DOMAIN_PALETTE = ["#3b82f6","#8b5cf6","#ec4899","#f59e0b","#10b981","#06b6d4","#f97316","#a855f7","#14b8a6","#6366f1"];
@@ -2025,10 +2056,10 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
   const ticks = [0, 0.25, 0.5, 0.75, 1.0];
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(99,102,241,0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#a5b4fc" }}>Variant Domain Map</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Variant Domain Map</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>
           {positioned.length} variants · {proteinLength} aa · UniProt / ClinVar
         </span>
       </div>
@@ -2037,7 +2068,7 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", overflow: "visible" }}>
           {/* Protein bar */}
           <rect x={ML} y={barY} width={plotW} height={barH} rx={3}
-            fill="rgba(30,41,59,0.9)" stroke="rgba(99,102,241,0.3)" strokeWidth={1} />
+            fill="rgb(var(--c-surface) / 0.9)" stroke="rgb(var(--c-indigo) / 0.3)" strokeWidth={1} />
 
           {/* Domain blocks */}
           {(domains || []).map((d, i) => {
@@ -2063,15 +2094,15 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
             const x = ML + frac * plotW;
             return (
               <g key={frac}>
-                <line x1={x} y1={barY + barH} x2={x} y2={barY + barH + 5} stroke="#334155" strokeWidth={1} />
-                <text x={x} y={barY + barH + 15} textAnchor="middle" fill="#475569" fontSize={9}>{pos}</text>
+                <line x1={x} y1={barY + barH} x2={x} y2={barY + barH + 5} stroke="var(--border-solid)" strokeWidth={1} />
+                <text x={x} y={barY + barH + 15} textAnchor="middle" fill="var(--text-dimmer)" fontSize={9}>{pos}</text>
               </g>
             );
           })}
 
           {/* Gene label */}
-          <text x={ML} y={barY - 5} fill="#475569" fontSize={9}>{geneName}</text>
-          <text x={W - MR} y={barY - 5} textAnchor="end" fill="#475569" fontSize={9}>{proteinLength} aa</text>
+          <text x={ML} y={barY - 5} fill="var(--text-dimmer)" fontSize={9}>{geneName}</text>
+          <text x={W - MR} y={barY - 5} textAnchor="end" fill="var(--text-dimmer)" fontSize={9}>{proteinLength} aa</text>
 
           {/* Lollipops */}
           {lollipops.map((v, i) => {
@@ -2094,19 +2125,19 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
         {/* Tooltip */}
         {tooltip && (
           <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
-            background: "rgba(15,23,42,0.97)", border: "1px solid rgba(99,102,241,0.45)",
+            background: "rgb(var(--c-deep) / 0.97)", border: "1px solid rgb(var(--c-indigo) / 0.45)",
             borderRadius: 8, padding: "0.5rem 0.75rem", pointerEvents: "none", zIndex: 10,
-            minWidth: 210, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
-            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "#a5b4fc", fontWeight: 600 }}>
+            minWidth: 210, boxShadow: "0 4px 20px rgb(var(--c-shadow) / 0.5)" }}>
+            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--violet-faint)", fontWeight: 600 }}>
               {tooltip.hgvs || tooltip.variant_id}
             </p>
             <p style={{ fontSize: "0.7rem", color: LOLLIPOP_SIG_COLOR(tooltip.clinical_significance), marginTop: 3 }}>
               {tooltip.clinical_significance || "Unknown significance"}
             </p>
             {tooltip.condition && (
-              <p style={{ fontSize: "0.68rem", color: "#64748b", marginTop: 3 }}>{tooltip.condition}</p>
+              <p style={{ fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 3 }}>{tooltip.condition}</p>
             )}
-            <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 3 }}>
+            <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 3 }}>
               Position: {tooltip.protein_position}
             </p>
           </div>
@@ -2118,7 +2149,7 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
             {domains.slice(0, 8).map((d, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length], opacity: 0.8 }} />
-                <span style={{ fontSize: "0.62rem", color: "#475569" }}>{d.name}</span>
+                <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{d.name}</span>
               </div>
             ))}
           </div>
@@ -2126,10 +2157,10 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
 
         {/* Variant significance legend */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: "0.4rem" }}>
-          {[["#ef4444","Pathogenic"],["#f97316","Likely path."],["#eab308","VUS"],["#14b8a6","Likely benign"],["#22c55e","Benign"],["#94a3b8","Other"]].map(([color, label]) => (
+          {[["#ef4444","Pathogenic"],["#f97316","Likely path."],["#eab308","VUS"],["#14b8a6","Likely benign"],["#22c55e","Benign"],["var(--text-faint)","Other"]].map(([color, label]) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <svg width={10} height={10} style={{ flexShrink: 0 }}><circle cx={5} cy={5} r={4} fill={color} /></svg>
-              <span style={{ fontSize: "0.62rem", color: "#475569" }}>{label}</span>
+              <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{label}</span>
             </div>
           ))}
         </div>
@@ -2141,14 +2172,14 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
 // ─── OMIM Panel ──────────────────────────────────────────────────────────────
 
 const INHERITANCE_STYLE = {
-  AD:  { color: "#7dd3fc", bg: "rgba(8,47,73,0.5)",   border: "rgba(3,105,161,0.4)" },
-  AR:  { color: "#fdba74", bg: "rgba(124,45,18,0.4)", border: "rgba(194,65,12,0.3)" },
-  XLD: { color: "#c4b5fd", bg: "rgba(49,46,129,0.4)", border: "rgba(109,40,217,0.3)" },
-  XLR: { color: "#d8b4fe", bg: "rgba(59,7,100,0.4)",  border: "rgba(126,34,206,0.3)" },
-  XL:  { color: "#d8b4fe", bg: "rgba(59,7,100,0.4)",  border: "rgba(126,34,206,0.3)" },
-  MT:  { color: "#fca5a5", bg: "rgba(127,29,29,0.4)", border: "rgba(185,28,28,0.3)" },
-  SMT: { color: "#fde68a", bg: "rgba(66,32,6,0.4)",   border: "rgba(161,98,7,0.3)" },
-  DG:  { color: "#86efac", bg: "rgba(5,46,22,0.4)",   border: "rgba(21,128,61,0.3)" },
+  AD:  { color: "var(--accent-soft)", bg: "rgb(var(--c-accent) / 0.5)",   border: "rgb(var(--c-accent) / 0.4)" },
+  AR:  { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.4)", border: "rgb(var(--c-warning) / 0.3)" },
+  XLD: { color: "var(--violet-faint)", bg: "rgb(var(--c-violet) / 0.4)", border: "rgb(var(--c-violet) / 0.3)" },
+  XLR: { color: "var(--violet-faint)", bg: "rgb(var(--c-violet) / 0.4)",  border: "rgb(var(--c-violet) / 0.3)" },
+  XL:  { color: "var(--violet-faint)", bg: "rgb(var(--c-violet) / 0.4)",  border: "rgb(var(--c-violet) / 0.3)" },
+  MT:  { color: "var(--danger-soft)", bg: "rgb(var(--c-danger) / 0.4)", border: "rgb(var(--c-danger) / 0.3)" },
+  SMT: { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.4)",   border: "rgb(var(--c-warning) / 0.3)" },
+  DG:  { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.4)",   border: "rgb(var(--c-success) / 0.3)" },
 };
 
 const INHERITANCE_FULL = {
@@ -2164,20 +2195,20 @@ function OmimPanel({ omim }) {
   const shown = expanded ? phenotypes : phenotypes.slice(0, 5);
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgba(15,23,42,0.6)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgba(167,139,250,0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#c4b5fd" }}>OMIM — Genetic Disease Catalog</span>
-        <span style={{ fontSize: "0.68rem", color: "#334155" }}>Online Mendelian Inheritance in Man</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.12)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>OMIM — Genetic Disease Catalog</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Online Mendelian Inheritance in Man</span>
       </div>
 
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {/* Gene entry */}
         {omim.gene_entry && (
           <a href={omim.gene_entry.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <div style={{ padding: "0.5rem 0.65rem", background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-violet) / 0.08)", border: "1px solid rgb(var(--c-violet) / 0.2)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: "0.72rem", color: "#c4b5fd", fontWeight: 600 }}>{omim.gene_entry.title}</p>
-                <p style={{ fontSize: "0.65rem", color: "#475569", marginTop: 2 }}>Gene entry · MIM #{omim.gene_entry.mim_number}</p>
+                <p style={{ fontSize: "0.72rem", color: "var(--violet-faint)", fontWeight: 600 }}>{omim.gene_entry.title}</p>
+                <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 2 }}>Gene entry · MIM #{omim.gene_entry.mim_number}</p>
               </div>
               <span style={{ fontSize: "0.65rem", color: "#6366f1", flexShrink: 0 }}>↗</span>
             </div>
@@ -2187,33 +2218,33 @@ function OmimPanel({ omim }) {
         {/* Phenotype entries */}
         {phenotypes.length > 0 && (
           <>
-            <p style={{ fontSize: "0.65rem", color: "#334155", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>
+            <p style={{ fontSize: "0.65rem", color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>
               Associated Disorders ({phenotypes.length})
             </p>
             {shown.map((p, i) => {
               const iStyle = p.inheritance ? (INHERITANCE_STYLE[p.inheritance] || {}) : {};
               return (
                 <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                  <div style={{ padding: "0.45rem 0.65rem", background: "rgba(30,41,59,0.3)", border: "1px solid rgba(51,65,85,0.3)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.3)"}
+                  <div style={{ padding: "0.45rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.3)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.3)"}
                   >
-                    <p style={{ fontSize: "0.72rem", color: "#94a3b8", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</p>
+                    <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</p>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                       {p.inheritance && (
                         <span title={INHERITANCE_FULL[p.inheritance]} style={{ fontSize: "0.62rem", padding: "0.15em 0.45em", borderRadius: 4, background: iStyle.bg, color: iStyle.color, border: `1px solid ${iStyle.border}`, cursor: "help" }}>
                           {p.inheritance}
                         </span>
                       )}
-                      <span style={{ fontSize: "0.62rem", color: "#334155", fontFamily: "monospace" }}>#{p.mim_number}</span>
-                      <span style={{ fontSize: "0.62rem", color: "#334155" }}>↗</span>
+                      <span style={{ fontSize: "0.62rem", color: "var(--border-solid)", fontFamily: "monospace" }}>#{p.mim_number}</span>
+                      <span style={{ fontSize: "0.62rem", color: "var(--border-solid)" }}>↗</span>
                     </div>
                   </div>
                 </a>
               );
             })}
             {phenotypes.length > 5 && (
-              <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "#a78bfa", background: "none", border: "none", cursor: "pointer", padding: "0.25rem 0", textAlign: "left" }}>
+              <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "var(--violet)", background: "none", border: "none", cursor: "pointer", padding: "0.25rem 0", textAlign: "left" }}>
                 {expanded ? "Show less" : `+ ${phenotypes.length - 5} more disorders`}
               </button>
             )}
@@ -2229,9 +2260,9 @@ function OmimPanel({ omim }) {
 function ComparisonStat({ label, a, b }) {
   return (
     <div style={{ display: "contents" }}>
-      <span style={{ fontSize: "0.68rem", color: "#475569", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgba(30,41,59,0.5)" }}>{label}</span>
-      <span style={{ fontSize: "0.72rem", color: "#94a3b8", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgba(30,41,59,0.5)", textAlign: "center" }}>{a || "—"}</span>
-      <span style={{ fontSize: "0.72rem", color: "#94a3b8", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgba(30,41,59,0.5)", textAlign: "center" }}>{b || "—"}</span>
+      <span style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.5)" }}>{label}</span>
+      <span style={{ fontSize: "0.72rem", color: "var(--text-faint)", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.5)", textAlign: "center" }}>{a || "—"}</span>
+      <span style={{ fontSize: "0.72rem", color: "var(--text-faint)", padding: "0.4rem 0.5rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.5)", textAlign: "center" }}>{b || "—"}</span>
     </div>
   );
 }
@@ -2256,9 +2287,9 @@ function ComparisonView({ msg }) {
   const tabBtn = (id, label) => (
     <button onClick={() => setActiveTab(id)} style={{
       fontSize: "0.72rem", padding: "0.3rem 0.75rem", borderRadius: 6, cursor: "pointer", border: "none",
-      background: activeTab === id ? "rgba(14,165,233,0.2)" : "transparent",
-      color: activeTab === id ? "#38bdf8" : "#475569",
-      borderBottom: activeTab === id ? "2px solid #0ea5e9" : "2px solid transparent",
+      background: activeTab === id ? "rgb(var(--c-accent) / 0.2)" : "transparent",
+      color: activeTab === id ? "var(--accent)" : "var(--text-dimmer)",
+      borderBottom: activeTab === id ? "2px solid var(--accent-strong)" : "2px solid transparent",
     }}>
       {label}
     </button>
@@ -2284,18 +2315,18 @@ function ComparisonView({ msg }) {
 
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
-      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Title */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-          <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#38bdf8" }}>{gene_a}</span>
-          <span style={{ fontSize: "0.75rem", color: "#334155" }}>vs</span>
-          <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "#a78bfa" }}>{gene_b}</span>
-          <span style={{ fontSize: "0.68rem", color: "#334155" }}>· Gene Comparison</span>
+          <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "var(--accent)" }}>{gene_a}</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--border-solid)" }}>vs</span>
+          <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "var(--violet)" }}>{gene_b}</span>
+          <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>· Gene Comparison</span>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 12, borderBottom: "1px solid rgba(30,41,59,0.5)" }}>
+        <div style={{ display: "flex", gap: 4, marginBottom: 12, borderBottom: "1px solid rgb(var(--c-surface) / 0.5)" }}>
           {tabBtn("overview", "Overview")}
           {tabBtn("gene_a", gene_a)}
           {tabBtn("gene_b", gene_b)}
@@ -2304,11 +2335,11 @@ function ComparisonView({ msg }) {
         {activeTab === "overview" && (
           <>
             {/* Comparison table */}
-            <div style={{ marginBottom: 16, background: "rgba(15,23,42,0.5)", border: "1px solid rgba(51,65,85,0.3)", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ marginBottom: 16, background: "rgb(var(--c-deep) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.3)", borderRadius: 10, overflow: "hidden" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr" }}>
-                <span style={{ fontSize: "0.65rem", color: "#334155", padding: "0.4rem 0.5rem", background: "rgba(30,41,59,0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}></span>
-                <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "#38bdf8", padding: "0.4rem 0.5rem", background: "rgba(30,41,59,0.5)", textAlign: "center" }}>{gene_a}</span>
-                <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "#a78bfa", padding: "0.4rem 0.5rem", background: "rgba(30,41,59,0.5)", textAlign: "center" }}>{gene_b}</span>
+                <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}></span>
+                <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "var(--accent)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textAlign: "center" }}>{gene_a}</span>
+                <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "var(--violet)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textAlign: "center" }}>{gene_b}</span>
                 <ComparisonStat label="Chromosome" a={`Chr ${stat(data_a.gene_info, "chromosome")}`} b={`Chr ${stat(data_b.gene_info, "chromosome")}`} />
                 <ComparisonStat label="Protein length" a={data_a.protein_info?.length ? `${data_a.protein_info.length} aa` : "—"} b={data_b.protein_info?.length ? `${data_b.protein_info.length} aa` : "—"} />
                 <ComparisonStat label="Publications" a={(data_a.publication_count || 0).toLocaleString()} b={(data_b.publication_count || 0).toLocaleString()} />
@@ -2330,9 +2361,9 @@ function ComparisonView({ msg }) {
         {/* Sources */}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>
+            <span style={{ fontSize: "0.72rem", color: "var(--border-solid)" }}>Sources:</span>
             {msg.sources.map(s => {
-              const c = SOURCE_COLORS[s] || { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" };
+              const c = SOURCE_COLORS[s] || { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" };
               return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
             })}
           </div>
@@ -2345,35 +2376,35 @@ function ComparisonView({ msg }) {
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 const SOURCE_COLORS = {
-  ClinVar: { color: "#fca5a5", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
-  Ensembl: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
-  gnomAD: { color: "#93c5fd", bg: "rgba(23,37,84,0.4)", border: "rgba(29,78,216,0.25)" },
-  UniProt: { color: "#fde68a", bg: "rgba(66,32,6,0.3)", border: "rgba(161,98,7,0.25)" },
-  NCBI: { color: "#d8b4fe", bg: "rgba(59,7,100,0.3)", border: "rgba(126,34,206,0.25)" },
-  PubMed: { color: "#fdba74", bg: "rgba(124,45,18,0.3)", border: "rgba(194,65,12,0.25)" },
-  OpenTargets: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
-  OMIM: { color: "#c4b5fd", bg: "rgba(49,46,129,0.3)", border: "rgba(109,40,217,0.25)" },
-  PharmGKB: { color: "#7dd3fc", bg: "rgba(8,47,73,0.3)", border: "rgba(3,105,161,0.25)" },
-  "COSMIC/GDC": { color: "#fca5a5", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
-  ClinGen: { color: "#86efac", bg: "rgba(5,46,22,0.3)", border: "rgba(21,128,61,0.25)" },
-  "GWAS Catalog": { color: "#f87171", bg: "rgba(127,29,29,0.3)", border: "rgba(185,28,28,0.25)" },
-  HPO: { color: "#c4b5fd", bg: "rgba(76,29,149,0.3)", border: "rgba(109,40,217,0.25)" },
-  Monarch: { color: "#a78bfa", bg: "rgba(76,29,149,0.25)", border: "rgba(109,40,217,0.2)" },
+  ClinVar: { color: "var(--danger-soft)", bg: "rgb(var(--c-danger) / 0.3)", border: "rgb(var(--c-danger) / 0.25)" },
+  Ensembl: { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.3)", border: "rgb(var(--c-success) / 0.25)" },
+  gnomAD: { color: "var(--accent-soft)", bg: "rgb(var(--c-accent) / 0.4)", border: "rgb(var(--c-accent) / 0.25)" },
+  UniProt: { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.3)", border: "rgb(var(--c-warning) / 0.25)" },
+  NCBI: { color: "var(--violet-faint)", bg: "rgb(var(--c-violet) / 0.3)", border: "rgb(var(--c-violet) / 0.25)" },
+  PubMed: { color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.3)", border: "rgb(var(--c-warning) / 0.25)" },
+  OpenTargets: { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.3)", border: "rgb(var(--c-success) / 0.25)" },
+  OMIM: { color: "var(--violet-faint)", bg: "rgb(var(--c-violet) / 0.3)", border: "rgb(var(--c-violet) / 0.25)" },
+  PharmGKB: { color: "var(--accent-soft)", bg: "rgb(var(--c-accent) / 0.3)", border: "rgb(var(--c-accent) / 0.25)" },
+  "COSMIC/GDC": { color: "var(--danger-soft)", bg: "rgb(var(--c-danger) / 0.3)", border: "rgb(var(--c-danger) / 0.25)" },
+  ClinGen: { color: "var(--success-soft)", bg: "rgb(var(--c-success) / 0.3)", border: "rgb(var(--c-success) / 0.25)" },
+  "GWAS Catalog": { color: "var(--danger)", bg: "rgb(var(--c-danger) / 0.3)", border: "rgb(var(--c-danger) / 0.25)" },
+  HPO: { color: "var(--violet-faint)", bg: "rgb(var(--c-violet) / 0.3)", border: "rgb(var(--c-violet) / 0.25)" },
+  Monarch: { color: "var(--violet)", bg: "rgb(var(--c-violet) / 0.25)", border: "rgb(var(--c-violet) / 0.2)" },
 };
 
 function AssistantMessage({ msg, dnaData, settings }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
-      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0, marginTop: 2 }}>G</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {msg.target && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700, color: "#38bdf8" }}>{msg.target}</span>
-            <span style={{ color: "#1e293b" }}>·</span>
-            <span style={{ fontSize: "0.72rem", color: "#475569", textTransform: "capitalize" }}>{(msg.query_type || "").replace("_", " ")}</span>
-            {msg.result_count > 0 && <><span style={{ color: "#1e293b" }}>·</span><span style={{ fontSize: "0.72rem", color: "#475569" }}>{msg.result_count} results</span></>}
-            {msg.cached && <span style={{ fontSize: "0.68rem", padding: "0.15em 0.5em", borderRadius: 4, background: "#0f172a", color: "#475569", border: "1px solid #1e293b" }}>cached</span>}
+            <span style={{ fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700, color: "var(--accent)" }}>{msg.target}</span>
+            <span style={{ color: "var(--border-solid)" }}>·</span>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", textTransform: "capitalize" }}>{(msg.query_type || "").replace("_", " ")}</span>
+            {msg.result_count > 0 && <><span style={{ color: "var(--border-solid)" }}>·</span><span style={{ fontSize: "0.72rem", color: "var(--text-dimmer)" }}>{msg.result_count} results</span></>}
+            {msg.cached && <span style={{ fontSize: "0.68rem", padding: "0.15em 0.5em", borderRadius: 4, background: "var(--bg-inset)", color: "var(--text-dimmer)", border: "1px solid var(--border-solid)" }}>cached</span>}
           </div>
         )}
         {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} />}
@@ -2437,15 +2468,15 @@ function MessageFooter({ msg }) {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
       {msg.sources?.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.72rem", color: "#334155" }}>Sources:</span>
+          <span style={{ fontSize: "0.72rem", color: "var(--border-solid)" }}>Sources:</span>
           {msg.sources.map(s => {
-            const c = SOURCE_COLORS[s] || { color: "#94a3b8", bg: "rgba(30,41,59,0.5)", border: "rgba(51,65,85,0.4)" };
+            const c = SOURCE_COLORS[s] || { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" };
             return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
           })}
         </div>
       )}
       {msg.query_id && (
-        <button onClick={share} disabled={sharing} style={{ fontSize: "0.68rem", color: copied ? "#34d399" : "#475569", background: "none", border: "1px solid rgba(51,65,85,0.35)", borderRadius: 6, padding: "0.2rem 0.55rem", cursor: "pointer", flexShrink: 0 }}>
+        <button onClick={share} disabled={sharing} style={{ fontSize: "0.68rem", color: copied ? "var(--success)" : "var(--text-dimmer)", background: "none", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 6, padding: "0.2rem 0.55rem", cursor: "pointer", flexShrink: 0 }}>
           {copied ? "Link copied!" : sharing ? "Sharing…" : shareUrl ? "Copy link" : "Share"}
         </button>
       )}
@@ -2456,8 +2487,8 @@ function MessageFooter({ msg }) {
 function UserMessage({ content }) {
   return (
     <div style={{ display: "flex", justifyContent: "flex-end", animation: "fadeSlideIn 0.2s ease-out" }}>
-      <div style={{ maxWidth: "60%", background: "rgba(14,165,233,0.12)", border: "1px solid rgba(14,165,233,0.2)", borderRadius: "16px 16px 4px 16px", padding: "0.625rem 1rem" }}>
-        <p style={{ fontSize: "0.875rem", color: "#e2e8f0", lineHeight: 1.6 }}>{content}</p>
+      <div style={{ maxWidth: "60%", background: "rgb(var(--c-accent) / 0.12)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: "16px 16px 4px 16px", padding: "0.625rem 1rem" }}>
+        <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>{content}</p>
       </div>
     </div>
   );
@@ -2466,12 +2497,12 @@ function UserMessage({ content }) {
 function TypingIndicator() {
   return (
     <div style={{ display: "flex", gap: 12 }}>
-      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0 }}>G</div>
-      <div style={{ background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.35)", borderRadius: 12, padding: "0.75rem 1rem", display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0 }}>G</div>
+      <div style={{ background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, padding: "0.75rem 1rem", display: "flex", alignItems: "center", gap: 6 }}>
         {[0, 1, 2].map(i => (
-          <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "#38bdf8", animation: `pulse-dot 1.2s ${i * 0.2}s infinite` }} />
+          <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", animation: `pulse-dot 1.2s ${i * 0.2}s infinite` }} />
         ))}
-        <span style={{ fontSize: "0.75rem", color: "#475569", marginLeft: 4 }}>Querying databases…</span>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-dimmer)", marginLeft: 4 }}>Querying databases…</span>
       </div>
     </div>
   );
@@ -2484,21 +2515,21 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
   const [hoveredId, setHoveredId] = useState(null);
   return (
     <aside className={`gc-sidebar${open ? " open" : ""}`}>
-      <div style={{ padding: "1rem", borderBottom: "1px solid rgba(30,41,59,0.6)", display: "flex", gap: 8 }}>
-        <button onClick={onNewChat} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0.5rem 0.75rem", borderRadius: 10, background: "#0284c7", color: "white", fontSize: "0.8rem", fontWeight: 600, border: "none", cursor: "pointer" }}>
+      <div style={{ padding: "1rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.6)", display: "flex", gap: 8 }}>
+        <button onClick={onNewChat} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0.5rem 0.75rem", borderRadius: 10, background: "var(--accent-deep)", color: "white", fontSize: "0.8rem", fontWeight: 600, border: "none", cursor: "pointer" }}>
           + New Chat
         </button>
-        <button onClick={onClose} className="gc-hamburger" style={{ padding: "0.5rem 0.6rem", borderRadius: 10, background: "rgba(30,41,59,0.5)", border: "1px solid rgba(51,65,85,0.4)", color: "#475569", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}>✕</button>
+        <button onClick={onClose} className="gc-hamburger" style={{ padding: "0.5rem 0.6rem", borderRadius: 10, background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}>✕</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
         {!currentUser && chatHistory.length === 0 && (
-          <a href={`${API}/auth/google`} style={{ display: "block", margin: "0 0 12px", padding: "8px 10px", background: "rgba(14,165,233,0.08)", border: "1px solid rgba(14,165,233,0.2)", borderRadius: 8, textDecoration: "none", textAlign: "center" }}>
-            <p style={{ fontSize: "0.68rem", color: "#38bdf8", margin: 0 }}>Sign in to save history</p>
+          <a href={`${API}/auth/google`} style={{ display: "block", margin: "0 0 12px", padding: "8px 10px", background: "rgb(var(--c-accent) / 0.08)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 8, textDecoration: "none", textAlign: "center" }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--accent)", margin: 0 }}>Sign in to save history</p>
           </a>
         )}
         {chatHistory.length > 0 && (
           <div style={{ marginBottom: "1.25rem" }}>
-            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
+            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
             {chatHistory.slice(0, 20).map((item, i) => (
               <div key={item.id || i}
                 style={{ position: "relative", display: "flex", alignItems: "center", borderRadius: 6, marginBottom: 1 }}
@@ -2506,18 +2537,18 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
                 onMouseLeave={() => setHoveredId(null)}
               >
                 <button onClick={() => onLoadHistory(item)}
-                  style={{ flex: 1, textAlign: "left", fontSize: "0.72rem", color: hoveredId === (item.id || i) ? "#94a3b8" : "#64748b", padding: "0.35rem 0.5rem", paddingRight: hoveredId === (item.id || i) ? "1.4rem" : "0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: hoveredId === (item.id || i) ? "rgba(30,41,59,0.5)" : "none", border: "none", cursor: "pointer", minWidth: 0 }}
+                  style={{ flex: 1, textAlign: "left", fontSize: "0.72rem", color: hoveredId === (item.id || i) ? "var(--text-faint)" : "var(--text-dim)", padding: "0.35rem 0.5rem", paddingRight: hoveredId === (item.id || i) ? "1.4rem" : "0.5rem", borderRadius: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", background: hoveredId === (item.id || i) ? "rgb(var(--c-surface) / 0.5)" : "none", border: "none", cursor: "pointer", minWidth: 0 }}
                   title={item.query_text}
                 >
-                  {item.target ? <span style={{ fontFamily: "monospace", color: "#38bdf8", marginRight: 4 }}>{item.target}</span> : null}
+                  {item.target ? <span style={{ fontFamily: "monospace", color: "var(--accent)", marginRight: 4 }}>{item.target}</span> : null}
                   {item.query_text?.slice(0, 26)}
                 </button>
                 {hoveredId === (item.id || i) && item.id && (
                   <button
                     onClick={e => { e.stopPropagation(); onDeleteHistory(item.id); }}
-                    style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
-                    onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
-                    onMouseLeave={e => e.currentTarget.style.color = "#475569"}
+                    style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
+                    onMouseEnter={e => e.currentTarget.style.color = "var(--danger)"}
+                    onMouseLeave={e => e.currentTarget.style.color = "var(--text-dimmer)"}
                     title="Delete this query"
                   >×</button>
                 )}
@@ -2526,12 +2557,12 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
           </div>
         )}
         <div>
-          <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Projects</p>
+          <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Projects</p>
           <form onSubmit={e => { e.preventDefault(); if (newName.trim()) { onCreateProject(newName.trim()); setNewName(""); } }} style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New project…" style={{ flex: 1, fontSize: "0.72rem", background: "rgba(30,41,59,0.6)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.35rem 0.5rem", color: "#94a3b8", outline: "none" }} />
-            <button type="submit" style={{ padding: "0.35rem 0.6rem", background: "rgba(51,65,85,0.6)", border: "1px solid rgba(71,85,105,0.4)", borderRadius: 6, color: "#94a3b8", cursor: "pointer", fontSize: "0.8rem" }}>+</button>
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New project…" style={{ flex: 1, fontSize: "0.72rem", background: "rgb(var(--c-surface) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.35rem 0.5rem", color: "var(--text-faint)", outline: "none" }} />
+            <button type="submit" style={{ padding: "0.35rem 0.6rem", background: "rgb(var(--c-border) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, color: "var(--text-faint)", cursor: "pointer", fontSize: "0.8rem" }}>+</button>
           </form>
-          <button onClick={() => onSelectProject(null)} style={{ width: "100%", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === null ? "#38bdf8" : "#64748b", background: activeProjectId === null ? "rgba(14,165,233,0.1)" : "transparent", border: "none", cursor: "pointer", marginBottom: 2 }}>
+          <button onClick={() => onSelectProject(null)} style={{ width: "100%", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === null ? "var(--accent)" : "var(--text-dim)", background: activeProjectId === null ? "rgb(var(--c-accent) / 0.1)" : "transparent", border: "none", cursor: "pointer", marginBottom: 2 }}>
             All queries
           </button>
           {projects.map(p => (
@@ -2539,14 +2570,14 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
               onMouseEnter={() => setHoveredId(`proj-${p.id}`)}
               onMouseLeave={() => setHoveredId(null)}
             >
-            <button onClick={() => onSelectProject(p.id)} style={{ flex: 1, textAlign: "left", padding: "0.35rem 0.5rem", paddingRight: hoveredId === `proj-${p.id}` ? "1.4rem" : "0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === p.id ? "#38bdf8" : "#64748b", background: activeProjectId === p.id ? "rgba(14,165,233,0.1)" : "transparent", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            <button onClick={() => onSelectProject(p.id)} style={{ flex: 1, textAlign: "left", padding: "0.35rem 0.5rem", paddingRight: hoveredId === `proj-${p.id}` ? "1.4rem" : "0.5rem", borderRadius: 6, fontSize: "0.75rem", color: activeProjectId === p.id ? "var(--accent)" : "var(--text-dim)", background: activeProjectId === p.id ? "rgb(var(--c-accent) / 0.1)" : "transparent", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
               {p.name}
             </button>
             {hoveredId === `proj-${p.id}` && (
               <button onClick={e => { e.stopPropagation(); onDeleteProject(p.id); }}
-                style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
-                onMouseEnter={e => e.currentTarget.style.color = "#f87171"}
-                onMouseLeave={e => e.currentTarget.style.color = "#475569"}
+                style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
+                onMouseEnter={e => e.currentTarget.style.color = "var(--danger)"}
+                onMouseLeave={e => e.currentTarget.style.color = "var(--text-dimmer)"}
                 title="Delete project"
               >×</button>
             )}
@@ -2581,6 +2612,19 @@ export default function App() {
   const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
 
   useEffect(() => { applyFontSize(settings.fontSize); }, [settings.fontSize]);
+  useEffect(() => {
+    applyTheme(settings.theme);
+    // Live 3Dmol viewers hold their own WebGL clear colour — repaint them.
+    for (const v of viewerRegistry.values()) {
+      try { v.setBackgroundColor(cssVar("--bg-panel", "#ffffff")); v.render(); } catch { /* viewer disposed */ }
+    }
+    // Keep following the OS while the user is on "system".
+    if (settings.theme !== "system" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme("system");
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [settings.theme]);
 
   const updateDnaData = useCallback((data) => {
     setDnaData(data);
@@ -2812,7 +2856,7 @@ export default function App() {
     const inline = t => esc(t)
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(/`(.+?)`/g, `<code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;font-size:12px;font-family:monospace">$1</code>`);
+      .replace(/`(.+?)`/g, `<code style="background:var(--text);padding:1px 5px;border-radius:3px;font-size:12px;font-family:monospace">$1</code>`);
 
     const mdToHtml = text => {
       if (!text) return "";
@@ -2821,10 +2865,10 @@ export default function App() {
         const l = raw.trimEnd();
         if (/^##\s/.test(l)) {
           if (inList) { out.push("</ul>"); inList = false; }
-          out.push(`<h2 style="font-size:16px;font-weight:700;color:#1e40af;border-bottom:1px solid #dbeafe;padding-bottom:6px;margin:22px 0 10px">${inline(l.slice(3))}</h2>`);
+          out.push(`<h2 style="font-size:16px;font-weight:700;color:var(--accent-deep);border-bottom:1px solid #dbeafe;padding-bottom:6px;margin:22px 0 10px">${inline(l.slice(3))}</h2>`);
         } else if (/^###\s/.test(l)) {
           if (inList) { out.push("</ul>"); inList = false; }
-          out.push(`<h3 style="font-size:14px;font-weight:600;color:#1e3a8a;margin:16px 0 7px">${inline(l.slice(4))}</h3>`);
+          out.push(`<h3 style="font-size:14px;font-weight:600;color:var(--accent-deep);margin:16px 0 7px">${inline(l.slice(4))}</h3>`);
         } else if (/^[-*]\s/.test(l)) {
           if (!inList) { out.push('<ul style="margin:6px 0 10px 0;padding-left:20px">'); inList = true; }
           out.push(`<li style="font-size:13px;line-height:1.65;margin:3px 0;color:#374151">${inline(l.slice(2))}</li>`);
@@ -2840,14 +2884,14 @@ export default function App() {
       return out.join("");
     };
 
-    const sectionHeader = (title, color = "#1e40af") =>
-      `<div style="display:flex;align-items:center;gap:10px;margin:28px 0 12px"><div style="flex:1;height:1px;background:#e5e7eb"></div><span style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.08em;white-space:nowrap">${esc(title)}</span><div style="flex:1;height:1px;background:#e5e7eb"></div></div>`;
+    const sectionHeader = (title, color = "var(--accent-deep)") =>
+      `<div style="display:flex;align-items:center;gap:10px;margin:28px 0 12px"><div style="flex:1;height:1px;background:var(--text-secondary)"></div><span style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.08em;white-space:nowrap">${esc(title)}</span><div style="flex:1;height:1px;background:var(--text-secondary)"></div></div>`;
 
     const table = (headers, rows, colWidths) => {
       const wStyle = (i) => colWidths?.[i] ? `width:${colWidths[i]}` : "";
       return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0">
-        <thead><tr>${headers.map((h,i) => `<th style="text-align:left;padding:6px 8px;background:#f0f4ff;color:#1e40af;font-weight:600;border-bottom:2px solid #dbeafe;${wStyle(i)}">${esc(h)}</th>`).join("")}</tr></thead>
-        <tbody>${rows.map((r,ri) => `<tr style="background:${ri%2===0?"#fafafa":"#ffffff"}">${r.map((c,ci) => `<td style="padding:5px 8px;border-bottom:1px solid #f3f4f6;color:#374151;vertical-align:top;${wStyle(ci)}">${c}</td>`).join("")}</tr>`).join("")}</tbody>
+        <thead><tr>${headers.map((h,i) => `<th style="text-align:left;padding:6px 8px;background:var(--bg-inset);color:var(--accent-deep);font-weight:600;border-bottom:2px solid #dbeafe;${wStyle(i)}">${esc(h)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((r,ri) => `<tr style="background:${ri%2===0?"var(--text)":"var(--text)"}">${r.map((c,ci) => `<td style="padding:5px 8px;border-bottom:1px solid #f3f4f6;color:#374151;vertical-align:top;${wStyle(ci)}">${c}</td>`).join("")}</tr>`).join("")}</tbody>
       </table>`;
     };
 
@@ -2890,20 +2934,20 @@ export default function App() {
       const gene = reply?.target || "";
 
       // Query block
-      body += `<div style="background:#eff6ff;border-left:4px solid #3b82f6;border-radius:4px;padding:14px 16px;margin-bottom:18px">
-        <p style="font-size:10px;font-weight:700;color:#6b7280;letter-spacing:.08em;margin-bottom:4px">RESEARCH QUERY</p>
-        <p style="font-size:15px;font-weight:600;color:#1e3a8a;line-height:1.5">${esc(query)}</p>
+      body += `<div style="background:var(--bg-inset);border-left:4px solid #3b82f6;border-radius:4px;padding:14px 16px;margin-bottom:18px">
+        <p style="font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:.08em;margin-bottom:4px">RESEARCH QUERY</p>
+        <p style="font-size:15px;font-weight:600;color:var(--accent-deep);line-height:1.5">${esc(query)}</p>
         ${gene ? `<p style="font-size:12px;color:#3b82f6;margin-top:4px">${esc(gene)}${reply?.query_type ? " · " + reply.query_type.replace(/_/g," ") : ""}${reply?.result_count ? " · " + reply.result_count + " results" : ""}</p>` : ""}
       </div>`;
 
       // Protein structure
       const proteinPng = proteinImgs[gene];
       if (proteinPng) {
-        body += `${sectionHeader("Protein Structure (AlphaFold)", "#7c3aed")}
-          <div style="text-align:center;background:#0a0f1e;border-radius:10px;padding:8px;margin-bottom:8px">
+        body += `${sectionHeader("Protein Structure (AlphaFold)", "var(--violet-soft)")}
+          <div style="text-align:center;background:var(--bg-panel);border-radius:10px;padding:8px;margin-bottom:8px">
             <img src="${proteinPng}" style="max-width:100%;border-radius:8px;display:block;margin:0 auto" />
           </div>
-          <p style="font-size:11px;color:#9ca3af;text-align:center;margin-bottom:16px">AlphaFold predicted structure · ${esc(d.alphafold?.entry_id || gene)} · Colored by pLDDT confidence</p>`;
+          <p style="font-size:11px;color:var(--text-faint);text-align:center;margin-bottom:16px">AlphaFold predicted structure · ${esc(d.alphafold?.entry_id || gene)} · Colored by pLDDT confidence</p>`;
       }
 
       // AI analysis
@@ -2920,11 +2964,11 @@ export default function App() {
             `<strong>${esc(p.population)}</strong>`,
             `<span style="font-family:monospace">${af.toExponential(2)}</span>`,
             `${p.allele_count?.toLocaleString() ?? "—"} / ${p.allele_number?.toLocaleString() ?? "—"}`,
-            `<div style="background:#e0e7ff;border-radius:3px;height:8px;width:120px"><div style="background:#3b82f6;border-radius:3px;height:8px;width:${barPct}%"></div></div>`,
+            `<div style="background:var(--bg-inset);border-radius:3px;height:8px;width:120px"><div style="background:#3b82f6;border-radius:3px;height:8px;width:${barPct}%"></div></div>`,
           ];
         });
         body += `${sectionHeader("Population Allele Frequencies (gnomAD v4)")}
-          <p style="font-size:12px;color:#6b7280;margin-bottom:8px">Aggregate allele frequency across all variants in this gene, by ancestry group.</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Aggregate allele frequency across all variants in this gene, by ancestry group.</p>
           ${table(["Population", "Allele Freq.", "AC / AN", "Relative"], popRows, ["30%","18%","28%","24%"])}`;
       }
 
@@ -2935,7 +2979,7 @@ export default function App() {
         body += sectionHeader("Associated Phenotypes & Diseases (HPO · Monarch)");
         if (hpoTerms.length) {
           body += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px">
-            ${hpoTerms.slice(0,20).map(t => badge(t.name, "#f5f3ff", "#5b21b6")).join("")}
+            ${hpoTerms.slice(0,20).map(t => badge(t.name, "var(--bg-inset)", "var(--violet-soft)")).join("")}
           </div>`;
         }
         if (monarchDiseases.length) {
@@ -2949,7 +2993,7 @@ export default function App() {
       if (patho.length) {
         const vRows = patho.slice(0, 12).map(v => [
           `<span style="font-family:monospace;font-size:11px">${esc(v.variant_id)}</span>`,
-          `<strong style="color:${/likely/i.test(v.clinical_significance||"")?"#d97706":"#dc2626"}">${esc(v.clinical_significance)}</strong>`,
+          `<strong style="color:${/likely/i.test(v.clinical_significance||"")?"var(--warning)":"var(--danger)"}">${esc(v.clinical_significance)}</strong>`,
           esc(v.condition || "—"),
           v.hgvs ? `<span style="font-family:monospace;font-size:11px">${esc(v.hgvs)}</span>` : "—",
           v.frequency ? `<span style="font-family:monospace">${parseFloat(v.frequency).toExponential(2)}</span>` : "—",
@@ -2962,12 +3006,12 @@ export default function App() {
       if (d.gwas?.length) {
         const gRows = d.gwas.slice(0, 12).map(g => [
           esc(g.trait),
-          `<span style="font-family:monospace;color:${g.p_value < 5e-8 ? "#dc2626" : g.p_value < 1e-5 ? "#d97706" : "#374151"}">${esc(g.p_value_str)}</span>`,
+          `<span style="font-family:monospace;color:${g.p_value < 5e-8 ? "var(--danger)" : g.p_value < 1e-5 ? "var(--warning)" : "#374151"}">${esc(g.p_value_str)}</span>`,
           g.or_beta != null ? g.or_beta.toFixed(3) : "—",
           g.risk_allele ? `<span style="font-family:monospace">${esc(g.risk_allele)}</span>` : "—",
         ]);
         body += `${sectionHeader("GWAS Trait Associations (EBI GWAS Catalog)")}
-          <p style="font-size:12px;color:#6b7280;margin-bottom:8px">p &lt; 5×10⁻⁸ = genome-wide significant</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px">p &lt; 5×10⁻⁸ = genome-wide significant</p>
           ${table(["Trait","p-value","OR / β","Risk Allele"], gRows, ["45%","20%","17%","18%"])}`;
       }
 
@@ -2975,7 +3019,7 @@ export default function App() {
       if (d.drugs?.length) {
         const dRows = d.drugs.slice(0, 10).map(dr => [
           `<strong>${esc(dr.name)}</strong>`,
-          dr.phase != null ? badge(`Phase ${dr.phase}`, dr.phase >= 4 ? "#dcfce7" : dr.phase >= 3 ? "#dbeafe" : "#f5f3ff", dr.phase >= 4 ? "#15803d" : dr.phase >= 3 ? "#1d4ed8" : "#6d28d9") : "—",
+          dr.phase != null ? badge(`Phase ${dr.phase}`, dr.phase >= 4 ? "#dcfce7" : dr.phase >= 3 ? "#dbeafe" : "var(--bg-inset)", dr.phase >= 4 ? "#15803d" : dr.phase >= 3 ? "#1d4ed8" : "var(--violet-soft)") : "—",
           esc(dr.mechanism || "—"),
           esc(dr.indication || "—"),
         ]);
@@ -3016,30 +3060,30 @@ export default function App() {
 
       // Sources
       if (reply?.sources?.length) {
-        body += `<p style="font-size:11px;color:#9ca3af;margin-top:20px"><strong style="color:#6b7280">Data sources:</strong> ${reply.sources.map(esc).join(" · ")}</p>`;
+        body += `<p style="font-size:11px;color:var(--text-faint);margin-top:20px"><strong style="color:var(--text-dim)">Data sources:</strong> ${reply.sources.map(esc).join(" · ")}</p>`;
       }
 
-      body += `<div style="height:32px;border-bottom:1px solid #e5e7eb;margin-bottom:32px"></div>`;
+      body += `<div style="height:32px;border-bottom:1px solid var(--text-secondary);margin-bottom:32px"></div>`;
     }
 
     const reportHtml = `
-      <div id="gc-pdf-report" style="width:794px;background:#ffffff;padding:48px 52px;font-family:'Georgia',serif;color:#1a1a1a;box-sizing:border-box">
+      <div id="gc-pdf-report" style="width:794px;background:var(--text);padding:48px 52px;font-family:'Georgia',serif;color:var(--bg-elevated);box-sizing:border-box">
         <!-- Header -->
-        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #1e40af;padding-bottom:20px;margin-bottom:28px">
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--accent-deep);padding-bottom:20px;margin-bottom:28px">
           <div style="display:flex;align-items:center;gap:12px">
-            <div style="width:38px;height:38px;background:linear-gradient(135deg,#1d4ed8,#7c3aed);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px">🧬</div>
+            <div style="width:38px;height:38px;background:linear-gradient(135deg,#1d4ed8,var(--violet-soft));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px">🧬</div>
             <div>
-              <p style="font-size:20px;font-weight:700;color:#1e40af;margin:0">GenomeChat</p>
-              <p style="font-size:11px;color:#9ca3af;margin:0">Genomics Research Report</p>
+              <p style="font-size:20px;font-weight:700;color:var(--accent-deep);margin:0">GenomeChat</p>
+              <p style="font-size:11px;color:var(--text-faint);margin:0">Genomics Research Report</p>
             </div>
           </div>
-          <p style="font-size:12px;color:#9ca3af;text-align:right">Generated ${date}<br><span style="font-size:10px">Powered by Claude AI</span></p>
+          <p style="font-size:12px;color:var(--text-faint);text-align:right">Generated ${date}<br><span style="font-size:10px">Powered by Claude AI</span></p>
         </div>
         ${body}
         <!-- Footer -->
-        <div style="margin-top:32px;border-top:1px solid #e5e7eb;padding-top:16px">
-          <p style="font-size:11px;color:#d1d5db;text-align:center">GenomeChat · Data from Ensembl, ClinVar, gnomAD, UniProt, Open Targets, GWAS Catalog, HPO, Monarch, PharmGKB, OMIM, ClinGen, COSMIC/GDC · Powered by Claude AI</p>
-          <p style="font-size:10px;color:#e5e7eb;text-align:center;margin-top:4px">For research purposes only. Not a substitute for clinical genetic counseling.</p>
+        <div style="margin-top:32px;border-top:1px solid var(--text-secondary);padding-top:16px">
+          <p style="font-size:11px;color:var(--text-muted);text-align:center">GenomeChat · Data from Ensembl, ClinVar, gnomAD, UniProt, Open Targets, GWAS Catalog, HPO, Monarch, PharmGKB, OMIM, ClinGen, COSMIC/GDC · Powered by Claude AI</p>
+          <p style="font-size:10px;color:var(--text-secondary);text-align:center;margin-top:4px">For research purposes only. Not a substitute for clinical genetic counseling.</p>
         </div>
       </div>`;
 
@@ -3055,7 +3099,7 @@ export default function App() {
         scale: 2,
         useCORS: true,
         allowTaint: false,
-        backgroundColor: "#ffffff",
+        backgroundColor: cssVar("--bg", "#ffffff"),
         logging: false,
         imageTimeout: 8000,
       });
@@ -3087,7 +3131,7 @@ export default function App() {
     }
   };
 
-  const statusColor = { online: "#34d399", offline: "#f87171", checking: "#fbbf24", error: "#f87171" }[apiStatus];
+  const statusColor = { online: "var(--success)", offline: "var(--danger)", checking: "var(--warning)", error: "var(--danger)" }[apiStatus];
 
   return (
     <>
@@ -3096,7 +3140,7 @@ export default function App() {
         @keyframes pulse-dot { 0%,80%,100% { opacity:.2; transform:scale(.8); } 40% { opacity:1; transform:scale(1); } }
         .gc-sidebar {
           width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
-          border-right: 1px solid rgba(30,41,59,0.8); background: rgba(15,23,42,0.97);
+          border-right: 1px solid rgb(var(--c-surface) / 0.8); background: rgb(var(--c-deep) / 0.97);
           transition: transform 0.25s ease;
         }
         .gc-sidebar-overlay { display: none; }
@@ -3114,7 +3158,7 @@ export default function App() {
         .gc-suggestion-item { display: flex; }
         .gc-dna-upload-section { margin-top: 20px; max-width: 560px; width: 100%; }
         /* Mobile header: two-row layout */
-        .gc-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; border-bottom: 1px solid rgba(30,41,59,0.6); background: rgba(15,23,42,0.4); flex-shrink: 0; }
+        .gc-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; border-bottom: 1px solid rgb(var(--c-surface) / 0.6); background: rgb(var(--c-deep) / 0.4); flex-shrink: 0; }
         .gc-header-row2 { display: none; }
         @media (max-width: 640px) {
           .gc-sidebar {
@@ -3124,7 +3168,7 @@ export default function App() {
           .gc-sidebar.open { transform: translateX(0); }
           .gc-sidebar-overlay {
             display: block; position: fixed; inset: 0; z-index: 199;
-            background: rgba(0,0,0,0.6);
+            background: rgb(var(--c-shadow) / 0.6);
           }
           .gc-hamburger { display: flex; }
           .gc-header-subtitle { display: none; }
@@ -3144,22 +3188,22 @@ export default function App() {
           .gc-dna-upload-section { margin-top: 12px !important; }
           /* Two-row mobile header */
           .gc-header { flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
-          .gc-header-row1 { padding: 0.55rem 0.875rem !important; border-bottom: 1px solid rgba(30,41,59,0.5); }
+          .gc-header-row1 { padding: 0.55rem 0.875rem !important; border-bottom: 1px solid rgb(var(--c-surface) / 0.5); }
           .gc-header-row2 { display: flex !important; align-items: center; padding: 0.4rem 0.875rem; gap: 8px; }
           .gc-header-actions-desktop { display: none !important; }
           .gc-header-actions-mobile { display: flex !important; }
         }
       `}</style>
-      <div style={{ display: "flex", height: "100vh", background: "#080b14", color: "#e2e8f0", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+      <div style={{ display: "flex", height: "100vh", background: "var(--bg)", color: "var(--text-secondary)", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
         {showSignInGate && <SignInGateModal onClose={() => setShowSignInGate(false)} />}
         {showUpgrade && <UpgradeModal currentUser={currentUser} blocked={showUpgrade === "blocked"} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
         {paymentToast && (() => {
           const tone = paymentToast === "failed"
-            ? { bg: "#3a1616", border: "rgba(248,113,113,0.45)", fg: "#f87171" }
+            ? { bg: "var(--bg-elevated)", border: "rgb(var(--c-danger) / 0.45)", fg: "var(--danger)" }
             : paymentToast === "pending"
-            ? { bg: "#1e293b", border: "rgba(148,163,184,0.35)", fg: "#cbd5e1" }
-            : { bg: "#0f3a20", border: "rgba(52,211,153,0.4)", fg: "#34d399" };
+            ? { bg: "var(--border-solid)", border: "rgb(var(--c-border) / 0.35)", fg: "var(--text-muted)" }
+            : { bg: "var(--bg-elevated)", border: "rgb(var(--c-success) / 0.4)", fg: "var(--success)" };
           const text = paymentToast === "success_unlock"
             ? "🔓 Unlimited access unlocked! Welcome to GenomeChat Pro."
             : paymentToast === "success_credits"
@@ -3169,7 +3213,7 @@ export default function App() {
             : "Payment received, but your account hasn't updated yet. Nothing was lost — contact support and we'll apply it.";
           return (
             <div onClick={() => setPaymentToast(null)}
-              style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: tone.bg, border: `1px solid ${tone.border}`, borderRadius: 10, padding: "0.75rem 1.25rem", color: tone.fg, fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxWidth: "min(92vw, 460px)", textAlign: "center", cursor: "pointer", lineHeight: 1.5 }}>
+              style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: tone.bg, border: `1px solid ${tone.border}`, borderRadius: 10, padding: "0.75rem 1.25rem", color: tone.fg, fontSize: "0.82rem", fontWeight: 600, boxShadow: "0 8px 24px rgb(var(--c-shadow) / 0.4)", maxWidth: "min(92vw, 460px)", textAlign: "center", cursor: "pointer", lineHeight: 1.5 }}>
               {text}
             </div>
           );
@@ -3198,53 +3242,53 @@ export default function App() {
             <div className="gc-header-row1" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button className="gc-hamburger" onClick={() => setSidebarOpen(o => !o)}
-                  style={{ padding: "0.3rem 0.4rem", borderRadius: 8, background: "none", border: "1px solid rgba(51,65,85,0.4)", color: "#475569", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, alignItems: "center", justifyContent: "center" }}>
+                  style={{ padding: "0.3rem 0.4rem", borderRadius: 8, background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, alignItems: "center", justifyContent: "center" }}>
                   ☰
                 </button>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
                 <div>
-                  <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>GenomeChat</p>
-                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "#334155", margin: 0 }}>Genomics research · Powered by Claude AI</p>
+                  <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text)", margin: 0 }}>GenomeChat</p>
+                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "var(--border-solid)", margin: 0 }}>Genomics research · Powered by Claude AI</p>
                 </div>
               </div>
               {/* Desktop-only actions */}
               <div className="gc-header-actions-desktop" style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {messages.length > 0 && (
-                  <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "#334155" : "#64748b", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
+                  <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "var(--border-solid)" : "var(--text-dim)", background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
                     {exporting ? "Building PDF…" : "Export PDF"}
                   </button>
                 )}
                 <button
                   onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
-                  style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
+                  style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                   title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
                 >
                   {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
-                  <span style={{ fontSize: "0.72rem", color: "#334155", textTransform: "capitalize" }}>{apiStatus}</span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--border-solid)", textTransform: "capitalize" }}>{apiStatus}</span>
                 </div>
                 <PlanBadge currentUser={currentUser} onClick={() => setShowUpgrade("buy")} />
                 {currentUser ? (
                   <div style={{ position: "relative" }}>
                     {showUserMenu && <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />}
                     <button onClick={() => setShowUserMenu(v => !v)}
-                      style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", border: "none", cursor: "pointer" }}>
+                      style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,var(--accent-strong),var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", border: "none", cursor: "pointer" }}>
                       {currentUser.name?.[0]?.toUpperCase() || "?"}
                     </button>
                     {showUserMenu && (
-                      <div style={{ position: "absolute", top: 34, right: 0, background: "#1e293b", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 8, minWidth: 148, zIndex: 100, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                      <div style={{ position: "absolute", top: 34, right: 0, background: "var(--border-solid)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 8, minWidth: 148, zIndex: 100, overflow: "hidden", boxShadow: "0 8px 24px rgb(var(--c-shadow) / 0.4)" }}>
                         <button onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "#cbd5e1", background: "none", border: "none", cursor: "pointer" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "rgba(51,65,85,0.5)"}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-border) / 0.5)"}
                           onMouseLeave={e => e.currentTarget.style.background = "none"}>
                           ⚙️ Settings
                         </button>
-                        <div style={{ height: 1, background: "rgba(51,65,85,0.4)" }} />
+                        <div style={{ height: 1, background: "rgb(var(--c-border) / 0.4)" }} />
                         <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); setShowUserMenu(false); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "#f87171", background: "none", border: "none", cursor: "pointer" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "rgba(51,65,85,0.5)"}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "var(--danger)", background: "none", border: "none", cursor: "pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-border) / 0.5)"}
                           onMouseLeave={e => e.currentTarget.style.background = "none"}>
                           Sign out
                         </button>
@@ -3253,9 +3297,9 @@ export default function App() {
                   </div>
                 ) : (
                   <a href={`${API}/auth/google`}
-                      style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "#94a3b8", background: "rgba(30,41,59,0.6)", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.65rem", textDecoration: "none" }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.4)"}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.4)"}
+                      style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "var(--text-faint)", background: "rgb(var(--c-surface) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 8, padding: "0.3rem 0.65rem", textDecoration: "none" }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.4)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.4)"}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
                       Sign in with Google
@@ -3270,25 +3314,25 @@ export default function App() {
                   <div style={{ position: "relative" }}>
                     {showUserMenu && <div onClick={() => setShowUserMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 99 }} />}
                     <button onClick={() => setShowUserMenu(v => !v)}
-                      style={{ width: 26, height: 26, borderRadius: "50%", background: "linear-gradient(135deg,#0ea5e9,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", border: "none", cursor: "pointer" }}>
+                      style={{ width: 26, height: 26, borderRadius: "50%", background: "linear-gradient(135deg,var(--accent-strong),var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", border: "none", cursor: "pointer" }}>
                       {currentUser.name?.[0]?.toUpperCase() || "?"}
                     </button>
                     {showUserMenu && (
-                      <div style={{ position: "absolute", top: 32, right: 0, background: "#1e293b", border: "1px solid rgba(51,65,85,0.6)", borderRadius: 8, minWidth: 148, zIndex: 100, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                      <div style={{ position: "absolute", top: 32, right: 0, background: "var(--border-solid)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 8, minWidth: 148, zIndex: 100, overflow: "hidden", boxShadow: "0 8px 24px rgb(var(--c-shadow) / 0.4)" }}>
                         <button onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "#cbd5e1", background: "none", border: "none", cursor: "pointer" }}>
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}>
                           ⚙️ Settings
                         </button>
-                        <div style={{ height: 1, background: "rgba(51,65,85,0.4)" }} />
+                        <div style={{ height: 1, background: "rgb(var(--c-border) / 0.4)" }} />
                         <button onClick={() => { clearToken(); setCurrentUser(null); setChatHistory([]); setShowUserMenu(false); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "#f87171", background: "none", border: "none", cursor: "pointer" }}>
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "var(--danger)", background: "none", border: "none", cursor: "pointer" }}>
                           Sign out
                         </button>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <a href={`${API}/auth/google`} style={{ fontSize: "0.68rem", color: "#38bdf8", textDecoration: "none" }}>Sign in</a>
+                  <a href={`${API}/auth/google`} style={{ fontSize: "0.68rem", color: "var(--accent)", textDecoration: "none" }}>Sign in</a>
                 )}
               </div>
             </div>
@@ -3297,13 +3341,13 @@ export default function App() {
             <div className="gc-header-row2" style={{ width: "100%", boxSizing: "border-box" }}>
               <button
                 onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
-                style={{ fontSize: "0.72rem", color: dnaData ? "#38bdf8" : "#64748b", background: dnaData ? "rgba(14,165,233,0.08)" : "none", border: `1px solid ${dnaData ? "rgba(14,165,233,0.3)" : "rgba(51,65,85,0.4)"}`, borderRadius: 8, padding: "0.35rem 0.75rem", cursor: "pointer" }}
+                style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.75rem", cursor: "pointer" }}
               >
                 {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                 {messages.length > 0 && (
-                  <button onClick={exportReport} disabled={exporting} style={{ fontSize: "0.68rem", color: "#475569", background: "none", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer" }}>
+                  <button onClick={exportReport} disabled={exporting} style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer" }}>
                     {exporting ? "Building…" : "Export PDF"}
                   </button>
                 )}
@@ -3317,11 +3361,11 @@ export default function App() {
           <div className={messages.length > 0 ? "gc-msg-pad" : ""} style={{ flex: 1, overflowY: "auto" }}>
             {messages.length === 0 ? (
               <div className="gc-empty-pad gc-empty-inner" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                <div className="gc-empty-hero" style={{ background: "linear-gradient(135deg, #0ea5e9, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 32px rgba(14,165,233,0.2)" }}>🧬</div>
-                <h2 className="gc-empty-title" style={{ fontWeight: 700, color: "#f1f5f9", textAlign: "center" }}>
+                <div className="gc-empty-hero" style={{ background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 32px rgb(var(--c-accent) / 0.2)" }}>🧬</div>
+                <h2 className="gc-empty-title" style={{ fontWeight: 700, color: "var(--text)", textAlign: "center" }}>
                   {dnaData ? "Your DNA — where would you like to start?" : "What would you like to research?"}
                 </h2>
-                <p className="gc-empty-subtitle" style={{ color: "#475569", textAlign: "center", maxWidth: 420, lineHeight: 1.6 }}>
+                <p className="gc-empty-subtitle" style={{ color: "var(--text-dimmer)", textAlign: "center", maxWidth: 420, lineHeight: 1.6 }}>
                   {dnaData
                     ? "These suggestions are based on notable variants found in your file."
                     : "Ask about genes, variants, or genetic diseases. I'll query live databases and explain the relationships."}
@@ -3339,7 +3383,7 @@ export default function App() {
                             <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
                             <div>
                               <p style={{ fontSize: "0.78rem", fontWeight: 600, color: s.color, margin: 0, lineHeight: 1.4 }}>{s.label}</p>
-                              <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 2 }}>{s.sublabel}</p>
+                              <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 2 }}>{s.sublabel}</p>
                             </div>
                           </button>
                         ))}
@@ -3349,11 +3393,11 @@ export default function App() {
                   return (
                     <div className="gc-suggestions">
                       {SUGGESTIONS.map(s => (
-                        <button key={s.label} className="gc-suggestion-item" onClick={() => sendMessage(s.label)} style={{ alignItems: "flex-start", gap: 10, padding: "0.75rem", borderRadius: 12, background: "rgba(30,41,59,0.4)", border: "1px solid rgba(51,65,85,0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
-                          onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
-                          onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.35)"}>
+                        <button key={s.label} className="gc-suggestion-item" onClick={() => sendMessage(s.label)} style={{ alignItems: "flex-start", gap: 10, padding: "0.75rem", borderRadius: 12, background: "rgb(var(--c-surface) / 0.4)", border: "1px solid rgb(var(--c-border) / 0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
+                          onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.35)"}
+                          onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.35)"}>
                           <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
-                          <span style={{ fontSize: "0.78rem", color: "#64748b", lineHeight: 1.5 }}>{s.label}</span>
+                          <span style={{ fontSize: "0.78rem", color: "var(--text-dim)", lineHeight: 1.5 }}>{s.label}</span>
                         </button>
                       ))}
                     </div>
@@ -3361,31 +3405,31 @@ export default function App() {
                 })()}
                 <div className="gc-dna-upload-section">
                   {dnaData ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgba(8,47,73,0.3)", border: "1px solid rgba(14,165,233,0.2)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgb(var(--c-accent) / 0.3)", border: "1px solid rgb(var(--c-accent) / 0.2)" }}>
                       <span style={{ fontSize: "1rem" }}>🧬</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#38bdf8", margin: 0 }}>{dnaData.totalCount.toLocaleString()} variants loaded</p>
-                        <p style={{ fontSize: "0.68rem", color: "#475569", marginTop: 2 }}>{dnaData.filename} · {dnaData.format} · session only</p>
+                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--accent)", margin: 0 }}>{dnaData.totalCount.toLocaleString()} variants loaded</p>
+                        <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 2 }}>{dnaData.filename} · {dnaData.format} · session only</p>
                       </div>
-                      <button onClick={() => updateDnaData(null)} style={{ background: "none", border: "none", color: "#334155", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
+                      <button onClick={() => updateDnaData(null)} style={{ background: "none", border: "none", color: "var(--border-solid)", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
                     </div>
                   ) : (
                     <button
                       onClick={() => setShowConsentModal(true)}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgba(30,41,59,0.25)", border: "1px dashed rgba(51,65,85,0.5)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(14,165,233,0.35)"}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(51,65,85,0.5)"}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgb(var(--c-surface) / 0.25)", border: "1px dashed rgb(var(--c-border) / 0.5)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.35)"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}
                     >
                       <span style={{ fontSize: "1rem" }}>🧬</span>
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "#475569", margin: 0 }}>Upload your DNA data</p>
-                        <p style={{ fontSize: "0.68rem", color: "#334155", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
+                        <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-dimmer)", margin: 0 }}>Upload your DNA data</p>
+                        <p style={{ fontSize: "0.68rem", color: "var(--border-solid)", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
                       </div>
                       <a
                         href="/sample_23andme.txt"
                         download="sample_23andme.txt"
                         onClick={e => e.stopPropagation()}
-                        style={{ fontSize: "0.65rem", color: "#334155", border: "1px solid rgba(51,65,85,0.4)", borderRadius: 6, padding: "0.2rem 0.5rem", whiteSpace: "nowrap", textDecoration: "none", flexShrink: 0 }}
+                        style={{ fontSize: "0.65rem", color: "var(--border-solid)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.2rem 0.5rem", whiteSpace: "nowrap", textDecoration: "none", flexShrink: 0 }}
                       >↓ sample</a>
                     </button>
                   )}
@@ -3406,9 +3450,9 @@ export default function App() {
           </div>
 
           {/* Input */}
-          <div className="gc-input-pad" style={{ flexShrink: 0, borderTop: "1px solid rgba(30,41,59,0.5)", background: "rgba(15,23,42,0.3)" }}>
+          <div className="gc-input-pad" style={{ flexShrink: 0, borderTop: "1px solid rgb(var(--c-surface) / 0.5)", background: "rgb(var(--c-deep) / 0.3)" }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgba(30,41,59,0.55)", border: "1px solid rgba(51,65,85,0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgb(var(--c-surface) / 0.55)", border: "1px solid rgb(var(--c-border) / 0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -3416,20 +3460,20 @@ export default function App() {
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                   placeholder="Ask about a gene (BRCA1 variants) or disease (Alzheimer's genes)…"
                   rows={1}
-                  style={{ flex: 1, resize: "none", background: "transparent", color: "#e2e8f0", fontSize: "0.875rem", border: "none", outline: "none", lineHeight: 1.6, minHeight: 24, maxHeight: 160, overflowY: "auto", fontFamily: "inherit" }}
+                  style={{ flex: 1, resize: "none", background: "transparent", color: "var(--text-secondary)", fontSize: "0.875rem", border: "none", outline: "none", lineHeight: 1.6, minHeight: 24, maxHeight: 160, overflowY: "auto", fontFamily: "inherit" }}
                   onInput={e => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
                 />
                 <button
                   onClick={() => sendMessage()}
                   disabled={loading || !input.trim()}
-                  style={{ width: 32, height: 32, borderRadius: 10, background: loading || !input.trim() ? "rgba(51,65,85,0.4)" : "#0284c7", border: "none", cursor: loading || !input.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}
+                  style={{ width: 32, height: 32, borderRadius: 10, background: loading || !input.trim() ? "rgb(var(--c-border) / 0.4)" : "var(--accent-deep)", border: "none", cursor: loading || !input.trim() ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="white" width={14} height={14}>
                     <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
                   </svg>
                 </button>
               </div>
-              <p style={{ textAlign: "center", fontSize: "0.68rem", color: "#1e293b", marginTop: 8 }}>
+              <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--border-solid)", marginTop: 8 }}>
                 Ensembl · ClinVar · gnomAD · UniProt · PubMed · Claude AI
               </p>
             </div>

@@ -20,7 +20,7 @@ from services.cache import cache
 from database.models import create_tables_safe, get_db, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, get_price_display, FREE_QUERY_LIMIT, CREDITS_PER_PACK
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 
@@ -699,6 +699,20 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
 
 class CheckoutRequest(BaseModel):
     type: str  # "unlock" | "credits"
+
+
+@app.get("/billing/prices")
+async def billing_prices(current_user: Optional[User] = Depends(get_current_user)):
+    """Live pricing for whichever Stripe mode applies to this caller."""
+    test_mode = is_test_mode_user(current_user)
+    cache_key = f"__prices__:{'test' if test_mode else 'live'}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+    data = get_price_display(test_mode)
+    if data.get("unlock") or data.get("credits"):
+        cache.set(cache_key, data)
+    return data
 
 
 @app.post("/billing/checkout")

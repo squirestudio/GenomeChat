@@ -47,6 +47,50 @@ def stripe_credentials_for(test_mode: bool) -> tuple[str, str, str]:
     return s.stripe_secret_key, s.stripe_price_unlock, s.stripe_price_credits
 
 
+def _format_price(price: dict) -> dict:
+    """Display info for one price, derived from Stripe rather than hardcoded."""
+    amount = (price.get("unit_amount") or 0) / 100
+    currency = (price.get("currency") or "usd").upper()
+    sym = {"USD": "$", "GBP": "\u00a3", "EUR": "\u20ac"}.get(currency, "")
+    money = f"{sym}{amount:.2f}".replace(".00", "")
+    rec = price.get("recurring")
+    if rec:
+        interval = rec.get("interval", "month")
+        every = rec.get("interval_count", 1)
+        label = f"{money}/{interval}" if every == 1 else f"{money} every {every} {interval}s"
+    else:
+        label = f"{money} one-time"
+    return {
+        "amount": price.get("unit_amount"),
+        "currency": currency,
+        "interval": (rec or {}).get("interval"),
+        "recurring": bool(rec),
+        "label": label,
+    }
+
+
+def get_price_display(test_mode: bool = False) -> dict:
+    """What the purchase UI should say, straight from Stripe.
+
+    Hardcoding prices in the frontend means every pricing change silently
+    leaves the UI lying until someone remembers to edit it — which is exactly
+    what happened when Unlimited moved from $5 one-time to $10/month.
+    """
+    secret_key, price_unlock, price_credits = stripe_credentials_for(test_mode)
+    out = {"test_mode": test_mode, "unlock": None, "credits": None}
+    if not secret_key:
+        return out
+    stripe.api_key = secret_key
+    for key, pid in (("unlock", price_unlock), ("credits", price_credits)):
+        if not pid:
+            continue
+        try:
+            out[key] = _format_price(stripe.Price.retrieve(pid))
+        except Exception as e:
+            logger.warning("Could not read price %s: %s", pid, e)
+    return out
+
+
 def create_checkout_session(user_id: int, purchase_type: str, test_mode: bool = False) -> str:
     settings = get_settings()
     secret_key, price_unlock, price_credits = stripe_credentials_for(test_mode)

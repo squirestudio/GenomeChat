@@ -681,6 +681,23 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
 function PurchaseOptions({ compact, testMode }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
+  // Prices come from Stripe, not from constants here. Hardcoding them means the
+  // UI keeps quoting the old figure after a pricing change — which is exactly
+  // what happened when Unlimited moved from $5 one-time to $10/month.
+  const [prices, setPrices] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/billing/prices")
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setPrices(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const unlockLabel = prices?.unlock?.label;
+  const creditsLabel = prices?.credits?.label;
+  const unlockRecurring = prices?.unlock?.recurring;
 
   const buy = async (type) => {
     setError(null);

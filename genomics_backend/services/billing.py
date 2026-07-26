@@ -55,14 +55,34 @@ def create_checkout_session(user_id: int, purchase_type: str, test_mode: bool = 
         raise ValueError("Stripe not configured for this mode")
 
     stripe.api_key = secret_key
-    session = stripe.checkout.Session.create(
+
+    # Ask Stripe what kind of price this is rather than assuming. A recurring
+    # price in a mode="payment" session is rejected outright, so hardcoding the
+    # mode means any switch between one-time and subscription pricing silently
+    # breaks checkout until someone redeploys.
+    try:
+        price = stripe.Price.retrieve(price_id)
+        recurring = bool(price.get("recurring"))
+    except Exception as e:
+        logger.warning("Could not inspect price %s (%s) — assuming one-time", price_id, e)
+        recurring = False
+
+    metadata = {"user_id": str(user_id), "purchase_type": purchase_type}
+    kwargs = dict(
         payment_method_types=["card"],
         line_items=[{"price": price_id, "quantity": 1}],
-        mode="payment",
-        metadata={"user_id": str(user_id), "purchase_type": purchase_type},
+        mode="subscription" if recurring else "payment",
+        metadata=metadata,
         success_url=f"{settings.frontend_url}?payment=success&type={purchase_type}",
         cancel_url=f"{settings.frontend_url}?payment=cancelled",
     )
+    # For subscriptions the metadata must also live on the subscription itself:
+    # later lifecycle events (cancellation, failed payment) carry the
+    # subscription, not the checkout session that created it.
+    if recurring:
+        kwargs["subscription_data"] = {"metadata": metadata}
+
+    session = stripe.checkout.Session.create(**kwargs)
     if test_mode:
         logger.info("TEST-MODE checkout created for user %s (%s)", user_id, purchase_type)
     return session.url

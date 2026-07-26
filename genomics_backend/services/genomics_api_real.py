@@ -660,7 +660,7 @@ async def fetch_string_interactions(gene_symbol: str, species: int = 9606, limit
             "identifiers": gene_symbol,
             "species": species,
             "limit": 1,
-            "caller_identity": "genomechat",
+            "caller_identity": "mydna.chat",
         })
         if not map_data or not isinstance(map_data, list):
             return []
@@ -675,7 +675,7 @@ async def fetch_string_interactions(gene_symbol: str, species: int = 9606, limit
             "identifiers": string_id,
             "species": species,
             "limit": limit,
-            "caller_identity": "genomechat",
+            "caller_identity": "mydna.chat",
         })
         if not partners or not isinstance(partners, list):
             return []

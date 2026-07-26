@@ -207,7 +207,7 @@ async def _startup_diagnostics() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting GenomeChat API...")
+    logger.info("Starting MyDNA API...")
     create_tables_safe()
     # Fire and forget — the app is ready now; diagnostics land in the log when
     # they land. Held in a local so the task is not garbage collected.
@@ -218,7 +218,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="GenomeChat API",
+    title="MyDNA API",
     description="Natural language genomics research platform powered by Claude AI",
     version="1.0.0",
     lifespan=lifespan,
@@ -700,7 +700,33 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
             logger.info("Stripe event %s already processed — ignoring replay", event_id)
             return {"received": True, "duplicate": True}
 
-    if event["type"] == "checkout.session.completed":
+    etype = event["type"]
+
+    # ── Subscription lifecycle ────────────────────────────────────────────────
+    # byok_unlocked is a permanent flag, which was correct when Unlimited was a
+    # one-time purchase. As a monthly subscription it has to be revoked when the
+    # subscription ends, or a cancelled customer keeps unlimited access forever.
+    if etype in ("customer.subscription.deleted", "customer.subscription.updated"):
+        sub = event["data"]["object"]
+        status = sub.get("status")
+        # Metadata is copied onto the subscription at checkout (subscription_data).
+        user_id = int((sub.get("metadata") or {}).get("user_id", 0))
+        active = status in ("active", "trialing")
+        if not user_id:
+            logger.warning("Stripe %s carried no user_id metadata — nothing to update", etype)
+            return {"received": True}
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            logger.error("Stripe %s for unknown user %s", etype, user_id)
+            return {"received": True}
+        if user.byok_unlocked != active:
+            user.byok_unlocked = active
+            db.commit()
+            logger.info("User %s unlimited access %s (subscription %s)",
+                        user_id, "granted" if active else "REVOKED", status)
+        return {"received": True}
+
+    if etype == "checkout.session.completed":
         meta = event["data"]["object"].get("metadata", {})
         user_id = int(meta.get("user_id", 0))
         purchase_type = meta.get("purchase_type", "")

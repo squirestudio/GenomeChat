@@ -1,5 +1,5 @@
 """
-GenomeChat API - Example Client
+MyDNA API - Example Client
 Run: python examples.py
 Requires backend running: docker-compose up -d
 """
@@ -84,7 +84,7 @@ def cache_stats():
 
 
 if __name__ == "__main__":
-    print("\nGenomeChat API — Example Queries")
+    print("\nMyDNA API — Example Queries")
     print("Make sure docker-compose is running: docker-compose up -d\n")
 
     health_check()

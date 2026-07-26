@@ -15,9 +15,12 @@ import os
 import sys
 
 # Mirrors the live catalogue. Amounts in cents.
+# Mirrors the live catalogue exactly, including the billing model — test mode
+# is worthless as a rehearsal if the unlock is one-time here and a subscription
+# in production.
 PRODUCTS = [
-    {"env": "STRIPE_PRICE_UNLOCK", "name": "GenomeChat Unlimited", "amount": 500},
-    {"env": "STRIPE_PRICE_CREDITS", "name": "GenomeChat 50 Queries", "amount": 300},
+    {"env": "STRIPE_PRICE_UNLOCK", "name": "MyDNA - Unlimited (Monthly)", "amount": 1000, "interval": "month"},
+    {"env": "STRIPE_PRICE_CREDITS", "name": "MyDNA - 50 Queries", "amount": 300, "interval": None},
 ]
 CURRENCY = "usd"
 
@@ -55,18 +58,23 @@ def main() -> int:
             product = stripe.Product.create(name=spec["name"])
             print(f"+ created product: {spec['name']} ({product['id']})")
 
+        wants_recurring = bool(spec.get("interval"))
         price = next(
             (p for p in stripe.Price.list(product=product["id"], limit=100, active=True).get("data", [])
-             if p.get("unit_amount") == spec["amount"] and p.get("currency") == CURRENCY),
+             if p.get("unit_amount") == spec["amount"] and p.get("currency") == CURRENCY
+             and bool(p.get("recurring")) == wants_recurring),
             None,
         )
         if price:
-            print(f"  · price exists: {price['id']} (${spec['amount'] / 100:.2f})")
+            suffix = f"/{spec['interval']}" if spec.get("interval") else " one-time"
+            print(f"  · price exists: {price['id']} (${spec['amount'] / 100:.2f}{suffix})")
         else:
-            price = stripe.Price.create(
-                product=product["id"], unit_amount=spec["amount"], currency=CURRENCY,
-            )
-            print(f"  + created price: {price['id']} (${spec['amount'] / 100:.2f})")
+            create_args = dict(product=product["id"], unit_amount=spec["amount"], currency=CURRENCY)
+            if spec.get("interval"):
+                create_args["recurring"] = {"interval": spec["interval"]}
+            price = stripe.Price.create(**create_args)
+            suffix = f"/{spec['interval']}" if spec.get("interval") else " one-time"
+            print(f"  + created price: {price['id']} (${spec['amount'] / 100:.2f}{suffix})")
 
         lines.append(f"{spec['env']}={price['id']}")
 

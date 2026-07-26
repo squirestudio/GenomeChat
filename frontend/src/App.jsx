@@ -2441,6 +2441,78 @@ const SOURCE_COLORS = {
   Monarch: { color: "var(--violet)", bg: "rgb(var(--c-violet) / 0.25)", border: "rgb(var(--c-violet) / 0.2)" },
 };
 
+
+// ─── Response composition ────────────────────────────────────────────────────
+
+/** Split the model's markdown on "## " headings so the answer can be
+ *  interleaved with visuals rather than dumped as one block. */
+function splitProseSections(md) {
+  if (!md) return { lead: "", sections: [] };
+  const lines = md.split("\n");
+  const out = [];
+  let lead = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = /^##\s+(.*)$/.exec(line);
+    if (m) {
+      if (cur) out.push(cur);
+      cur = { title: m[1].trim(), body: [] };
+    } else if (cur) {
+      cur.body.push(line);
+    } else {
+      lead.push(line);
+    }
+  }
+  if (cur) out.push(cur);
+  return {
+    lead: lead.join("\n").trim(),
+    sections: out.map(sx => ({ title: sx.title, body: sx.body.join("\n").trim() })),
+  };
+}
+
+const norm = t => (t || "").toLowerCase().replace(/[^a-z]/g, "");
+// Shown inline, in this order, before the reader chooses anything.
+const PROSE_PRIMARY = ["overview", "keyfindings"];
+
+/** One prose section the reader can open. */
+function ProseSection({ title, body, defaultOpen }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  if (!body) return null;
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid rgb(var(--c-border) / 0.3)" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "0.6rem 0", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-dim)", width: 10 }}>{open ? "▾" : "▸"}</span>
+        <span style={{ fontSize: "0.82rem", fontWeight: 600, color: open ? "var(--accent)" : "var(--text-muted)" }}>{title}</span>
+      </button>
+      {open && <div style={{ paddingLeft: 18 }}><Markdown content={body} /></div>}
+    </div>
+  );
+}
+
+/** Renders one data panel by section key, so panels can be ordered by when the
+ *  reader asked for them rather than by a fixed layout. */
+function SectionPanel({ sectionKey, msg }) {
+  const d = msg.data || {};
+  switch (sectionKey) {
+    case "pathways":             return d.pathways?.length > 0 ? <PathwayViewer pathways={d.pathways} /> : null;
+    case "expression":           return d.expression?.length > 0 ? <ExpressionChart expression={d.expression} /> : null;
+    case "interactions":         return d.interactions?.length > 0 ? <InteractionNetwork interactions={d.interactions} centerGene={msg.target} /> : null;
+    case "drugs":                return d.drugs?.length > 0 ? <DrugPanel drugs={d.drugs} /> : null;
+    case "omim":                 return (d.omim?.gene_entry || d.omim?.phenotypes?.length) ? <OmimPanel omim={d.omim} /> : null;
+    case "pharmgkb":             return (d.pharmgkb?.related_drugs?.length || d.pharmgkb?.clinical_annotations?.length) ? <PharmGKBPanel pgkb={d.pharmgkb} /> : null;
+    case "cancer_mutations":     return d.cancer_mutations?.cancer_types?.length > 0 ? <CancerMutationsPanel data={d.cancer_mutations} /> : null;
+    case "clingen":              return d.clingen?.length > 0 ? <ClinGenPanel curations={d.clingen} /> : null;
+    case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} /> : null;
+    case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
+    case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
+    default: return null;
+  }
+}
+
+const ALL_SECTION_KEYS = ["pathways", "expression", "interactions", "drugs", "omim", "pharmgkb",
+  "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline"];
+
 function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
@@ -2456,22 +2528,52 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
             {msg.cached && <span style={{ fontSize: "0.68rem", padding: "0.15em 0.5em", borderRadius: 4, background: "var(--bg-inset)", color: "var(--text-dimmer)", border: "1px solid var(--border-solid)" }}>cached</span>}
           </div>
         )}
+        {/* 1. identity + publication counts */}
         {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} />}
-        {msg.data?.alphafold?.pdb_url && (
-          <ProteinViewer
-            pdbUrl={msg.data.alphafold.pdb_url}
-            geneName={msg.data.alphafold.gene || msg.target}
-            entryId={msg.data.alphafold.entry_id}
-          />
-        )}
-        <Markdown content={msg.content} />
+
+        {/* 2-4. Overview, then the 3D view, then Key Findings. The structure is
+            the most compelling thing in the answer, so it sits above the fold
+            rather than below several screens of prose. */}
+        {(() => {
+          const { lead, sections } = splitProseSections(msg.content);
+          const pick = name => sections.find(sx => norm(sx.title) === name);
+          const overview = pick("overview");
+          const findings = pick("keyfindings");
+          const rest = sections.filter(sx => !PROSE_PRIMARY.includes(norm(sx.title)));
+          const untitled = !sections.length;   // streaming, or a plain follow-up answer
+
+          return (
+            <>
+              {lead && <Markdown content={lead} />}
+              {untitled && <Markdown content={msg.content} />}
+              {overview && <Markdown content={`## ${overview.title}\n${overview.body}`} />}
+
+              {msg.data?.alphafold?.pdb_url && (
+                <ProteinViewer
+                  pdbUrl={msg.data.alphafold.pdb_url}
+                  geneName={msg.data.alphafold.gene || msg.target}
+                  entryId={msg.data.alphafold.entry_id}
+                />
+              )}
+
+              {findings && <Markdown content={`## ${findings.title}\n${findings.body}`} />}
+
+              {/* 5. the reader opens the rest as they want it */}
+              {rest.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  {rest.map(sx => <ProseSection key={sx.title} title={sx.title} body={sx.body} />)}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
         {msg.streaming && (
           <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 14, background: "var(--accent)", verticalAlign: "text-bottom", marginLeft: 2, animation: "pulse-dot 1.1s infinite" }} />
         )}
+
+        {/* variants / gene list, plus the lollipop map which needs core data only */}
         {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} settings={settings} onLoadSection={onLoadSection} sectionState={sectionState} />}
-        {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
-        {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
-        {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
         {msg.data?.protein_info?.length && (
           <LollipopMap
             variants={msg.data.variants || []}
@@ -2480,15 +2582,20 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
             geneName={msg.target}
           />
         )}
-        {msg.data?.drugs?.length > 0 && <DrugPanel drugs={msg.data.drugs} />}
         {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
-        {(omim => omim?.gene_entry || omim?.phenotypes?.length)(msg.data?.omim) && <OmimPanel omim={msg.data.omim} />}
-        {(pgkb => pgkb?.related_drugs?.length || pgkb?.clinical_annotations?.length)(msg.data?.pharmgkb) && <PharmGKBPanel pgkb={msg.data.pharmgkb} />}
-        {msg.data?.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={msg.data.cancer_mutations} />}
-        {msg.data?.clingen?.length > 0 && <ClinGenPanel curations={msg.data.clingen} />}
-        {msg.data?.gwas?.length > 0 && <GWASPanel gwas={msg.data.gwas} />}
-        {(msg.data?.hpo?.phenotype_terms?.length > 0 || msg.data?.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={msg.data.hpo} monarch={msg.data.monarch} />}
-        {msg.data?.publication_timeline?.length > 0 && <PublicationTimeline timeline={msg.data.publication_timeline} />}
+
+        {/* Anything pulled from "Explore further" appears here, in the order it
+            was asked for, so a new panel always lands below what you were
+            reading instead of silently inserting off-screen. */}
+        {(msg.loadedOrder && msg.loadedOrder.length
+            ? msg.loadedOrder
+            : (msg.data?.pending_sections ? [] : ALL_SECTION_KEYS)
+        ).map(key => (
+          <div key={key} data-section-anchor={`${sectionState?.idx}:${key}`} style={{ scrollMarginTop: "1rem" }}>
+            <SectionPanel sectionKey={key} msg={msg} />
+          </div>
+        ))}
+
         <MessageFooter msg={msg} />
       </div>
     </div>
@@ -2785,16 +2892,26 @@ export default function App() {
           ensembl_id: d._ensembl_id || null,
         }),
       });
+      if (r.status === 402) { setShowUpgrade("blocked"); return; }
       if (!r.ok) throw new Error(String(r.status));
       const { data: sectionData } = await r.json();
       setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : {
         ...m,
+        // loadedOrder drives render order, so a panel appears where the reader
+        // is looking — after the ones they already opened — instead of jumping
+        // to a fixed slot further up the page.
+        loadedOrder: [...(m.loadedOrder || []), sectionKey],
         data: {
           ...m.data,
           ...sectionData,
           pending_sections: (m.data.pending_sections || []).filter(p => p.key !== sectionKey),
         },
       }));
+      // Bring the new panel into view; it renders at the end of the message.
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-section-anchor="${msgIndex}:${sectionKey}"]`);
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch {
       setSectionErrors(prev => ({ ...prev, [`${msgIndex}:${sectionKey}`]: true }));
     } finally {

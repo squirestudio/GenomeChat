@@ -595,16 +595,33 @@ class SectionRequest(BaseModel):
 
 
 @app.post("/gene/section")
-async def gene_section(body: SectionRequest, current_user: Optional[User] = Depends(get_current_user)):
+async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
+                       current_user: Optional[User] = Depends(get_current_user)):
     """Fetch one optional section of a gene result, on demand.
 
-    Deliberately does NOT consume a query credit: this is the reader expanding
-    part of an answer they already paid for, not asking a new question.
+    Counts against the query quota: each section is a separate round of
+    upstream fetching, and choosing to pull one is a deliberate act of asking
+    for more. Cached repeats are free — re-reading something already fetched
+    is not a new question.
     """
     cache_key = f"__section__:{body.gene}:{body.section}"
     cached = cache.get(cache_key)
     if cached:
         return {"section": body.section, "data": cached, "cached": True}
+
+    user_api_key = try_decrypt_key(current_user.encrypted_api_key) if current_user else None
+    has_working_key = bool(user_api_key)
+    if current_user:
+        allowed, _ = user_can_query(current_user, has_working_key=has_working_key)
+        if not allowed:
+            raise HTTPException(status_code=402, detail={
+                "upgrade_required": True,
+                "total_queries": current_user.total_queries or 0,
+                "query_credits": current_user.query_credits or 0,
+                "free_limit": FREE_QUERY_LIMIT,
+                "stored_key_unusable": bool(current_user.encrypted_api_key and not has_working_key),
+            })
+
     try:
         data = await fetch_gene_section(
             body.gene, body.section,
@@ -616,6 +633,11 @@ async def gene_section(body: SectionRequest, current_user: Optional[User] = Depe
     except Exception as e:
         logger.error(f"Section {body.section} failed for {body.gene}: {e}")
         raise HTTPException(status_code=502, detail=f"Could not load {body.section}")
+
+    # Charged only after the fetch succeeds — a failed lookup costs nothing.
+    if current_user:
+        consume_query(current_user, db, has_working_key=has_working_key)
+
     cache.set(cache_key, data)
     return {"section": body.section, "data": data, "cached": False}
 

@@ -1357,11 +1357,11 @@ async def fetch_monarch_associations(gene_symbol: str, ncbi_gene_id: Optional[st
 # first response carry the gene identity, protein and clinical variants — what
 # a question is nearly always actually about — while the rest is fetched only
 # when the reader asks for it.
-CORE_SECTIONS = ("gene_info", "protein_info", "variants", "publication_count", "population_summary")
+CORE_SECTIONS = ("gene_info", "protein_info", "variants", "publication_count",
+                 "population_summary", "alphafold", "domains")
 
 # Each optional section: label for the UI, and the keys it populates.
 OPTIONAL_SECTIONS = {
-    "structure":            "3D structure & protein domains",
     "pathways":             "Biological pathways",
     "expression":           "Tissue expression",
     "interactions":         "Protein interactions",
@@ -1489,7 +1489,15 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
     ensembl_id = (ensembl_safe or {}).get("id", "")
     accession = (uniprot_safe or {}).get("accession")
 
-    pop_summary = safe(await _gather_one(fetch_gnomad_population_summary(gene_symbol))) or []
+    # AlphaFold + domains ride along in core: neither touches NCBI, so they add
+    # no rate-limit pressure, and the 3D view is what the reader most wants to see.
+    pop_summary, structure = await asyncio.gather(
+        _gather_one(fetch_gnomad_population_summary(gene_symbol)),
+        _gather_one(fetch_gene_section(gene_symbol, "structure", accession, ensembl_id)),
+        return_exceptions=True,
+    )
+    pop_summary = safe(pop_summary) or []
+    structure = safe(structure) or {}
 
     core = {
         "gene_info": ensembl_safe,
@@ -1497,12 +1505,15 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
         "publication_count": safe(pub_count) or 0,
         "variants": results,
         "population_summary": pop_summary,
+        "alphafold": structure.get("alphafold"),
+        "domains": structure.get("domains", []),
         # identifiers the section endpoint needs, so it need not re-resolve them
         "_uniprot_accession": accession,
         "_ensembl_id": ensembl_id,
         "gene_symbol": gene_symbol,
     }
     core_sources = list(filter(None, [
+        "AlphaFold" if structure.get("alphafold") else None,
         "Ensembl" if ensembl_safe else None,
         "ClinVar" if variant_list else None,
         "gnomAD" if (freq_list or pop_summary) else None,
@@ -1534,8 +1545,6 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
             src = SECTION_SOURCE.get(key)
             if src:
                 extra_sources.append(src)
-    merged.setdefault("alphafold", None)
-    merged.setdefault("domains", [])
     merged.setdefault("hpo", {})
     merged.setdefault("monarch", {})
     merged["sources"] = core_sources + [s for s in extra_sources if s not in core_sources]

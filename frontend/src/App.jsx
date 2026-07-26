@@ -1241,28 +1241,30 @@ const SIG_FILTER_SHORT = { "All": "All", "Pathogenic": "Path.", "Likely pathogen
 
 
 /** The sections deliberately not fetched up front. Each is one click away. */
-function PendingSections({ data, onLoadSection, sectionState }) {
-  const pending = data?.pending_sections || [];
-  if (!pending.length || !onLoadSection) return null;
+function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
+  if (!onLoadSection) return null;
+  const remaining = items.filter(it => !opened.includes(it.key));
+  if (!remaining.length) return null;
   const { loading = {}, errors = {}, idx } = sectionState || {};
+  const costCount = remaining.filter(it => !it.instant).length;
 
   return (
     <div style={{ marginTop: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         <p style={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>
           Explore further
         </p>
         <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)" }}>
-          {pending.length} more {pending.length === 1 ? "dataset" : "datasets"} available
+          {remaining.length} available{costCount > 0 ? ` · ${costCount} use a credit` : ""}
         </span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
-        {pending.map(p => {
-          const key = `${idx}:${p.key}`;
+        {remaining.map(it => {
+          const key = `${idx}:${it.key}`;
           const busy = !!loading[key];
           const failed = !!errors[key];
           return (
-            <button key={p.key} disabled={busy} onClick={() => onLoadSection(p.key)}
+            <button key={it.key} disabled={busy} onClick={() => onLoadSection(it.key, it.instant)}
               style={{
                 display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2,
                 padding: "0.6rem 0.7rem", borderRadius: 10, textAlign: "left",
@@ -1274,10 +1276,10 @@ function PendingSections({ data, onLoadSection, sectionState }) {
               onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.35)"; }}
             >
               <span style={{ fontSize: "0.74rem", fontWeight: 600, color: busy ? "var(--accent)" : "var(--text-muted)" }}>
-                {busy ? "Loading…" : failed ? "Retry" : p.label}
+                {busy ? "Loading…" : failed ? "Retry" : it.label}
               </span>
               <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>
-                {failed ? "Could not load — click to retry" : p.source}
+                {failed ? "Could not load — click to retry" : it.source}
               </span>
             </button>
           );
@@ -1287,7 +1289,7 @@ function PendingSections({ data, onLoadSection, sectionState }) {
   );
 }
 
-function DataSection({ data, queryType, dnaData, settings, onLoadSection, sectionState }) {
+function DataSection({ data, queryType, dnaData, settings }) {
   const [expanded, setExpanded] = useState(false);
   const [sigFilter, setSigFilter] = useState("All");
   const [sortBy, setSortBy] = useState(settings?.defaultSort || "default");
@@ -1407,7 +1409,6 @@ function DataSection({ data, queryType, dnaData, settings, onLoadSection, sectio
         </div>
       )}
 
-      <PendingSections data={data} onLoadSection={onLoadSection} sectionState={sectionState} />
     </div>
   );
 }
@@ -2492,9 +2493,23 @@ function ProseSection({ title, body, defaultOpen }) {
 
 /** Renders one data panel by section key, so panels can be ordered by when the
  *  reader asked for them rather than by a fixed layout. */
-function SectionPanel({ sectionKey, msg }) {
+function SectionPanel({ sectionKey, msg, dnaData, settings }) {
   const d = msg.data || {};
+  if (sectionKey.startsWith("prose:")) {
+    const title = sectionKey.slice(6);
+    const sx = splitProseSections(msg.content).sections.find(x => x.title === title);
+    return sx ? <div style={{ marginTop: 14 }}><Markdown content={`## ${sx.title}\n${sx.body}`} /></div> : null;
+  }
   switch (sectionKey) {
+    case "variants":
+      return <DataSection data={d} queryType={msg.query_type} dnaData={dnaData} settings={settings} />;
+    case "domainmap":
+      return d.protein_info?.length ? (
+        <LollipopMap variants={d.variants || []} domains={d.domains || []}
+                     proteinLength={d.protein_info.length} geneName={msg.target} />
+      ) : null;
+    case "popfreq":
+      return d.population_summary?.length > 0 ? <PopulationFrequencyChart populations={d.population_summary} /> : null;
     case "pathways":             return d.pathways?.length > 0 ? <PathwayViewer pathways={d.pathways} /> : null;
     case "expression":           return d.expression?.length > 0 ? <ExpressionChart expression={d.expression} /> : null;
     case "interactions":         return d.interactions?.length > 0 ? <InteractionNetwork interactions={d.interactions} centerGene={msg.target} /> : null;
@@ -2510,8 +2525,39 @@ function SectionPanel({ sectionKey, msg }) {
   }
 }
 
-const ALL_SECTION_KEYS = ["pathways", "expression", "interactions", "drugs", "omim", "pharmgkb",
-  "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline"];
+const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
+  "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline"];
+
+/** Everything the reader can open, in one list. Items already in hand cost
+ *  nothing; the rest are fetched on demand and consume a credit. */
+function buildExploreItems(msg) {
+  const d = msg.data || {};
+  const items = [];
+
+  // Prose the model already wrote — free and instant.
+  const { sections } = splitProseSections(msg.content);
+  for (const sx of sections) {
+    if (PROSE_PRIMARY.includes(norm(sx.title))) continue;
+    items.push({ key: `prose:${sx.title}`, label: sx.title, source: "In this answer", instant: true });
+  }
+
+  // Data fetched with the core response — also free.
+  if ((d.variants || []).length) {
+    items.push({ key: "variants", label: `${d.variants.length} clinical variants`, source: "ClinVar", instant: true });
+  }
+  if (d.protein_info?.length && (d.variants || []).length) {
+    items.push({ key: "domainmap", label: "Variant domain map", source: "UniProt / ClinVar", instant: true });
+  }
+  if ((d.population_summary || []).length) {
+    items.push({ key: "popfreq", label: "Population frequencies", source: "gnomAD", instant: true });
+  }
+
+  // Not yet fetched.
+  for (const p of d.pending_sections || []) {
+    items.push({ key: p.key, label: p.label, source: p.source, instant: false });
+  }
+  return items;
+}
 
 function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
@@ -2531,16 +2577,15 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
         {/* 1. identity + publication counts */}
         {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} />}
 
-        {/* 2-4. Overview, then the 3D view, then Key Findings. The structure is
-            the most compelling thing in the answer, so it sits above the fold
-            rather than below several screens of prose. */}
+        {/* 2-4. Overview, the 3D structure, then Key Findings. Nothing else is
+            shown up front: the reader chooses what to open from Explore further,
+            rather than receiving every dataset at once. */}
         {(() => {
           const { lead, sections } = splitProseSections(msg.content);
           const pick = name => sections.find(sx => norm(sx.title) === name);
           const overview = pick("overview");
           const findings = pick("keyfindings");
-          const rest = sections.filter(sx => !PROSE_PRIMARY.includes(norm(sx.title)));
-          const untitled = !sections.length;   // streaming, or a plain follow-up answer
+          const untitled = !sections.length;   // still streaming, or a plain follow-up
 
           return (
             <>
@@ -2557,13 +2602,6 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
               )}
 
               {findings && <Markdown content={`## ${findings.title}\n${findings.body}`} />}
-
-              {/* 5. the reader opens the rest as they want it */}
-              {rest.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  {rest.map(sx => <ProseSection key={sx.title} title={sx.title} body={sx.body} />)}
-                </div>
-              )}
             </>
           );
         })()}
@@ -2572,27 +2610,24 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
           <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 14, background: "var(--accent)", verticalAlign: "text-bottom", marginLeft: 2, animation: "pulse-dot 1.1s infinite" }} />
         )}
 
-        {/* variants / gene list, plus the lollipop map which needs core data only */}
-        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} settings={settings} onLoadSection={onLoadSection} sectionState={sectionState} />}
-        {msg.data?.protein_info?.length && (
-          <LollipopMap
-            variants={msg.data.variants || []}
-            domains={msg.data.domains || []}
-            proteinLength={msg.data.protein_info.length}
-            geneName={msg.target}
+        {/* 5. everything else, chosen by the reader */}
+        {!msg.streaming && msg.data && (
+          <ExploreFurther
+            items={buildExploreItems(msg)}
+            opened={msg.loadedOrder || []}
+            onLoadSection={onLoadSection}
+            sectionState={sectionState}
           />
         )}
-        {msg.data?.population_summary?.length > 0 && <PopulationFrequencyChart populations={msg.data.population_summary} />}
 
-        {/* Anything pulled from "Explore further" appears here, in the order it
-            was asked for, so a new panel always lands below what you were
-            reading instead of silently inserting off-screen. */}
+        {/* Opened items render here in the order they were asked for, so a new
+            one always lands below what you were reading. */}
         {(msg.loadedOrder && msg.loadedOrder.length
             ? msg.loadedOrder
             : (msg.data?.pending_sections ? [] : ALL_SECTION_KEYS)
         ).map(key => (
           <div key={key} data-section-anchor={`${sectionState?.idx}:${key}`} style={{ scrollMarginTop: "1rem" }}>
-            <SectionPanel sectionKey={key} msg={msg} />
+            <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} />
           </div>
         ))}
 
@@ -2877,10 +2912,25 @@ export default function App() {
 
   // Fetch one deferred section and merge it into that message. The reader is
   // expanding an answer they already have, so this costs no query credit.
-  const loadSection = async (msgIndex, sectionKey) => {
+  const loadSection = async (msgIndex, sectionKey, instant) => {
     const msg = messages[msgIndex];
     const d = msg?.data;
     if (!d) return;
+
+    const reveal = () => requestAnimationFrame(() => {
+      document.querySelector(`[data-section-anchor="${msgIndex}:${sectionKey}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    // Prose the model already wrote, and data that came with the core response,
+    // need no round trip and cost no credit — just reveal them.
+    if (instant) {
+      setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : {
+        ...m, loadedOrder: [...(m.loadedOrder || []), sectionKey],
+      }));
+      reveal();
+      return;
+    }
     setLoadingSections(prev => ({ ...prev, [`${msgIndex}:${sectionKey}`]: true }));
     try {
       const r = await apiFetch("/gene/section", {
@@ -2907,11 +2957,8 @@ export default function App() {
           pending_sections: (m.data.pending_sections || []).filter(p => p.key !== sectionKey),
         },
       }));
-      // Bring the new panel into view; it renders at the end of the message.
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-section-anchor="${msgIndex}:${sectionKey}"]`);
-        el?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
+      reveal();
+      fetchMe();   // a credit was spent — refresh the badge
     } catch {
       setSectionErrors(prev => ({ ...prev, [`${msgIndex}:${sectionKey}`]: true }));
     } finally {
@@ -3697,7 +3744,7 @@ export default function App() {
                   const isAnchor = i === messages.map(m => m.role).lastIndexOf("user");
                   return msg.role === "user"
                     ? <div key={i} ref={isAnchor ? latestTurnRef : null} style={{ scrollMarginTop: "1rem" }}><UserMessage content={msg.content} /></div>
-                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={sec => loadSection(i, sec)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant) => loadSection(i, sec, instant)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
                 })}
                 {loading && <TypingIndicator stage={streamStage} />}
                 <div ref={bottomRef} />

@@ -17,7 +17,7 @@ from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
-from database.models import create_tables, get_db, Query as QueryModel, ProcessedStripeEvent
+from database.models import create_tables_safe, get_db, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, FREE_QUERY_LIMIT, CREDITS_PER_PACK
@@ -208,11 +208,7 @@ async def _startup_diagnostics() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting GenomeChat API...")
-    try:
-        create_tables()
-        logger.info("Database tables created/verified.")
-    except Exception as e:
-        logger.warning(f"Database init failed (continuing without DB): {e}")
+    create_tables_safe()
     # Fire and forget — the app is ready now; diagnostics land in the log when
     # they land. Held in a local so the task is not garbage collected.
     diagnostics = asyncio.create_task(_startup_diagnostics())

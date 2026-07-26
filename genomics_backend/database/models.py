@@ -9,7 +9,17 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
-engine = create_engine(settings.get_database_url(), pool_pre_ping=True)
+# lock_timeout bounds how long a statement will wait for a lock it cannot get.
+# Startup runs ALTER TABLE migrations, and during a rolling deploy the previous
+# container still holds connections to these tables — without a timeout the new
+# container waits forever, never becomes healthy, and the platform rolls it
+# back, so every later deploy fails the same way. Failing fast is correct: the
+# migrations are idempotent and will apply on the next start.
+engine = create_engine(
+    settings.get_database_url(),
+    pool_pre_ping=True,
+    connect_args={"options": "-c lock_timeout=5000"},
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -110,6 +120,23 @@ def create_tables():
     _run_migrations()
 
 
+def create_tables_safe() -> None:
+    """Schema init that can never stall startup.
+
+    Every statement is bounded by lock_timeout, and any failure is logged
+    rather than raised: the migrations are idempotent, the tables already
+    exist in any deployed environment, and refusing to serve traffic because
+    a lock was busy is worse than trying again next boot.
+    """
+    import logging as _logging
+    log = _logging.getLogger(__name__)
+    try:
+        create_tables()
+        log.info("Database tables created/verified.")
+    except Exception as e:
+        log.warning(f"Schema init skipped ({type(e).__name__}: {e}) — retrying on next start")
+
+
 def _run_migrations():
     """Apply ALTER TABLE migrations that are safe to run repeatedly (IF NOT EXISTS)."""
     migrations = [
@@ -120,10 +147,17 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_queries INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT",
     ]
+    import sqlalchemy as _sa
     with engine.connect() as conn:
+        # Belt and braces — also bound each individual statement.
+        try:
+            conn.execute(_sa.text("SET lock_timeout = '5s'"))
+            conn.commit()
+        except Exception:
+            pass
         for sql in migrations:
             try:
-                conn.execute(__import__("sqlalchemy").text(sql))
+                conn.execute(_sa.text(sql))
                 conn.commit()
             except Exception as e:
                 # Column may already exist or DB may not support IF NOT EXISTS — skip

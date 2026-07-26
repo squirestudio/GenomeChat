@@ -185,6 +185,10 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
         "has_stored_key": has_working_key,
         # The one-time right to store a key, separate from the subscription.
         "byok_purchased": bool(user.byok_purchased) or is_unlimited_user(user),
+        # Drives the "Manage subscription" entry point.
+        # byok_unlocked implies they went through checkout at some point, so the
+        # portal is reachable even before the customer id has been backfilled.
+        "has_billing_account": bool(user.stripe_customer_id) or bool(user.byok_unlocked) or bool(user.byok_purchased),
         # True only when a key is stored but unusable — prompts re-entry.
         "stored_key_unusable": bool(user.encrypted_api_key) and not has_working_key,
         # Drives the visible TEST MODE badge so an allowlisted account can never

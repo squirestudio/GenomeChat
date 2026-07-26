@@ -53,6 +53,9 @@ class User(Base):
     total_queries = Column(Integer, default=0)        # lifetime query count
     # Encrypted Anthropic API key (Fernet AES-256); never returned to frontend
     byok_purchased = Column(Boolean, default=False)
+    # Needed to open Stripe's customer portal, which is how a subscriber
+    # cancels or updates their card without contacting us.
+    stripe_customer_id = Column(String(255), nullable=True, index=True)
     encrypted_api_key = Column(Text, nullable=True)
 
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
@@ -156,6 +159,7 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_queries INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS byok_purchased BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
         # Anyone who already stored a key did so when it was free — keep them.
         "UPDATE users SET byok_purchased = TRUE WHERE encrypted_api_key IS NOT NULL AND byok_purchased IS NOT TRUE",
     ]

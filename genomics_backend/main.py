@@ -21,7 +21,7 @@ from services.cache import cache
 from database.models import create_tables_safe, get_db, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 
@@ -713,6 +713,42 @@ async def billing_prices(current_user: Optional[User] = Depends(get_current_user
     return get_price_display(test_mode)
 
 
+@app.post("/billing/portal")
+async def billing_portal(db: Session = Depends(get_db), current_user: User = Depends(require_user)):
+    """Open Stripe's customer portal so a subscriber can cancel or update payment."""
+    settings = get_settings()
+    test_mode = is_test_mode_user(current_user)
+    customer_id = current_user.stripe_customer_id
+
+    # Anyone who subscribed before we started recording the customer id still
+    # needs a way to cancel, so fall back to looking them up by email.
+    if not customer_id:
+        try:
+            secret_key, _ = stripe_credentials_for(test_mode)
+            if secret_key:
+                stripe.api_key = secret_key
+                found = stripe.Customer.list(email=current_user.email, limit=1).get("data", [])
+                if found:
+                    customer_id = found[0]["id"]
+                    current_user.stripe_customer_id = customer_id
+                    db.commit()
+                    logger.info("Backfilled Stripe customer %s for user %s", customer_id, current_user.id)
+        except Exception as e:
+            logger.warning("Customer lookup by email failed for user %s: %s", current_user.id, e)
+
+    if not customer_id:
+        raise HTTPException(status_code=404, detail={
+            "no_subscription": True,
+            "message": "No billing account yet — nothing to manage.",
+        })
+    try:
+        url = create_portal_session(customer_id, return_url=settings.frontend_url, test_mode=test_mode)
+    except Exception as e:
+        logger.error("Portal session failed for user %s: %s", current_user.id, e)
+        raise HTTPException(status_code=502, detail="Could not open the billing portal")
+    return {"url": url}
+
+
 @app.post("/billing/checkout")
 async def billing_checkout(body: CheckoutRequest, current_user: User = Depends(require_user)):
     # Allowlisted accounts get test-mode Stripe even on a live deployment, so
@@ -807,6 +843,11 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
                 event_id, dict(meta),
             )
             return {"received": True}
+        # Remember the Stripe customer so the portal can be opened later.
+        cust = event["data"]["object"].get("customer")
+        if cust and user.stripe_customer_id != cust:
+            user.stripe_customer_id = cust
+
         if purchase_type == "unlock":
             user.byok_unlocked = True
             logger.info("User %s unlocked unlimited access%s", user_id, " [TEST MODE]" if is_test else "")

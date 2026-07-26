@@ -684,7 +684,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
 }
 
 /** Purchase buttons — rendered anywhere a user might want to buy, not only at the paywall. */
-function PurchaseOptions({ compact, testMode }) {
+function PurchaseOptions({ compact, testMode, currentUserHasBilling }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   // Prices come from Stripe, not from constants here. Hardcoding them means the
@@ -754,6 +754,14 @@ function PurchaseOptions({ compact, testMode }) {
         {opt("byok", "Bring Your Own Key",
              "Store your own Anthropic API key and run unlimited queries billed directly to your Anthropic account. One-time purchase.")}
       </div>
+      {currentUserHasBilling && (
+        <button onClick={() => openBillingPortal(setError)}
+          style={{ marginTop: 10, width: "100%", padding: "0.5rem", borderRadius: 8, background: "none",
+                   border: "1px solid rgb(var(--c-border) / 0.45)", cursor: "pointer",
+                   fontSize: "0.72rem", color: "var(--text-muted)" }}>
+          Manage subscription &amp; payment method →
+        </button>
+      )}
       {error && (
         <p style={{ fontSize: "0.68rem", color: "var(--danger)", margin: "8px 0 0", lineHeight: 1.5 }}>{error}</p>
       )}
@@ -800,7 +808,7 @@ function PlanSection({ currentUser }) {
           ? "You already have unlimited access — credits aren't needed."
           : "Purchase any time. Credits are added the moment payment completes."}
       >
-        <PurchaseOptions compact testMode={currentUser.stripe_test_mode} />
+        <PurchaseOptions compact testMode={currentUser.stripe_test_mode} currentUserHasBilling={currentUser.has_billing_account} />
       </Section>
     </>
   );
@@ -893,7 +901,7 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
         </p>
 
         <div style={{ margin: "1.25rem 0" }}>
-          <PurchaseOptions testMode={currentUser?.stripe_test_mode} />
+          <PurchaseOptions testMode={currentUser?.stripe_test_mode} currentUserHasBilling={currentUser?.has_billing_account} />
         </div>
 
         <p style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0, lineHeight: 1.5 }}>
@@ -1043,6 +1051,25 @@ async function startCheckout(type, onError) {
   }
   const { url } = await r.json().catch(() => ({}));
   if (!url) return fail("Checkout session came back without a URL.");
+  window.location.href = url;
+}
+
+/** Open Stripe's customer portal, where a subscriber cancels or updates payment. */
+async function openBillingPortal(onError) {
+  const fail = (m) => (onError ? onError(m) : alert(m));
+  let r;
+  try {
+    r = await apiFetch("/billing/portal", { method: "POST" });
+  } catch {
+    return fail("Couldn't reach the server. Try again.");
+  }
+  if (!r.ok) {
+    if (r.status === 404) return fail("No billing account yet — nothing to manage.");
+    if (r.status === 401) return fail("Please sign in first.");
+    return fail("Couldn't open the billing portal.");
+  }
+  const { url } = await r.json().catch(() => ({}));
+  if (!url) return fail("Billing portal returned no URL.");
   window.location.href = url;
 }
 

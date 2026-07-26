@@ -146,6 +146,21 @@ def create_checkout_session(user_id: int, purchase_type: str, test_mode: bool = 
     return session.url
 
 
+def create_portal_session(customer_id: str, return_url: str, test_mode: bool = False) -> str:
+    """Stripe-hosted page where a subscriber cancels or updates their card.
+
+    Building our own cancel flow would mean reimplementing proration, billing
+    periods and payment-method updates; the portal is the supported path and
+    keeps us out of storing card data entirely.
+    """
+    secret_key, _ = stripe_credentials_for(test_mode)
+    if not secret_key:
+        raise ValueError("Stripe not configured for this mode")
+    stripe.api_key = secret_key
+    session = stripe.billing_portal.Session.create(customer=customer_id, return_url=return_url)
+    return session.url
+
+
 def verify_webhook(payload: bytes, sig_header: str) -> tuple[dict, bool]:
     """Verify against the live secret, then the test secret. Returns (event, is_test).
 

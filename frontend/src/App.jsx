@@ -2610,6 +2610,18 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
           <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 14, background: "var(--accent)", verticalAlign: "text-bottom", marginLeft: 2, animation: "pulse-dot 1.1s infinite" }} />
         )}
 
+        {/* Opened items render in the order they were asked for, and sit above
+            the menu so "Explore further" stays the last thing on the page —
+            the next choice is always right where you finished reading. */}
+        {(msg.loadedOrder && msg.loadedOrder.length
+            ? msg.loadedOrder
+            : (msg.data?.pending_sections ? [] : ALL_SECTION_KEYS)
+        ).map(key => (
+          <div key={key} data-section-anchor={`${sectionState?.idx}:${key}`} style={{ scrollMarginTop: "1rem" }}>
+            <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} />
+          </div>
+        ))}
+
         {/* 5. everything else, chosen by the reader */}
         {!msg.streaming && msg.data && (
           <ExploreFurther
@@ -2619,17 +2631,6 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
             sectionState={sectionState}
           />
         )}
-
-        {/* Opened items render here in the order they were asked for, so a new
-            one always lands below what you were reading. */}
-        {(msg.loadedOrder && msg.loadedOrder.length
-            ? msg.loadedOrder
-            : (msg.data?.pending_sections ? [] : ALL_SECTION_KEYS)
-        ).map(key => (
-          <div key={key} data-section-anchor={`${sectionState?.idx}:${key}`} style={{ scrollMarginTop: "1rem" }}>
-            <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} />
-          </div>
-        ))}
 
         <MessageFooter msg={msg} />
       </div>

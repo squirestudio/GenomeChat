@@ -1241,6 +1241,27 @@ const SIG_FILTER_SHORT = { "All": "All", "Pathogenic": "Path.", "Likely pathogen
 
 
 /** The sections deliberately not fetched up front. Each is one click away. */
+
+/** An opened section. Collapsing is automatic for older ones, but a section the
+ *  reader opened by hand is "pinned" and stays open until they close it. */
+function OpenedSection({ label, open, pinned, onToggle, children }) {
+  return (
+    <div style={{ marginTop: 12, border: "1px solid rgb(var(--c-border) / 0.3)", borderRadius: 10, overflow: "hidden" }}>
+      <button onClick={onToggle}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "0.55rem 0.75rem",
+                 background: open ? "rgb(var(--c-accent) / 0.08)" : "rgb(var(--c-surface) / 0.35)",
+                 border: "none", cursor: "pointer", textAlign: "left" }}>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-dim)", width: 10 }}>{open ? "▾" : "▸"}</span>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: open ? "var(--accent)" : "var(--text-muted)", flex: 1 }}>{label}</span>
+        {pinned && open && (
+          <span title="Kept open because you opened it" style={{ fontSize: "0.58rem", color: "var(--text-faintest)", letterSpacing: "0.05em" }}>PINNED</span>
+        )}
+      </button>
+      {open && <div style={{ padding: "0 0.75rem 0.5rem" }}>{children}</div>}
+    </div>
+  );
+}
+
 function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
   if (!onLoadSection) return null;
   const remaining = items.filter(it => !opened.includes(it.key));
@@ -1264,7 +1285,7 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
           const busy = !!loading[key];
           const failed = !!errors[key];
           return (
-            <button key={it.key} disabled={busy} onClick={() => onLoadSection(it.key, it.instant)}
+            <button key={it.key} disabled={busy} onClick={() => onLoadSection(it.key, it.instant, it.label)}
               style={{
                 display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2,
                 padding: "0.6rem 0.7rem", borderRadius: 10, textAlign: "left",
@@ -2559,7 +2580,7 @@ function buildExploreItems(msg) {
   return items;
 }
 
-function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState }) {
+function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, sectionState }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
@@ -2616,11 +2637,21 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
         {(msg.loadedOrder && msg.loadedOrder.length
             ? msg.loadedOrder
             : (msg.data?.pending_sections ? [] : ALL_SECTION_KEYS)
-        ).map(key => (
-          <div key={key} data-section-anchor={`${sectionState?.idx}:${key}`} style={{ scrollMarginTop: "1rem" }}>
-            <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} />
-          </div>
-        ))}
+        ).map(key => {
+          const ui = (msg.sectionUi || {})[key];
+          const label = (msg.loadedLabels || {})[key] || key;
+          const body = <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} />;
+          // Legacy full responses have no per-section UI state; render them plainly.
+          if (!ui) return <div key={key}>{body}</div>;
+          return (
+            <div key={key} data-section-anchor={`${sectionState?.idx}:${key}`} style={{ scrollMarginTop: "1rem" }}>
+              <OpenedSection label={label} open={ui.open} pinned={ui.pinned}
+                             onToggle={() => onToggleSection?.(key)}>
+                {body}
+              </OpenedSection>
+            </div>
+          );
+        })}
 
         {/* 5. everything else, chosen by the reader */}
         {!msg.streaming && msg.data && (
@@ -2913,7 +2944,17 @@ export default function App() {
 
   // Fetch one deferred section and merge it into that message. The reader is
   // expanding an answer they already have, so this costs no query credit.
-  const loadSection = async (msgIndex, sectionKey, instant) => {
+  /** Manual toggle. Marks the section pinned so auto-collapse leaves it alone. */
+  const toggleSection = (msgIndex, sectionKey) => {
+    setMessages(prev => prev.map((m, i) => {
+      if (i !== msgIndex) return m;
+      const ui = m.sectionUi || {};
+      const wasOpen = ui[sectionKey]?.open;
+      return { ...m, sectionUi: { ...ui, [sectionKey]: { open: !wasOpen, pinned: true } } };
+    }));
+  };
+
+  const loadSection = async (msgIndex, sectionKey, instant, label) => {
     const msg = messages[msgIndex];
     const d = msg?.data;
     if (!d) return;
@@ -2925,10 +2966,25 @@ export default function App() {
 
     // Prose the model already wrote, and data that came with the core response,
     // need no round trip and cost no credit — just reveal them.
+    // Only the newest section stays expanded — older ones fold to their header
+    // so the menu stays reachable. Sections the reader opened by hand are
+    // pinned and left alone.
+    const withOpened = (m) => {
+      const ui = { ...(m.sectionUi || {}) };
+      for (const k of Object.keys(ui)) {
+        if (!ui[k].pinned) ui[k] = { ...ui[k], open: false };
+      }
+      ui[sectionKey] = { open: true, pinned: false };
+      return {
+        ...m,
+        loadedOrder: [...(m.loadedOrder || []), sectionKey],
+        loadedLabels: { ...(m.loadedLabels || {}), [sectionKey]: label || sectionKey },
+        sectionUi: ui,
+      };
+    };
+
     if (instant) {
-      setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : {
-        ...m, loadedOrder: [...(m.loadedOrder || []), sectionKey],
-      }));
+      setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : withOpened(m)));
       reveal();
       return;
     }
@@ -2946,17 +3002,17 @@ export default function App() {
       if (r.status === 402) { setShowUpgrade("blocked"); return; }
       if (!r.ok) throw new Error(String(r.status));
       const { data: sectionData } = await r.json();
-      setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : {
-        ...m,
-        // loadedOrder drives render order, so a panel appears where the reader
-        // is looking — after the ones they already opened — instead of jumping
-        // to a fixed slot further up the page.
-        loadedOrder: [...(m.loadedOrder || []), sectionKey],
-        data: {
-          ...m.data,
-          ...sectionData,
-          pending_sections: (m.data.pending_sections || []).filter(p => p.key !== sectionKey),
-        },
+      setMessages(prev => prev.map((m, i) => {
+        if (i !== msgIndex) return m;
+        const next = withOpened(m);
+        return {
+          ...next,
+          data: {
+            ...m.data,
+            ...sectionData,
+            pending_sections: (m.data.pending_sections || []).filter(p => p.key !== sectionKey),
+          },
+        };
       }));
       reveal();
       fetchMe();   // a credit was spent — refresh the badge
@@ -3745,7 +3801,7 @@ export default function App() {
                   const isAnchor = i === messages.map(m => m.role).lastIndexOf("user");
                   return msg.role === "user"
                     ? <div key={i} ref={isAnchor ? latestTurnRef : null} style={{ scrollMarginTop: "1rem" }}><UserMessage content={msg.content} /></div>
-                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant) => loadSection(i, sec, instant)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant, label) => loadSection(i, sec, instant, label)} onToggleSection={sec => toggleSection(i, sec)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
                 })}
                 {loading && <TypingIndicator stage={streamStage} />}
                 <div ref={bottomRef} />

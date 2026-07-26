@@ -66,6 +66,7 @@ def _log_feature_status() -> None:
     startup makes a misconfigured deploy visible in the deploy log.
     """
     from services.encryption import is_configured as _enc_ok
+    from services.genomics_api_real import NCBI_API_KEY, _NCBI_RATE
 
     checks = [
         ("Claude API (shared server key)", bool(settings.anthropic_api_key)),
@@ -74,6 +75,15 @@ def _log_feature_status() -> None:
         ("Stripe price IDs", bool(settings.stripe_price_unlock and settings.stripe_price_credits)),
         ("Stored user API keys (ENCRYPTION_KEY)", _enc_ok()),
     ]
+
+    # Not a feature toggle — a throughput ceiling. Anonymous NCBI access caps at
+    # 3 req/sec, and one gene query issues enough calls for that to dominate
+    # response time, so it is worth stating which regime we are in.
+    logger.info(
+        "NCBI E-utilities: %s (%.1f req/sec)",
+        "API key configured" if NCBI_API_KEY else "ANONYMOUS — set NCBI_API_KEY to raise the limit",
+        _NCBI_RATE,
+    )
     enabled = [name for name, ok in checks if ok]
     disabled = [name for name, ok in checks if not ok]
 

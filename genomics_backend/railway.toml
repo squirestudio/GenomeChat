@@ -4,5 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 60
+# Startup runs create_tables() plus additive migrations against a Postgres that
+# lives in another container; 60s left no margin for a slow first connection.
+healthcheckTimeout = 300
 restartPolicyType = "on_failure"

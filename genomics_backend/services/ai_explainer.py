@@ -161,22 +161,16 @@ DETAIL_INSTRUCTIONS = {
     "detailed": "Provide a thorough, in-depth analysis. Include all relevant sections: population genetics with specific numbers, molecular mechanisms, gene-disease relationships, research implications, and 3-4 specific follow-up queries. Do not abbreviate any section.",
 }
 
-async def explain_results(
+def build_explanation_messages(
     query: str,
     query_type: str,
     data: dict,
     conversation_history: list = None,
     personal_variants: list = None,
     response_detail: str = "standard",
-    user_api_key: str = None,
-) -> str:
-    settings = get_settings()
-    api_key = user_api_key or settings.anthropic_api_key
-    if not api_key:
-        return _fallback_explanation(query_type, data)
-
-    client = anthropic.Anthropic(api_key=api_key)
-
+) -> list:
+    """Build the message list for an explanation. Shared by the streaming and
+    non-streaming paths so both send byte-identical prompts."""
     formatted = (
         _format_gene_data(data)
         if query_type == "gene_query"
@@ -214,11 +208,37 @@ async def explain_results(
 
     messages = list((conversation_history or [])[-6:])
     messages.append({"role": "user", "content": user_content})
+    return messages
 
+
+EXPLAIN_MODEL = "claude-haiku-4-5-20251001"
+EXPLAIN_MAX_TOKENS = 1200
+
+
+async def explain_results(
+    query: str,
+    query_type: str,
+    data: dict,
+    conversation_history: list = None,
+    personal_variants: list = None,
+    response_detail: str = "standard",
+    user_api_key: str = None,
+) -> str:
+    settings = get_settings()
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
+        return _fallback_explanation(query_type, data)
+
+    messages = build_explanation_messages(
+        query, query_type, data, conversation_history, personal_variants, response_detail
+    )
+    # AsyncAnthropic: the sync client blocks the event loop for the whole
+    # generation, which stalls every other request on the server.
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1200,
+        response = await client.messages.create(
+            model=EXPLAIN_MODEL,
+            max_tokens=EXPLAIN_MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=messages,
         )
@@ -226,6 +246,70 @@ async def explain_results(
     except Exception as e:
         logger.error(f"AI explanation failed: {e}")
         return _fallback_explanation(query_type, data)
+
+
+async def stream_explanation(
+    query: str,
+    query_type: str,
+    data: dict,
+    conversation_history: list = None,
+    personal_variants: list = None,
+    response_detail: str = "standard",
+    user_api_key: str = None,
+):
+    """Yield the explanation in chunks as the model produces it."""
+    settings = get_settings()
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
+        yield _fallback_explanation(query_type, data)
+        return
+
+    messages = build_explanation_messages(
+        query, query_type, data, conversation_history, personal_variants, response_detail
+    )
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    try:
+        async with client.messages.stream(
+            model=EXPLAIN_MODEL,
+            max_tokens=EXPLAIN_MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
+    except Exception as e:
+        logger.error(f"AI explanation stream failed: {e}")
+        yield _fallback_explanation(query_type, data)
+
+
+async def stream_followup(
+    question: str,
+    conversation_history: list,
+    personal_variants: list = None,
+    response_detail: str = "standard",
+    user_api_key: str = None,
+):
+    """Streaming counterpart of answer_followup."""
+    settings = get_settings()
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
+        yield "Configure an Anthropic API key to enable AI responses."
+        return
+
+    messages = build_followup_messages(question, conversation_history, personal_variants, response_detail)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    try:
+        async with client.messages.stream(
+            model=EXPLAIN_MODEL,
+            max_tokens=2500,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        ) as stream:
+            async for text in stream.text_stream:
+                yield text
+    except Exception as e:
+        logger.error(f"Follow-up stream failed: {e}")
+        yield f"Error processing question: {e}"
 
 
 async def explain_comparison(
@@ -241,7 +325,7 @@ async def explain_comparison(
     if not api_key:
         return f"## {gene_a} vs {gene_b}\n\nComparison data retrieved. Add an Anthropic API key for AI-powered analysis."
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     def summarize(symbol, data):
         gi = data.get("gene_info") or {}
@@ -278,8 +362,8 @@ async def explain_comparison(
     messages.append({"role": "user", "content": content})
 
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = await client.messages.create(
+            model=EXPLAIN_MODEL,
             max_tokens=1400,
             system=SYSTEM_PROMPT,
             messages=messages,
@@ -290,15 +374,10 @@ async def explain_comparison(
         return f"## {gene_a} vs {gene_b}\n\nData retrieved for both genes. Error generating AI comparison: {e}"
 
 
-async def answer_followup(question: str, conversation_history: list, personal_variants: list = None, response_detail: str = "standard", user_api_key: str = None) -> str:
-    settings = get_settings()
-    api_key = user_api_key or settings.anthropic_api_key
-    if not api_key:
-        return "Configure an Anthropic API key to enable AI responses."
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    messages = list(conversation_history[-12:])
+def build_followup_messages(question: str, conversation_history: list, personal_variants: list = None,
+                            response_detail: str = "standard") -> list:
+    """Shared by the streaming and non-streaming follow-up paths."""
+    messages = list((conversation_history or [])[-12:])
 
     content = question
     if personal_variants:
@@ -315,10 +394,21 @@ async def answer_followup(question: str, conversation_history: list, personal_va
         content += f"\n\nINSTRUCTION: {detail_note}"
 
     messages.append({"role": "user", "content": content})
+    return messages
 
+
+async def answer_followup(question: str, conversation_history: list, personal_variants: list = None,
+                          response_detail: str = "standard", user_api_key: str = None) -> str:
+    settings = get_settings()
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
+        return "Configure an Anthropic API key to enable AI responses."
+
+    messages = build_followup_messages(question, conversation_history, personal_variants, response_detail)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = await client.messages.create(
+            model=EXPLAIN_MODEL,
             max_tokens=2500,
             system=SYSTEM_PROMPT,
             messages=messages,

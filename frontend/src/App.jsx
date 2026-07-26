@@ -2465,6 +2465,9 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState 
           />
         )}
         <Markdown content={msg.content} />
+        {msg.streaming && (
+          <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 14, background: "var(--accent)", verticalAlign: "text-bottom", marginLeft: 2, animation: "pulse-dot 1.1s infinite" }} />
+        )}
         {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} settings={settings} onLoadSection={onLoadSection} sectionState={sectionState} />}
         {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
         {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
@@ -2543,7 +2546,14 @@ function UserMessage({ content }) {
   );
 }
 
-function TypingIndicator() {
+const STAGE_LABEL = {
+  interpreting: "Understanding your question…",
+  fetching:     "Querying genomic databases…",
+  explaining:   "Analysing the results…",
+  thinking:     "Thinking…",
+};
+
+function TypingIndicator({ stage }) {
   return (
     <div style={{ display: "flex", gap: 12 }}>
       <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white", flexShrink: 0 }}>G</div>
@@ -2551,7 +2561,7 @@ function TypingIndicator() {
         {[0, 1, 2].map(i => (
           <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", animation: `pulse-dot 1.2s ${i * 0.2}s infinite` }} />
         ))}
-        <span style={{ fontSize: "0.75rem", color: "var(--text-dimmer)", marginLeft: 4 }}>Querying databases…</span>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-dimmer)", marginLeft: 4 }}>{STAGE_LABEL[stage] || "Querying databases…"}</span>
       </div>
     </div>
   );
@@ -2679,6 +2689,7 @@ export default function App() {
     setDnaData(data);
     saveDnaToSession(data);
   }, []);
+  const [streamStage, setStreamStage] = useState(null);
   const [loadingSections, setLoadingSections] = useState({});
   const [sectionErrors, setSectionErrors] = useState({});
   const bottomRef = useRef(null);
@@ -2885,62 +2896,92 @@ export default function App() {
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
 
+    // Streaming: status first, then panels, then prose token by token. The
+    // total wait is unchanged; what changes is that none of it is blank.
+    const placeholderIndex = { current: null };
     try {
-      const r = await apiFetch("/chat", {
+      const body = JSON.stringify({
+        message: msg,
+        history: buildHistory(),
+        project_id: activeProjectId,
+        response_detail: settings.responseDetail,
+        // Only send a key from localStorage if the user has no server-stored key.
+        user_api_key: (!currentUser?.has_stored_key && settings.apiKey) ? settings.apiKey : null,
+        personal_variants: dnaData
+          ? Array.from(dnaData.variants.entries()).slice(0, 200).map(([rsid, v]) => ({ rsid, ...v }))
+          : null,
+      });
+
+      const r = await fetch(`${API}/chat/stream`, {
         method: "POST",
-        body: JSON.stringify({
-          message: msg,
-          history: buildHistory(),
-          project_id: activeProjectId,
-          response_detail: settings.responseDetail,
-          // Only send a key from localStorage if the user has no server-stored key.
-          // Server-stored key is loaded automatically by the backend.
-          user_api_key: (!currentUser?.has_stored_key && settings.apiKey) ? settings.apiKey : null,
-          personal_variants: dnaData
-            ? Array.from(dnaData.variants.entries()).slice(0, 200).map(([rsid, v]) => ({ rsid, ...v }))
-            : null,
-        }),
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body,
       });
 
       if (r.status === 402) {
-        const errData = await r.json();
-        setMessages(prev => prev.slice(0, -1)); // remove the optimistic user message
+        setMessages(prev => prev.slice(0, -1));   // drop the optimistic user turn
         setShowUpgrade("blocked");
         return;
       }
-
-      const data = await r.json();
-
-      // If DNA is loaded, cross-reference returned variant rsIDs with user's data
-      // and attach matched variants so Claude can interpret them in a follow-up
-      if (dnaData && data.data?.variants?.length > 0) {
-        const matches = data.data.variants
-          .map(v => {
-            const rsid = v.variant_id?.startsWith("rs") ? v.variant_id : v.rsid;
-            if (!rsid) return null;
-            const uv = dnaData.variants.get(rsid);
-            if (!uv) return null;
-            return { rsid, genotype: uv.genotype, chromosome: uv.chromosome };
-          })
-          .filter(Boolean);
-        if (matches.length > 0) {
-          data._personalMatches = matches;
-        }
-      }
-      if (!r.ok) {
-        setMessages(prev => [...prev, { role: "assistant", content: `**Error:** ${data.detail || "Something went wrong."}` }]);
+      if (!r.ok || !r.body) {
+        let detail = "Something went wrong.";
+        try { detail = (await r.json()).detail || detail; } catch { /* non-JSON error body */ }
+        setMessages(prev => [...prev, { role: "assistant", content: `**Error:** ${detail}` }]);
         return;
       }
-      const assistantMsg = { role: "assistant", ...data };
-      setMessages(prev => [...prev, assistantMsg]);
+
+      // Append the assistant turn once, then mutate it as events arrive.
+      setMessages(prev => { placeholderIndex.current = prev.length; return [...prev, { role: "assistant", content: "", streaming: true }]; });
+
+      const patch = (fields) => setMessages(prev => prev.map((m, i) =>
+        i === placeholderIndex.current ? { ...m, ...fields } : m));
+      const appendText = (chunk) => setMessages(prev => prev.map((m, i) =>
+        i === placeholderIndex.current ? { ...m, content: (m.content || "") + chunk } : m));
+
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let event = null;
+
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line; keep any partial tail.
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+        for (const frame of frames) {
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("event: ")) event = line.slice(7).trim();
+            else if (line.startsWith("data: ")) {
+              let payload;
+              try { payload = JSON.parse(line.slice(6)); } catch { continue; }
+              if (event === "status") setStreamStage(payload.stage || null);
+              else if (event === "token") appendText(payload.text || "");
+              else if (event === "data") {
+                setStreamStage("explaining");
+                patch(payload);
+                setLoading(false);   // panels are up; the typing dots can stop
+              } else if (event === "done") {
+                patch({ streaming: false, query_id: payload.query_id, cached: !!payload.cached });
+              } else if (event === "error") {
+                appendText(`\n\n**Error:** ${payload.message || "stream failed"}`);
+              }
+            }
+          }
+        }
+      }
+
+      patch({ streaming: false });
       setChatHistory(prev => [{ label: msg.slice(0, 50) }, ...prev.filter(h => h.label !== msg.slice(0, 50)).slice(0, 19)]);
     } catch (err) {
-      setMessages(prev => [...prev, { role: "assistant", content: `**Connection error:** ${err.message}\n\nMake sure the backend is running: \`docker-compose up -d\`` }]);
+      setMessages(prev => [...prev, { role: "assistant", content: `**Connection error:** ${err.message}\n\nMake sure the backend is running.` }]);
     } finally {
       setLoading(false);
+      setStreamStage(null);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, loading, buildHistory, activeProjectId]);
+  }, [input, loading, buildHistory, activeProjectId, currentUser, dnaData, settings]);
 
   const exportReport = async () => {
     if (exporting) return;
@@ -3541,7 +3582,7 @@ export default function App() {
                     ? <div key={i} ref={isAnchor ? latestTurnRef : null} style={{ scrollMarginTop: "1rem" }}><UserMessage content={msg.content} /></div>
                     : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={sec => loadSection(i, sec)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
                 })}
-                {loading && <TypingIndicator />}
+                {loading && <TypingIndicator stage={streamStage} />}
                 <div ref={bottomRef} />
               </div>
             )}

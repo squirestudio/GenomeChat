@@ -177,12 +177,12 @@ const NOTABLE_VARIANTS = [
 ];
 
 const CATEGORY_META = {
-  pharmacogenomics: { label: "Pharmacogenomics",    icon: "💊", color: "var(--violet-faint)", bg: "rgb(var(--c-indigo) / 0.12)",  border: "rgb(var(--c-indigo) / 0.25)" },
-  cardiovascular:   { label: "Cardiovascular",       icon: "❤️", color: "var(--danger)", bg: "rgb(var(--c-danger) / 0.1)",   border: "rgb(var(--c-danger) / 0.2)" },
-  neurological:     { label: "Neurological",         icon: "🧠", color: "var(--violet)", bg: "rgb(var(--c-violet) / 0.12)", border: "rgb(var(--c-violet) / 0.25)" },
-  cancer:           { label: "Cancer Risk",           icon: "🔬", color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
-  hereditary:       { label: "Hereditary Conditions",icon: "🧬", color: "var(--success)", bg: "rgb(var(--c-success) / 0.1)",  border: "rgb(var(--c-success) / 0.2)" },
-  metabolism:       { label: "Metabolism",            icon: "⚡", color: "var(--warning)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
+  pharmacogenomics: { label: "Pharmacogenomics",     color: "var(--violet-faint)", bg: "rgb(var(--c-indigo) / 0.12)",  border: "rgb(var(--c-indigo) / 0.25)" },
+  cardiovascular:   { label: "Cardiovascular",        color: "var(--danger)", bg: "rgb(var(--c-danger) / 0.1)",   border: "rgb(var(--c-danger) / 0.2)" },
+  neurological:     { label: "Neurological",          color: "var(--violet)", bg: "rgb(var(--c-violet) / 0.12)", border: "rgb(var(--c-violet) / 0.25)" },
+  cancer:           { label: "Cancer Risk",            color: "var(--warning-soft)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
+  hereditary:       { label: "Hereditary Conditions", color: "var(--success)", bg: "rgb(var(--c-success) / 0.1)",  border: "rgb(var(--c-success) / 0.2)" },
+  metabolism:       { label: "Metabolism",             color: "var(--warning)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
 };
 
 function computeDnaSummary(dnaData) {
@@ -234,7 +234,6 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
               onClick={() => setExpanded(isActive ? null : cat)}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "0.3rem 0.75rem", borderRadius: 100, background: isActive ? meta.bg : "rgb(var(--c-deep) / 0.5)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.35)"}`, cursor: "pointer", transition: "all 0.15s" }}
             >
-              <span style={{ fontSize: "0.8rem" }}>{meta.icon}</span>
               <span style={{ fontSize: "0.7rem", fontWeight: 600, color: isActive ? meta.color : "var(--text-dimmer)" }}>{meta.label}</span>
               <span style={{ fontSize: "0.62rem", padding: "0.05em 0.4em", borderRadius: 4, background: isActive ? meta.bg : "rgb(var(--c-surface) / 0.5)", color: isActive ? meta.color : "var(--border-solid)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.3)"}` }}>{count}</span>
             </button>
@@ -1028,12 +1027,12 @@ function getPlan(user) {
 }
 
 const SUGGESTIONS = [
-  { label: "BRCA1 pathogenic variants", icon: "🧬" },
-  { label: "What genes cause hereditary breast cancer?", icon: "🔬" },
-  { label: "TP53 variants and cancer", icon: "🧬" },
-  { label: "Alzheimer's disease genes", icon: "🔬" },
-  { label: "EGFR variants in lung cancer", icon: "🧬" },
-  { label: "Which genes are linked to Parkinson's?", icon: "🔬" },
+  { label: "BRCA1 pathogenic variants" },
+  { label: "What genes cause hereditary breast cancer?" },
+  { label: "TP53 variants and cancer" },
+  { label: "Alzheimer's disease genes" },
+  { label: "EGFR variants in lung cancer" },
+  { label: "Which genes are linked to Parkinson's?" },
 ];
 
 function getPersonalizedSuggestions(dnaData) {
@@ -1058,7 +1057,7 @@ function getPersonalizedSuggestions(dnaData) {
       suggestions.push({
         label: `${f.gene} — I carry ${f.genotype} at ${f.rsid}`,
         sublabel: `${zygosity}${f.name}`,
-        icon: meta.icon,
+        category: meta.label,
         color: meta.color,
         border: meta.border,
         bg: meta.bg,
@@ -3380,8 +3379,8 @@ export default function App() {
                             style={{ alignItems: "flex-start", gap: 10, padding: "0.75rem", borderRadius: 12, background: s.bg, border: `1px solid ${s.border}`, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}
                             onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.15)"}
                             onMouseLeave={e => e.currentTarget.style.filter = ""}>
-                            <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
                             <div>
+                              <p style={{ fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: s.color, margin: "0 0 3px", opacity: 0.75 }}>{s.category}</p>
                               <p style={{ fontSize: "0.78rem", fontWeight: 600, color: s.color, margin: 0, lineHeight: 1.4 }}>{s.label}</p>
                               <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 2 }}>{s.sublabel}</p>
                             </div>
@@ -3396,7 +3395,6 @@ export default function App() {
                         <button key={s.label} className="gc-suggestion-item" onClick={() => sendMessage(s.label)} style={{ alignItems: "flex-start", gap: 10, padding: "0.75rem", borderRadius: 12, background: "rgb(var(--c-surface) / 0.4)", border: "1px solid rgb(var(--c-border) / 0.35)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
                           onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.35)"}
                           onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.35)"}>
-                          <span style={{ fontSize: "1rem", flexShrink: 0 }}>{s.icon}</span>
                           <span style={{ fontSize: "0.78rem", color: "var(--text-dim)", lineHeight: 1.5 }}>{s.label}</span>
                         </button>
                       ))}

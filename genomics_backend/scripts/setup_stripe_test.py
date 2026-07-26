@@ -21,6 +21,7 @@ import sys
 PRODUCTS = [
     {"env": "STRIPE_PRICE_UNLOCK", "name": "MyDNA - Unlimited (Monthly)", "amount": 1000, "interval": "month"},
     {"env": "STRIPE_PRICE_CREDITS", "name": "MyDNA - 50 Queries", "amount": 300, "interval": None},
+    {"env": "STRIPE_PRICE_BYOK", "name": "MyDNA - Bring Your Own Key", "amount": 2500, "interval": None},
 ]
 CURRENCY = "usd"
 

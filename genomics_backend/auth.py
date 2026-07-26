@@ -183,6 +183,8 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
         "total_queries": user.total_queries or 0,
         "free_limit": FREE_QUERY_LIMIT,
         "has_stored_key": has_working_key,
+        # The one-time right to store a key, separate from the subscription.
+        "byok_purchased": bool(user.byok_purchased) or is_unlimited_user(user),
         # True only when a key is stored but unusable — prompts re-entry.
         "stored_key_unusable": bool(user.encrypted_api_key) and not has_working_key,
         # Drives the visible TEST MODE badge so an allowlisted account can never

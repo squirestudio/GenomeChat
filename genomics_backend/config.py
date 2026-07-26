@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     stripe_price_unlock: str = ""   # $5 one-time unlimited unlock Price ID
     stripe_price_credits: str = ""  # $3 fifty-query credits pack Price ID
+    stripe_price_byok: str = ""     # one-time "bring your own key" Price ID
 
     # ── Test-mode allowlist ───────────────────────────────────────────────────
     # Lets specific accounts run test-mode checkout against the *production*
@@ -59,6 +60,7 @@ class Settings(BaseSettings):
     stripe_test_webhook_secret: str = ""
     stripe_test_price_unlock: str = ""
     stripe_test_price_credits: str = ""
+    stripe_test_price_byok: str = ""
 
     # Accounts that bypass the query quota entirely — your own team, without
     # buying credits or storing a key. Deliberately separate from

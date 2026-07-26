@@ -633,7 +633,13 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
           <PlanSection currentUser={currentUser} />
 
           <Section label="Your Anthropic API Key" hint="Use your own key — bypasses the query limit. Stored encrypted on your account.">
-            {currentUser?.has_stored_key ? (
+            {!currentUser?.has_stored_key && !currentUser?.byok_purchased ? (
+              <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", margin: 0, lineHeight: 1.55 }}>
+                Bringing your own key is a one-time purchase — see{" "}
+                <strong style={{ color: "var(--text-muted)" }}>Buy Queries</strong> above. Once purchased you can
+                store an Anthropic key here and run unlimited queries billed to your own account.
+              </p>
+            ) : currentUser?.has_stored_key ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: "0.72rem", color: "var(--success)", flex: 1 }}>✓ Key stored on your account</span>
                 <button onClick={removeServerKey}
@@ -695,14 +701,37 @@ function PurchaseOptions({ compact, testMode }) {
     return () => { cancelled = true; };
   }, []);
 
-  const unlockLabel = prices?.unlock?.label;
-  const creditsLabel = prices?.credits?.label;
-  const unlockRecurring = prices?.unlock?.recurring;
-
   const buy = async (type) => {
     setError(null);
     setBusy(type);
     await startCheckout(type, (msg) => { setError(msg); setBusy(null); });
+  };
+
+  const opt = (key, title, blurb) => {
+    const p = prices?.[key];
+    if (prices && !p) return null;          // not configured in this mode
+    const busyThis = busy === key;
+    return (
+      <button key={key} onClick={() => buy(key)} disabled={!!busy}
+        style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10,
+                 background: key === "unlock"
+                   ? "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))"
+                   : "rgb(var(--c-surface) / 0.5)",
+                 border: `1px solid ${key === "unlock" ? "rgb(var(--c-accent) / 0.35)" : "rgb(var(--c-border) / 0.4)"}`,
+                 cursor: busy ? "default" : "pointer", textAlign: "left",
+                 opacity: busy && !busyThis ? 0.5 : 1, width: "100%" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+          <span style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700,
+                         color: key === "unlock" ? "var(--accent)" : "var(--text-muted)" }}>
+            {busyThis ? "Opening checkout…" : title}
+          </span>
+          {!busyThis && p && (
+            <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--text-faint)" }}>— {p.label}</span>
+          )}
+        </div>
+        <div style={{ fontSize: "0.7rem", color: "var(--text-faint)", lineHeight: 1.45 }}>{blurb}</div>
+      </button>
+    );
   };
 
   return (
@@ -716,20 +745,14 @@ function PurchaseOptions({ compact, testMode }) {
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <button onClick={() => buy("unlock")} disabled={!!busy}
-          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))", border: "1px solid rgb(var(--c-accent) / 0.35)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "unlock" ? 0.5 : 1 }}>
-          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "var(--accent)", marginBottom: 3 }}>
-            {busy === "unlock" ? "Opening checkout…" : "🔓 Unlock Unlimited — $5 one-time"}
-          </div>
-          <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>Unlimited queries forever. Also enables storing your own API key.</div>
-        </button>
-        <button onClick={() => buy("credits")} disabled={!!busy}
-          style={{ padding: compact ? "0.6rem 0.75rem" : "0.8rem 1rem", borderRadius: 10, background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", cursor: busy ? "default" : "pointer", textAlign: "left", opacity: busy && busy !== "credits" ? 0.5 : 1 }}>
-          <div style={{ fontSize: compact ? "0.78rem" : "0.85rem", fontWeight: 700, color: "var(--text-muted)", marginBottom: 3 }}>
-            {busy === "credits" ? "Opening checkout…" : "⚡ Get 50 Queries — $3"}
-          </div>
-          <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>Top up with a one-time credit pack.</div>
-        </button>
+        {opt("unlock", "Unlimited",
+             prices?.unlock?.recurring
+               ? "Unlimited queries every month, billed on your own card. Cancel any time."
+               : "Unlimited queries.")}
+        {opt("credits", "50 Queries",
+             "A one-time top-up. No subscription, no renewal.")}
+        {opt("byok", "Bring Your Own Key",
+             "Store your own Anthropic API key and run unlimited queries billed directly to your Anthropic account. One-time purchase.")}
       </div>
       {error && (
         <p style={{ fontSize: "0.68rem", color: "var(--danger)", margin: "8px 0 0", lineHeight: 1.5 }}>{error}</p>

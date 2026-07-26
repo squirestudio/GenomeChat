@@ -39,12 +39,26 @@ def is_unlimited_user(user) -> bool:
     return user.email.strip().lower() in settings.unlimited_access_emails()
 
 
-def stripe_credentials_for(test_mode: bool) -> tuple[str, str, str]:
-    """(secret_key, price_unlock, price_credits) for the requested mode."""
+# The three things a customer can buy. Kept as a mapping so adding a product is
+# a config change rather than a new branch in every function that touches
+# billing.
+PURCHASE_TYPES = ("unlock", "credits", "byok")
+
+
+def stripe_credentials_for(test_mode: bool) -> tuple[str, dict]:
+    """(secret_key, {purchase_type: price_id}) for the requested mode."""
     s = get_settings()
     if test_mode:
-        return s.stripe_test_secret_key, s.stripe_test_price_unlock, s.stripe_test_price_credits
-    return s.stripe_secret_key, s.stripe_price_unlock, s.stripe_price_credits
+        return s.stripe_test_secret_key, {
+            "unlock": s.stripe_test_price_unlock,
+            "credits": s.stripe_test_price_credits,
+            "byok": s.stripe_test_price_byok,
+        }
+    return s.stripe_secret_key, {
+        "unlock": s.stripe_price_unlock,
+        "credits": s.stripe_price_credits,
+        "byok": s.stripe_price_byok,
+    }
 
 
 def _format_price(price: dict) -> dict:
@@ -76,12 +90,12 @@ def get_price_display(test_mode: bool = False) -> dict:
     leaves the UI lying until someone remembers to edit it — which is exactly
     what happened when Unlimited moved from $5 one-time to $10/month.
     """
-    secret_key, price_unlock, price_credits = stripe_credentials_for(test_mode)
-    out = {"test_mode": test_mode, "unlock": None, "credits": None}
+    secret_key, prices = stripe_credentials_for(test_mode)
+    out = {"test_mode": test_mode, **{k: None for k in PURCHASE_TYPES}}
     if not secret_key:
         return out
     stripe.api_key = secret_key
-    for key, pid in (("unlock", price_unlock), ("credits", price_credits)):
+    for key, pid in prices.items():
         if not pid:
             continue
         try:
@@ -93,10 +107,10 @@ def get_price_display(test_mode: bool = False) -> dict:
 
 def create_checkout_session(user_id: int, purchase_type: str, test_mode: bool = False) -> str:
     settings = get_settings()
-    secret_key, price_unlock, price_credits = stripe_credentials_for(test_mode)
-    price_id = price_unlock if purchase_type == "unlock" else price_credits
+    secret_key, prices = stripe_credentials_for(test_mode)
+    price_id = prices.get(purchase_type)
     if not secret_key or not price_id:
-        raise ValueError("Stripe not configured for this mode")
+        raise ValueError(f"Stripe not configured for '{purchase_type}' in this mode")
 
     stripe.api_key = secret_key
 

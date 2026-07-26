@@ -20,7 +20,7 @@ from services.cache import cache
 from database.models import create_tables_safe, get_db, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, get_price_display, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, FREE_QUERY_LIMIT, CREDITS_PER_PACK
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 
@@ -698,7 +698,7 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
 # ── Billing ───────────────────────────────────────────────────────────────────
 
 class CheckoutRequest(BaseModel):
-    type: str  # "unlock" | "credits"
+    type: str  # "unlock" | "credits" | "byok"
 
 
 @app.get("/billing/prices")
@@ -793,6 +793,11 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
         if purchase_type == "unlock":
             user.byok_unlocked = True
             logger.info("User %s unlocked unlimited access%s", user_id, " [TEST MODE]" if is_test else "")
+        elif purchase_type == "byok":
+            # Permanent, and independent of the subscription — someone who buys
+            # BYOK and never subscribes keeps the right to store their key.
+            user.byok_purchased = True
+            logger.info("User %s purchased BYOK%s", user_id, " [TEST MODE]" if is_test else "")
         elif purchase_type == "credits":
             user.query_credits = (user.query_credits or 0) + CREDITS_PER_PACK
             logger.info("User %s purchased %s credits%s", user_id, CREDITS_PER_PACK, " [TEST MODE]" if is_test else "")
@@ -820,6 +825,15 @@ async def save_user_api_key(body: ApiKeyRequest, current_user: User = Depends(re
     # ENCRYPTION_KEY would otherwise pass here and fail inside encrypt_key().
     if not encryption_is_configured():
         raise HTTPException(status_code=501, detail="Key storage not configured — set ENCRYPTION_KEY")
+
+    # Bring-your-own-key is a separate one-time product. Allowlisted unlimited
+    # accounts skip it; anyone who stored a key while it was free was
+    # grandfathered by the migration and still passes.
+    if not current_user.byok_purchased and not is_unlimited_user(current_user):
+        raise HTTPException(status_code=402, detail={
+            "byok_required": True,
+            "message": "Storing your own API key is a one-time purchase.",
+        })
     current_user.encrypted_api_key = encrypt_key(key)
     db.commit()
     return {"stored": True}

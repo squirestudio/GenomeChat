@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 import logging
@@ -188,6 +189,22 @@ def _validate_stripe_wiring() -> None:
         )
 
 
+async def _startup_diagnostics() -> None:
+    """Config reporting and third-party checks, off the readiness path.
+
+    These are diagnostics, not dependencies: _validate_stripe_wiring makes
+    several sequential calls to Stripe, and blocking startup on them means a
+    slow or unreachable third party keeps /health from answering at all. The
+    platform healthcheck then fails and the deploy is rolled back — an outage
+    caused entirely by the reporting.
+    """
+    try:
+        _log_feature_status()
+        await asyncio.to_thread(_validate_stripe_wiring)
+    except Exception as e:
+        logger.warning(f"Startup diagnostics failed (ignored): {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting GenomeChat API...")
@@ -196,9 +213,11 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables created/verified.")
     except Exception as e:
         logger.warning(f"Database init failed (continuing without DB): {e}")
-    _log_feature_status()
-    _validate_stripe_wiring()
+    # Fire and forget — the app is ready now; diagnostics land in the log when
+    # they land. Held in a local so the task is not garbage collected.
+    diagnostics = asyncio.create_task(_startup_diagnostics())
     yield
+    diagnostics.cancel()
     logger.info("Shutting down.")
 
 

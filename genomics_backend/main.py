@@ -172,6 +172,44 @@ def _validate_stripe_wiring() -> None:
     except Exception as e:
         logger.warning("Stripe: wiring check skipped (%s)", e)
 
+    # The same check for test mode. It is easy to forget, and forgetting is
+    # silent: allowlisted test purchases complete and grant nothing.
+    if settings.test_mode_configured() and settings.test_mode_emails():
+        try:
+            import stripe as _stripe
+            _stripe.api_key = settings.stripe_test_secret_key
+            expected = (settings.backend_url or "").rstrip("/") + "/billing/webhook"
+            if settings.backend_url and not expected.startswith(("http://localhost", "http://127.0.0.1")):
+                eps = _stripe.WebhookEndpoint.list(limit=100).get("data", [])
+                match = next((e for e in eps if (e.get("url") or "").rstrip("/") == expected), None)
+                if not match:
+                    logger.error(
+                        "Stripe TEST mode has no webhook endpoint at %s — allowlisted "
+                        "test purchases will complete and grant nothing.", expected)
+                elif "checkout.session.completed" not in (match.get("enabled_events") or []):
+                    logger.error("Stripe TEST endpoint is not subscribed to checkout.session.completed.")
+                else:
+                    logger.info("Stripe TEST webhook endpoint verified: %s", expected)
+        except Exception as e:
+            logger.warning("Stripe: test-mode wiring check skipped (%s)", e)
+
+    # Subscription revocation only works if these are delivered.
+    try:
+        import stripe as _s2
+        _s2.api_key = settings.stripe_secret_key
+        expected = (settings.backend_url or "").rstrip("/") + "/billing/webhook"
+        eps = _s2.WebhookEndpoint.list(limit=100).get("data", [])
+        match = next((e for e in eps if (e.get("url") or "").rstrip("/") == expected), None)
+        if match:
+            evts = set(match.get("enabled_events") or [])
+            missing = {"customer.subscription.deleted", "customer.subscription.updated"} - evts
+            if missing and "*" not in evts:
+                logger.error(
+                    "Stripe webhook is not subscribed to %s — a cancelled subscriber "
+                    "would keep unlimited access.", ", ".join(sorted(missing)))
+    except Exception:
+        pass
+
     # Test-mode allowlist — reported explicitly because it means specific
     # accounts get free entitlements on a live deployment, which should never
     # be a surprise.

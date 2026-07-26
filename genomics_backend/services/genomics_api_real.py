@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 import logging
+import os
 import re
 from typing import Optional
 from models import VariantResult, GeneResult
@@ -27,9 +28,46 @@ HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
 MAX_RETRIES = 3
 
+# ─── NCBI rate limiting ───────────────────────────────────────────────────────
+# E-utilities allows 3 requests/sec anonymously, 10/sec with a free API key.
+# A single gene pipeline issues ~20 NCBI calls (ClinVar, PubMed count, twelve
+# PubMed timeline year-queries, OMIM, HPO, gene lookups), and firing them
+# concurrently earns 429s. The retry backoff then turns a 0.5s call into 8s —
+# and at full concurrency ClinVar returns nothing at all, so a BRCA1 query
+# silently reports zero variants. Pacing requests is both faster and correct.
+NCBI_HOST = "eutils.ncbi.nlm.nih.gov"
+NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "").strip()
+_NCBI_RATE = 9.0 if NCBI_API_KEY else 2.5   # headroom under the documented cap
+
+
+class _RateLimiter:
+    """Spaces calls so bursts stay under a per-second cap."""
+
+    def __init__(self, per_second: float):
+        self._min_interval = 1.0 / per_second
+        self._lock = asyncio.Lock()
+        self._next_at = 0.0
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            wait = self._next_at - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = asyncio.get_event_loop().time()
+            self._next_at = max(now, self._next_at) + self._min_interval
+
+
+_ncbi_limiter = _RateLimiter(_NCBI_RATE)
+
 
 async def _get(client: httpx.AsyncClient, url: str, params: dict = None) -> dict | list | None:
+    is_ncbi = NCBI_HOST in url
+    if is_ncbi and NCBI_API_KEY:
+        params = {**(params or {}), "api_key": NCBI_API_KEY}
     for attempt in range(MAX_RETRIES):
+        if is_ncbi:
+            await _ncbi_limiter.acquire()
         try:
             response = await client.get(url, params=params, timeout=TIMEOUT, headers=HEADERS)
             if response.status_code == 200:
@@ -1313,7 +1351,103 @@ async def fetch_monarch_associations(gene_symbol: str, ncbi_gene_id: Optional[st
         return {}
 
 
-async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) -> dict:
+# ─── Staged loading ───────────────────────────────────────────────────────────
+# The full pipeline touches 17 upstreams and, paced against NCBI's rate limit,
+# takes several seconds before the reader sees anything. Splitting it lets the
+# first response carry the gene identity, protein and clinical variants — what
+# a question is nearly always actually about — while the rest is fetched only
+# when the reader asks for it.
+CORE_SECTIONS = ("gene_info", "protein_info", "variants", "publication_count", "population_summary")
+
+# Each optional section: label for the UI, and the keys it populates.
+OPTIONAL_SECTIONS = {
+    "structure":            "3D structure & protein domains",
+    "pathways":             "Biological pathways",
+    "expression":           "Tissue expression",
+    "interactions":         "Protein interactions",
+    "drugs":                "Drugs & clinical trials",
+    "omim":                 "OMIM disease entries",
+    "pharmgkb":             "Pharmacogenomics",
+    "cancer_mutations":     "Somatic cancer mutations",
+    "clingen":              "ClinGen gene-disease validity",
+    "publication_timeline": "Publication trend",
+    "gwas":                 "GWAS trait associations",
+    "phenotypes":           "Phenotypes (HPO & Monarch)",
+}
+
+
+def _safe(val):
+    return val if not isinstance(val, Exception) and val is not None else None
+
+
+async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: Optional[str] = None,
+                             ensembl_id: Optional[str] = None) -> dict:
+    """Fetch one optional section. Returns the keys that section contributes."""
+    if section == "structure":
+        if not uniprot_accession:
+            info = await fetch_uniprot_info(gene_symbol)
+            uniprot_accession = (info or {}).get("accession")
+        if not uniprot_accession:
+            return {"alphafold": None, "domains": []}
+        af, dom = await asyncio.gather(
+            fetch_alphafold_structure(uniprot_accession),
+            fetch_protein_domains(uniprot_accession),
+            return_exceptions=True,
+        )
+        return {"alphafold": _safe(af), "domains": _safe(dom) or []}
+
+    if section == "drugs":
+        if not ensembl_id:
+            info = await lookup_gene_ensembl(gene_symbol)
+            ensembl_id = (info or {}).get("id", "")
+        return {"drugs": _safe(await fetch_open_targets_drugs(ensembl_id)) or []}
+
+    if section == "phenotypes":
+        hpo, monarch = await asyncio.gather(
+            fetch_hpo_terms(gene_symbol),
+            fetch_monarch_associations(gene_symbol),
+            return_exceptions=True,
+        )
+        return {"hpo": _safe(hpo) or {}, "monarch": _safe(monarch) or {}}
+
+    simple = {
+        "pathways": fetch_reactome_pathways,
+        "expression": fetch_gtex_expression,
+        "interactions": fetch_string_interactions,
+        "omim": fetch_omim_data,
+        "pharmgkb": fetch_pharmgkb_data,
+        "cancer_mutations": fetch_cancer_mutations,
+        "clingen": fetch_clingen_validity,
+        "publication_timeline": fetch_pubmed_timeline,
+        "gwas": fetch_gwas_associations,
+    }
+    fn = simple.get(section)
+    if not fn:
+        raise ValueError(f"Unknown section: {section}")
+    try:
+        result = await fn(gene_symbol)
+    except Exception as e:
+        logger.warning(f"Section {section} failed for {gene_symbol}: {e}")
+        result = None
+    empty = {} if section in ("omim", "pharmgkb", "cancer_mutations") else []
+    return {section: result if result is not None else empty}
+
+
+SECTION_SOURCE = {
+    "structure": "AlphaFold", "pathways": "Reactome", "expression": "GTEx",
+    "interactions": "STRING", "drugs": "OpenTargets", "omim": "OMIM",
+    "pharmgkb": "PharmGKB", "cancer_mutations": "COSMIC/GDC", "clingen": "ClinGen",
+    "publication_timeline": "PubMed", "gwas": "GWAS Catalog", "phenotypes": "HPO",
+}
+
+
+async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
+                            staged: bool = False) -> dict:
+    """Fetch gene data.
+
+    staged=True returns only the core sections and advertises the rest in
+    `pending_sections`, for the caller to request individually.
+    """
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
         fetch_clinvar_variants(gene_symbol),
@@ -1353,70 +1487,67 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None) 
     uniprot_safe = safe(uniprot_info)
     ensembl_safe = safe(ensembl_info)
     ensembl_id = (ensembl_safe or {}).get("id", "")
+    accession = (uniprot_safe or {}).get("accession")
 
-    # Fetch all enrichment data in parallel
-    alphafold_info, pathways, expression, interactions, drugs, pop_summary, omim, domains, pgkb, cancer_muts, clingen, pub_timeline, gwas, hpo, monarch = await asyncio.gather(
-        fetch_alphafold_structure(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
-        fetch_reactome_pathways(gene_symbol),
-        fetch_gtex_expression(gene_symbol),
-        fetch_string_interactions(gene_symbol),
-        fetch_open_targets_drugs(ensembl_id),
-        fetch_gnomad_population_summary(gene_symbol),
-        fetch_omim_data(gene_symbol),
-        fetch_protein_domains(uniprot_safe["accession"]) if uniprot_safe and uniprot_safe.get("accession") else asyncio.sleep(0),
-        fetch_pharmgkb_data(gene_symbol),
-        fetch_cancer_mutations(gene_symbol),
-        fetch_clingen_validity(gene_symbol),
-        fetch_pubmed_timeline(gene_symbol),
-        fetch_gwas_associations(gene_symbol),
-        fetch_hpo_terms(gene_symbol),
-        fetch_monarch_associations(gene_symbol),
-        return_exceptions=True
-    )
+    pop_summary = safe(await _gather_one(fetch_gnomad_population_summary(gene_symbol))) or []
 
-    def safe2(val):
-        return val if not isinstance(val, Exception) and val is not None else None
-
-    return {
+    core = {
         "gene_info": ensembl_safe,
         "protein_info": uniprot_safe,
         "publication_count": safe(pub_count) or 0,
         "variants": results,
-        "alphafold": safe2(alphafold_info),
-        "pathways": safe2(pathways) or [],
-        "expression": safe2(expression) or [],
-        "interactions": safe2(interactions) or [],
-        "drugs": safe2(drugs) or [],
-        "population_summary": safe2(pop_summary) or [],
-        "omim": safe2(omim) or {},
-        "domains": safe2(domains) or [],
-        "pharmgkb": safe2(pgkb) or {},
-        "cancer_mutations": safe2(cancer_muts) or {},
-        "clingen": safe2(clingen) or [],
-        "publication_timeline": safe2(pub_timeline) or [],
-        "gwas": safe2(gwas) or [],
-        "hpo": safe2(hpo) or {},
-        "monarch": safe2(monarch) or {},
-        "sources": list(filter(None, [
-            "Ensembl" if ensembl_safe else None,
-            "ClinVar" if variant_list else None,
-            "gnomAD" if freq_list else None,
-            "UniProt" if uniprot_safe else None,
-            "AlphaFold" if safe2(alphafold_info) else None,
-            "Reactome" if safe2(pathways) else None,
-            "GTEx" if safe2(expression) else None,
-            "STRING" if safe2(interactions) else None,
-            "OpenTargets" if safe2(drugs) else None,
-            "OMIM" if safe2(omim) else None,
-            "PharmGKB" if safe2(pgkb) else None,
-            "COSMIC/GDC" if safe2(cancer_muts) else None,
-            "ClinGen" if safe2(clingen) else None,
-            "GWAS Catalog" if safe2(gwas) else None,
-            "HPO" if safe2(hpo) else None,
-            "Monarch" if safe2(monarch) else None,
-            "PubMed"
-        ]))
+        "population_summary": pop_summary,
+        # identifiers the section endpoint needs, so it need not re-resolve them
+        "_uniprot_accession": accession,
+        "_ensembl_id": ensembl_id,
+        "gene_symbol": gene_symbol,
     }
+    core_sources = list(filter(None, [
+        "Ensembl" if ensembl_safe else None,
+        "ClinVar" if variant_list else None,
+        "gnomAD" if (freq_list or pop_summary) else None,
+        "UniProt" if uniprot_safe else None,
+        "PubMed",
+    ]))
+
+    if staged:
+        core["sources"] = core_sources
+        core["pending_sections"] = [
+            {"key": k, "label": v, "source": SECTION_SOURCE.get(k, "")}
+            for k, v in OPTIONAL_SECTIONS.items()
+        ]
+        return core
+
+    # Unstaged: fetch everything, preserving the original response shape.
+    keys = list(OPTIONAL_SECTIONS)
+    fetched = await asyncio.gather(
+        *[fetch_gene_section(gene_symbol, k, accession, ensembl_id) for k in keys],
+        return_exceptions=True,
+    )
+    merged = dict(core)
+    extra_sources = []
+    for key, res in zip(keys, fetched):
+        if isinstance(res, Exception):
+            continue
+        merged.update(res)
+        if any(res.values()):
+            src = SECTION_SOURCE.get(key)
+            if src:
+                extra_sources.append(src)
+    merged.setdefault("alphafold", None)
+    merged.setdefault("domains", [])
+    merged.setdefault("hpo", {})
+    merged.setdefault("monarch", {})
+    merged["sources"] = core_sources + [s for s in extra_sources if s not in core_sources]
+    merged["pending_sections"] = []
+    return merged
+
+
+async def _gather_one(coro):
+    try:
+        return await coro
+    except Exception:
+        return None
 
 
 async def run_disease_pipeline(disease_name: str) -> dict:

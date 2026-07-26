@@ -1239,7 +1239,55 @@ function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
 const SIG_FILTER_OPTIONS = ["All", "Pathogenic", "Likely pathogenic", "Uncertain significance", "Likely benign", "Benign"];
 const SIG_FILTER_SHORT = { "All": "All", "Pathogenic": "Path.", "Likely pathogenic": "Likely path.", "Uncertain significance": "VUS", "Likely benign": "Likely benign", "Benign": "Benign" };
 
-function DataSection({ data, queryType, dnaData, settings }) {
+
+/** The sections deliberately not fetched up front. Each is one click away. */
+function PendingSections({ data, onLoadSection, sectionState }) {
+  const pending = data?.pending_sections || [];
+  if (!pending.length || !onLoadSection) return null;
+  const { loading = {}, errors = {}, idx } = sectionState || {};
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <p style={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-dim)", margin: 0 }}>
+          Explore further
+        </p>
+        <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)" }}>
+          {pending.length} more {pending.length === 1 ? "dataset" : "datasets"} available
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+        {pending.map(p => {
+          const key = `${idx}:${p.key}`;
+          const busy = !!loading[key];
+          const failed = !!errors[key];
+          return (
+            <button key={p.key} disabled={busy} onClick={() => onLoadSection(p.key)}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2,
+                padding: "0.6rem 0.7rem", borderRadius: 10, textAlign: "left",
+                background: busy ? "rgb(var(--c-accent) / 0.1)" : "rgb(var(--c-surface) / 0.4)",
+                border: `1px solid ${failed ? "rgb(var(--c-danger) / 0.4)" : busy ? "rgb(var(--c-accent) / 0.35)" : "rgb(var(--c-border) / 0.35)"}`,
+                cursor: busy ? "default" : "pointer", transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.4)"; }}
+              onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.35)"; }}
+            >
+              <span style={{ fontSize: "0.74rem", fontWeight: 600, color: busy ? "var(--accent)" : "var(--text-muted)" }}>
+                {busy ? "Loading…" : failed ? "Retry" : p.label}
+              </span>
+              <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>
+                {failed ? "Could not load — click to retry" : p.source}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DataSection({ data, queryType, dnaData, settings, onLoadSection, sectionState }) {
   const [expanded, setExpanded] = useState(false);
   const [sigFilter, setSigFilter] = useState("All");
   const [sortBy, setSortBy] = useState(settings?.defaultSort || "default");
@@ -1358,6 +1406,8 @@ function DataSection({ data, queryType, dnaData, settings }) {
           })}
         </div>
       )}
+
+      <PendingSections data={data} onLoadSection={onLoadSection} sectionState={sectionState} />
     </div>
   );
 }
@@ -2391,7 +2441,7 @@ const SOURCE_COLORS = {
   Monarch: { color: "var(--violet)", bg: "rgb(var(--c-violet) / 0.25)", border: "rgb(var(--c-violet) / 0.2)" },
 };
 
-function AssistantMessage({ msg, dnaData, settings }) {
+function AssistantMessage({ msg, dnaData, settings, onLoadSection, sectionState }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
@@ -2415,7 +2465,7 @@ function AssistantMessage({ msg, dnaData, settings }) {
           />
         )}
         <Markdown content={msg.content} />
-        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} settings={settings} />}
+        {msg.data && <DataSection data={msg.data} queryType={msg.query_type} dnaData={dnaData} settings={settings} onLoadSection={onLoadSection} sectionState={sectionState} />}
         {msg.data?.pathways?.length > 0 && <PathwayViewer pathways={msg.data.pathways} />}
         {msg.data?.expression?.length > 0 && <ExpressionChart expression={msg.data.expression} />}
         {msg.data?.interactions?.length > 0 && <InteractionNetwork interactions={msg.data.interactions} centerGene={msg.target} />}
@@ -2629,7 +2679,10 @@ export default function App() {
     setDnaData(data);
     saveDnaToSession(data);
   }, []);
+  const [loadingSections, setLoadingSections] = useState({});
+  const [sectionErrors, setSectionErrors] = useState({});
   const bottomRef = useRef(null);
+  const latestTurnRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -2687,11 +2740,55 @@ export default function App() {
     }
     setPaymentToast("failed");
   };
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  // Bring the newest exchange to the TOP of the viewport rather than scrolling
+  // to the bottom. A gene answer is a long document — landing at its end drops
+  // the reader past the overview and into whatever panel happens to be last.
+  // While a reply is streaming in we deliberately do not chase it, so the page
+  // stays where the reader left it.
+  useEffect(() => {
+    if (!messages.length) return;
+    const el = latestTurnRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [messages.length]);
 
   const checkHealth = async () => {
     try { const r = await apiFetch("/health"); setApiStatus(r.ok ? "online" : "error"); }
     catch { setApiStatus("offline"); }
+  };
+
+  // Fetch one deferred section and merge it into that message. The reader is
+  // expanding an answer they already have, so this costs no query credit.
+  const loadSection = async (msgIndex, sectionKey) => {
+    const msg = messages[msgIndex];
+    const d = msg?.data;
+    if (!d) return;
+    setLoadingSections(prev => ({ ...prev, [`${msgIndex}:${sectionKey}`]: true }));
+    try {
+      const r = await apiFetch("/gene/section", {
+        method: "POST",
+        body: JSON.stringify({
+          gene: d.gene_symbol || msg.target,
+          section: sectionKey,
+          uniprot_accession: d._uniprot_accession || null,
+          ensembl_id: d._ensembl_id || null,
+        }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      const { data: sectionData } = await r.json();
+      setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : {
+        ...m,
+        data: {
+          ...m.data,
+          ...sectionData,
+          pending_sections: (m.data.pending_sections || []).filter(p => p.key !== sectionKey),
+        },
+      }));
+    } catch {
+      setSectionErrors(prev => ({ ...prev, [`${msgIndex}:${sectionKey}`]: true }));
+    } finally {
+      setLoadingSections(prev => { const n = { ...prev }; delete n[`${msgIndex}:${sectionKey}`]; return n; });
+    }
   };
 
   const fetchMe = async () => {
@@ -3436,11 +3533,14 @@ export default function App() {
               </div>
             ) : (
               <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-                {messages.map((msg, i) =>
-                  msg.role === "user"
-                    ? <UserMessage key={i} content={msg.content} />
-                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} />
-                )}
+                {messages.map((msg, i) => {
+                  // The anchor is the last user turn, so a new answer opens with
+                  // the question at the top and the response reading downward.
+                  const isAnchor = i === messages.map(m => m.role).lastIndexOf("user");
+                  return msg.role === "user"
+                    ? <div key={i} ref={isAnchor ? latestTurnRef : null} style={{ scrollMarginTop: "1rem" }}><UserMessage content={msg.content} /></div>
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={sec => loadSection(i, sec)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
+                })}
                 {loading && <TypingIndicator />}
                 <div ref={bottomRef} />
               </div>

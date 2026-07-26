@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
-from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline
+from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section
 from services.ai_explainer import explain_results, explain_comparison, answer_followup
 from services.cache import cache
 from database.models import create_tables, get_db, Query as QueryModel, ProcessedStripeEvent
@@ -41,6 +41,7 @@ class ChatRequest(BaseModel):
     project_id: Optional[int] = None
     personal_variants: Optional[list[dict]] = None  # [{rsid, genotype, chromosome?}] — session only, never stored
     response_detail: Optional[str] = "standard"     # concise | standard | detailed
+    staged: bool = True                             # core data first; sections on demand
     user_api_key: Optional[str] = None              # user-supplied Anthropic key; never logged or stored
 
 
@@ -294,6 +295,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
             pipeline_result = await run_gene_pipeline(
                 interpreted.target,
                 population=interpreted.population,
+                staged=request.staged,
             )
             raw_results = pipeline_result.get("variants", [])
             sources = pipeline_result.get("sources", [])
@@ -435,6 +437,41 @@ async def cache_stats():
 async def clear_cache():
     cache.clear()
     return {"message": "Cache cleared"}
+
+
+# ── Staged gene sections ──────────────────────────────────────────────────────
+
+class SectionRequest(BaseModel):
+    gene: str
+    section: str
+    uniprot_accession: Optional[str] = None
+    ensembl_id: Optional[str] = None
+
+
+@app.post("/gene/section")
+async def gene_section(body: SectionRequest, current_user: Optional[User] = Depends(get_current_user)):
+    """Fetch one optional section of a gene result, on demand.
+
+    Deliberately does NOT consume a query credit: this is the reader expanding
+    part of an answer they already paid for, not asking a new question.
+    """
+    cache_key = f"__section__:{body.gene}:{body.section}"
+    cached = cache.get(cache_key)
+    if cached:
+        return {"section": body.section, "data": cached, "cached": True}
+    try:
+        data = await fetch_gene_section(
+            body.gene, body.section,
+            uniprot_accession=body.uniprot_accession,
+            ensembl_id=body.ensembl_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Section {body.section} failed for {body.gene}: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not load {body.section}")
+    cache.set(cache_key, data)
+    return {"section": body.section, "data": data, "cached": False}
 
 
 # ── Billing ───────────────────────────────────────────────────────────────────

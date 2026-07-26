@@ -49,7 +49,11 @@
   --text-muted: #334155;
   --text-faint: #475569;
   --text-dim: #64748b;
-  --text-dimmer: #808fa6;
+  --text-dimmer: #708196;
+  /* The faintest caption/hint step. In the dark theme this role and the border
+   * colour were the same literal (#1e293b); they must not be on a light page,
+   * where a border tint used as text is invisible. */
+  --text-faintest: #6b7a8f;
 
   /* accents — darkened from the dark-theme values so they pass contrast on white */
   --accent: #0369a1;
@@ -97,6 +101,7 @@
   --text-faint: #94a3b8;
   --text-dim: #64748b;
   --text-dimmer: #475569;
+  --text-faintest: #1e293b;   /* unchanged from the original dark look */
 
   --accent: #38bdf8;
   --accent-strong: #0ea5e9;

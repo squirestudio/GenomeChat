@@ -264,11 +264,11 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: "0.78rem", fontWeight: 700, color: meta.color }}>{f.gene}</span>
                     <span style={{ fontSize: "0.7rem", color: "var(--text-dimmer)" }}>{f.name}</span>
-                    <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--border-solid)" }}>{f.rsid}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--text-faintest)" }}>{f.rsid}</span>
                   </div>
                   <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginTop: 3, lineHeight: 1.5 }}>{f.desc}</p>
                 </div>
-                <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", flexShrink: 0, marginTop: 2 }}>Ask →</span>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)", flexShrink: 0, marginTop: 2 }}>Ask →</span>
               </button>
             );
           })}
@@ -463,7 +463,7 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>{geneName} — 3D Structure</span>
-          {entryId && <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", fontFamily: "monospace" }}>{entryId}</span>}
+          {entryId && <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)", fontFamily: "monospace" }}>{entryId}</span>}
         </div>
         {status === "ready" && (
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -518,11 +518,11 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.63rem", color: "var(--border-solid)" }}>Export:</span>
+            <span style={{ fontSize: "0.63rem", color: "var(--text-faintest)" }}>Export:</span>
             <a href={pdbUrl} download target="_blank" rel="noreferrer" style={actionBtnStyle}>↓ PDB file</a>
             <button onClick={downloadPymol} style={actionBtnStyle} title="Download PyMOL script to open in PyMOL desktop app">↓ PyMOL script (.pml)</button>
             <button onClick={openChimeraX} style={actionBtnStyle} title="Opens in ChimeraX if installed locally">⬡ Open in ChimeraX</button>
-            <span style={{ marginLeft: "auto", fontSize: "0.62rem", color: "var(--border-solid)" }}>AlphaFold DB</span>
+            <span style={{ marginLeft: "auto", fontSize: "0.62rem", color: "var(--text-faintest)" }}>AlphaFold DB</span>
           </div>
         </div>
       )}
@@ -612,7 +612,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
             <SettingSegment value={settings.responseDetail}
               options={[{ value: "concise", label: "Concise" }, { value: "standard", label: "Standard" }, { value: "detailed", label: "Detailed" }]}
               onChange={v => set("responseDetail", v)} />
-            <p style={{ fontSize: "0.68rem", color: "var(--border-solid)", marginTop: 6, lineHeight: 1.5 }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
               {settings.responseDetail === "concise" && "Shorter summaries focused on key findings only."}
               {settings.responseDetail === "standard" && "Balanced explanations with clinical context and follow-up suggestions."}
               {settings.responseDetail === "detailed" && "In-depth analysis including population genetics, mechanisms, and research context."}
@@ -669,7 +669,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
         <div style={{ padding: "0.875rem 1.25rem", borderTop: "1px solid rgb(var(--c-surface) / 0.5)", flexShrink: 0 }}>
           <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", margin: "0 0 8px", lineHeight: 1.5 }}>Preferences are saved locally in your browser and never sent to our servers.</p>
           <button onClick={() => { onChange({ ...DEFAULT_SETTINGS }); saveSettings(DEFAULT_SETTINGS); applyFontSize(DEFAULT_SETTINGS.fontSize); applyTheme(DEFAULT_SETTINGS.theme); }}
-            style={{ fontSize: "0.68rem", color: "var(--border-solid)", background: "none", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 6, padding: "0.25rem 0.6rem", cursor: "pointer" }}>
+            style={{ fontSize: "0.68rem", color: "var(--text-faintest)", background: "none", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 6, padding: "0.25rem 0.6rem", cursor: "pointer" }}>
             Reset to defaults
           </button>
         </div>
@@ -771,7 +771,7 @@ function Section({ label, hint, children }) {
   return (
     <div style={{ marginBottom: "1.5rem" }}>
       <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>{label}</p>
-      {hint && <p style={{ fontSize: "0.67rem", color: "var(--border-solid)", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
+      {hint && <p style={{ fontSize: "0.67rem", color: "var(--text-faintest)", margin: "0 0 10px", lineHeight: 1.4 }}>{hint}</p>}
       {children}
     </div>
   );
@@ -857,7 +857,7 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
           <PurchaseOptions testMode={currentUser?.stripe_test_mode} />
         </div>
 
-        <p style={{ fontSize: "0.7rem", color: "var(--border-solid)", margin: 0, lineHeight: 1.5 }}>
+        <p style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0, lineHeight: 1.5 }}>
           Want free unlimited access?{" "}
           <button onClick={() => { onClose(); onOpenSettings(); }}
             style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.7rem", padding: 0, textDecoration: "underline" }}>
@@ -961,7 +961,7 @@ function DNASessionBanner({ dnaData, onClear }) {
       <span style={{ color: "var(--text-dimmer)" }}>·</span>
       <span style={{ color: "var(--text-dimmer)" }}>not stored · session only</span>
       <button onClick={onClear}
-        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--border-solid)", cursor: "pointer", fontSize: "0.9rem", padding: "0 2px", lineHeight: 1 }}
+        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-faintest)", cursor: "pointer", fontSize: "0.9rem", padding: "0 2px", lineHeight: 1 }}
         title="Clear DNA data from session"
       >×</button>
     </div>
@@ -1149,7 +1149,7 @@ function VariantCard({ variant, userVariant, defaultExpanded }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, padding: "0.2rem 0.5rem", background: "rgb(var(--c-accent) / 0.1)", borderRadius: 6, border: "1px solid rgb(var(--c-accent) / 0.2)" }}>
           <span style={{ fontSize: "0.62rem", color: "var(--accent)", fontWeight: 600 }}>YOUR DATA</span>
           <span style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "var(--accent-soft)", fontWeight: 700 }}>{userVariant.genotype}</span>
-          {userVariant.chromosome && <span style={{ fontSize: "0.6rem", color: "var(--border-solid)" }}>chr{userVariant.chromosome}</span>}
+          {userVariant.chromosome && <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)" }}>chr{userVariant.chromosome}</span>}
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -1164,7 +1164,7 @@ function VariantCard({ variant, userVariant, defaultExpanded }) {
               AF {variant.frequency < 0.0001 ? variant.frequency.toExponential(1) : variant.frequency.toFixed(5)}
             </p>
           )}
-          {hasDetail && <p style={{ fontSize: "0.6rem", color: "var(--border-solid)", marginTop: 3 }}>{expanded ? "▲ less" : "▼ more"}</p>}
+          {hasDetail && <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", marginTop: 3 }}>{expanded ? "▲ less" : "▼ more"}</p>}
         </div>
       </div>
       {expanded && (
@@ -1194,7 +1194,7 @@ function VariantCard({ variant, userVariant, defaultExpanded }) {
 function Row({ label, value, mono }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-      <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", flexShrink: 0, width: 110 }}>{label}</span>
+      <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)", flexShrink: 0, width: 110 }}>{label}</span>
       <span style={{ fontSize: mono ? "0.68rem" : "0.72rem", color: "var(--text-faint)", fontFamily: mono ? "monospace" : "inherit", wordBreak: "break-all" }}>{value}</span>
     </div>
   );
@@ -1342,7 +1342,7 @@ function DataSection({ data, queryType, dnaData, settings }) {
           )}
           {(sigFilter !== "All" || myDataOnly) && (
             <button onClick={() => { setSigFilter("All"); setMyDataOnly(false); }}
-              style={{ fontSize: "0.62rem", color: "var(--border-solid)", background: "none", border: "none", cursor: "pointer", marginLeft: 2 }}>
+              style={{ fontSize: "0.62rem", color: "var(--text-faintest)", background: "none", border: "none", cursor: "pointer", marginLeft: 2 }}>
               Clear
             </button>
           )}
@@ -1350,7 +1350,7 @@ function DataSection({ data, queryType, dnaData, settings }) {
       )}
 
       {items.length === 0 ? (
-        <p style={{ fontSize: "0.75rem", color: "var(--border-solid)", padding: "0.75rem 0" }}>No variants match the current filter.</p>
+        <p style={{ fontSize: "0.75rem", color: "var(--text-faintest)", padding: "0.75rem 0" }}>No variants match the current filter.</p>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
           {shown.map((item, i) => {
@@ -1379,7 +1379,7 @@ function PathwayViewer({ pathways }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.15)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Biological Pathways</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Reactome · {pathways.length} pathways</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Reactome · {pathways.length} pathways</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexWrap: "wrap", gap: 6 }}>
         {shown.map((p, i) => (
@@ -1416,7 +1416,7 @@ function ExpressionChart({ expression }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.15)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Tissue Expression</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>GTEx v8 · median TPM</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>GTEx v8 · median TPM</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
         {top.map((e, i) => {
@@ -1450,7 +1450,7 @@ function InteractionNetwork({ interactions, centerGene }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-warning) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.15)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--warning-soft)" }}>Protein Interactions</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>STRING DB · {interactions.length} partners</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>STRING DB · {interactions.length} partners</span>
       </div>
       <div style={{ display: "flex", gap: 0 }}>
         <svg width="400" height="360" style={{ flexShrink: 0 }}>
@@ -1516,7 +1516,7 @@ function DrugPanel({ drugs }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.12)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Drug Interactions</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Open Targets · {drugs.length} compounds</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Open Targets · {drugs.length} compounds</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {shown.map((drug, i) => {
@@ -1532,7 +1532,7 @@ function DrugPanel({ drugs }) {
                 {drug.mechanism && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drug.mechanism}</p>}
                 {drug.indication && <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 1 }}>{drug.indication}</p>}
               </div>
-              {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "var(--border-solid)", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
+              {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
             </div>
           );
         })}
@@ -1564,7 +1564,7 @@ function PopulationFrequencyChart({ populations }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.15)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.1)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Population Frequencies</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>gnomAD r4 · aggregated AF by ancestry</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>gnomAD r4 · aggregated AF by ancestry</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
         {populations.map((pop) => {
@@ -1605,7 +1605,7 @@ function CancerMutationsPanel({ data }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.12)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger-soft)" }}>Somatic Cancer Mutations</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>NCI GDC / TCGA · {total_mutations?.toLocaleString()} mutations</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>NCI GDC / TCGA · {total_mutations?.toLocaleString()} mutations</span>
       </div>
 
       <div style={{ display: "flex", gap: 0 }}>
@@ -1628,7 +1628,7 @@ function CancerMutationsPanel({ data }) {
         {/* Consequence type breakdown */}
         {consequence_types?.length > 0 && (
           <div style={{ width: 160, padding: "0.75rem", borderLeft: "1px solid rgb(var(--c-surface) / 0.5)", display: "flex", flexDirection: "column", gap: 5 }}>
-            <p style={{ fontSize: "0.63rem", color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Mutation Type</p>
+            <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Mutation Type</p>
             {consequence_types.map((ct, i) => {
               const color = CONSEQUENCE_COLORS[ct.type] || "#6366f1";
               return (
@@ -1666,7 +1666,7 @@ function ClinGenPanel({ curations }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.1)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>ClinGen Gene-Disease Validity</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Expert curated · {curations.length} associations</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Expert curated · {curations.length} associations</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {curations.map((c, i) => {
@@ -1688,7 +1688,7 @@ function ClinGenPanel({ curations }) {
                     </p>
                   )}
                 </div>
-                <span style={{ fontSize: "0.6rem", color: "var(--border-solid)", flexShrink: 0 }}>↗</span>
+                <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>↗</span>
               </div>
             </a>
           );
@@ -1719,7 +1719,7 @@ function PublicationTimeline({ timeline }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-warning) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.1)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--warning)" }}>Publication Timeline</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>PubMed · papers per year</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>PubMed · papers per year</span>
       </div>
       <div style={{ padding: "0.75rem 0.875rem 0.6rem" }}>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: BAR_H + 24 }}>
@@ -1761,7 +1761,7 @@ function GWASPanel({ gwas }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.1)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger)" }}>GWAS Catalog</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Trait associations · {gwas.length} results</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Trait associations · {gwas.length} results</span>
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
         {gwas.map((a, i) => (
@@ -1818,7 +1818,7 @@ function PhenotypePanel({ hpo, monarch }) {
       color: activeTab === id ? "var(--violet)" : "var(--text-dimmer)",
       borderBottom: activeTab === id ? "2px solid var(--violet)" : "2px solid transparent",
     }}>
-      {label}{count > 0 ? <span style={{ marginLeft: 4, fontSize: "0.62rem", color: "var(--border-solid)" }}>({count})</span> : null}
+      {label}{count > 0 ? <span style={{ marginLeft: 4, fontSize: "0.62rem", color: "var(--text-faintest)" }}>({count})</span> : null}
     </button>
   );
 
@@ -1826,7 +1826,7 @@ function PhenotypePanel({ hpo, monarch }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.1)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet)" }}>Phenotype Associations</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>HPO · Monarch Initiative</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>HPO · Monarch Initiative</span>
       </div>
 
       {/* Tabs */}
@@ -1874,7 +1874,7 @@ function PhenotypePanel({ hpo, monarch }) {
                         <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{d.name}</p>
                         {d.predicate && <p style={{ fontSize: "0.62rem", color: "var(--text-dimmer)", marginTop: 1 }}>{d.predicate}</p>}
                       </div>
-                      <span style={{ fontSize: "0.6rem", fontFamily: "monospace", color: "var(--border-solid)" }}>↗</span>
+                      <span style={{ fontSize: "0.6rem", fontFamily: "monospace", color: "var(--text-faintest)" }}>↗</span>
                     </div>
                   </a>
                 ))}
@@ -1934,7 +1934,7 @@ function PharmGKBPanel({ pgkb }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>Pharmacogenomics</span>
-        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "var(--border-solid)", textDecoration: "none" }}>PharmGKB ↗</a>
+        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "var(--text-faintest)", textDecoration: "none" }}>PharmGKB ↗</a>
       </div>
 
       {/* Tabs */}
@@ -1968,7 +1968,7 @@ function PharmGKBPanel({ pgkb }) {
                           {ann.phenotype && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2 }}>{ann.phenotype}</p>}
                           {ann.variant && <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 1, fontFamily: "monospace" }}>{ann.variant}</p>}
                         </div>
-                        <span style={{ fontSize: "0.6rem", color: "var(--border-solid)", flexShrink: 0 }}>↗</span>
+                        <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>↗</span>
                       </div>
                     </a>
                   );
@@ -2002,7 +2002,7 @@ function PharmGKBPanel({ pgkb }) {
               <span style={{ fontSize: "0.6rem", padding: "0.1em 0.35em", borderRadius: 3, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>{level}</span>
             </div>
           ))}
-          <span style={{ fontSize: "0.6rem", color: "var(--border-solid)", marginLeft: 4 }}>1A = highest evidence → 4 = case reports</span>
+          <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", marginLeft: 4 }}>1A = highest evidence → 4 = case reports</span>
         </div>
       )}
     </div>
@@ -2059,7 +2059,7 @@ function LollipopMap({ variants, domains, proteinLength, geneName }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.12)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Variant Domain Map</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
           {positioned.length} variants · {proteinLength} aa · UniProt / ClinVar
         </span>
       </div>
@@ -2198,7 +2198,7 @@ function OmimPanel({ omim }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.12)" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>OMIM — Genetic Disease Catalog</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>Online Mendelian Inheritance in Man</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Online Mendelian Inheritance in Man</span>
       </div>
 
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2218,7 +2218,7 @@ function OmimPanel({ omim }) {
         {/* Phenotype entries */}
         {phenotypes.length > 0 && (
           <>
-            <p style={{ fontSize: "0.65rem", color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>
+            <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 4 }}>
               Associated Disorders ({phenotypes.length})
             </p>
             {shown.map((p, i) => {
@@ -2236,8 +2236,8 @@ function OmimPanel({ omim }) {
                           {p.inheritance}
                         </span>
                       )}
-                      <span style={{ fontSize: "0.62rem", color: "var(--border-solid)", fontFamily: "monospace" }}>#{p.mim_number}</span>
-                      <span style={{ fontSize: "0.62rem", color: "var(--border-solid)" }}>↗</span>
+                      <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)", fontFamily: "monospace" }}>#{p.mim_number}</span>
+                      <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>↗</span>
                     </div>
                   </div>
                 </a>
@@ -2320,9 +2320,9 @@ function ComparisonView({ msg }) {
         {/* Title */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
           <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "var(--accent)" }}>{gene_a}</span>
-          <span style={{ fontSize: "0.75rem", color: "var(--border-solid)" }}>vs</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-faintest)" }}>vs</span>
           <span style={{ fontFamily: "monospace", fontSize: "0.85rem", fontWeight: 700, color: "var(--violet)" }}>{gene_b}</span>
-          <span style={{ fontSize: "0.68rem", color: "var(--border-solid)" }}>· Gene Comparison</span>
+          <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>· Gene Comparison</span>
         </div>
 
         {/* Tabs */}
@@ -2337,7 +2337,7 @@ function ComparisonView({ msg }) {
             {/* Comparison table */}
             <div style={{ marginBottom: 16, background: "rgb(var(--c-deep) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.3)", borderRadius: 10, overflow: "hidden" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr" }}>
-                <span style={{ fontSize: "0.65rem", color: "var(--border-solid)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}></span>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}></span>
                 <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "var(--accent)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textAlign: "center" }}>{gene_a}</span>
                 <span style={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: "var(--violet)", padding: "0.4rem 0.5rem", background: "rgb(var(--c-surface) / 0.5)", textAlign: "center" }}>{gene_b}</span>
                 <ComparisonStat label="Chromosome" a={`Chr ${stat(data_a.gene_info, "chromosome")}`} b={`Chr ${stat(data_b.gene_info, "chromosome")}`} />
@@ -2361,7 +2361,7 @@ function ComparisonView({ msg }) {
         {/* Sources */}
         {msg.sources?.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.72rem", color: "var(--border-solid)" }}>Sources:</span>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)" }}>Sources:</span>
             {msg.sources.map(s => {
               const c = SOURCE_COLORS[s] || { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" };
               return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
@@ -2401,9 +2401,9 @@ function AssistantMessage({ msg, dnaData, settings }) {
         {msg.target && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <span style={{ fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700, color: "var(--accent)" }}>{msg.target}</span>
-            <span style={{ color: "var(--border-solid)" }}>·</span>
+            <span style={{ color: "var(--text-faintest)" }}>·</span>
             <span style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", textTransform: "capitalize" }}>{(msg.query_type || "").replace("_", " ")}</span>
-            {msg.result_count > 0 && <><span style={{ color: "var(--border-solid)" }}>·</span><span style={{ fontSize: "0.72rem", color: "var(--text-dimmer)" }}>{msg.result_count} results</span></>}
+            {msg.result_count > 0 && <><span style={{ color: "var(--text-faintest)" }}>·</span><span style={{ fontSize: "0.72rem", color: "var(--text-dimmer)" }}>{msg.result_count} results</span></>}
             {msg.cached && <span style={{ fontSize: "0.68rem", padding: "0.15em 0.5em", borderRadius: 4, background: "var(--bg-inset)", color: "var(--text-dimmer)", border: "1px solid var(--border-solid)" }}>cached</span>}
           </div>
         )}
@@ -2468,7 +2468,7 @@ function MessageFooter({ msg }) {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
       {msg.sources?.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.72rem", color: "var(--border-solid)" }}>Sources:</span>
+          <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)" }}>Sources:</span>
           {msg.sources.map(s => {
             const c = SOURCE_COLORS[s] || { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" };
             return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
@@ -2529,7 +2529,7 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
         )}
         {chatHistory.length > 0 && (
           <div style={{ marginBottom: "1.25rem" }}>
-            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
+            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
             {chatHistory.slice(0, 20).map((item, i) => (
               <div key={item.id || i}
                 style={{ position: "relative", display: "flex", alignItems: "center", borderRadius: 6, marginBottom: 1 }}
@@ -2557,7 +2557,7 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
           </div>
         )}
         <div>
-          <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--border-solid)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Projects</p>
+          <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Projects</p>
           <form onSubmit={e => { e.preventDefault(); if (newName.trim()) { onCreateProject(newName.trim()); setNewName(""); } }} style={{ display: "flex", gap: 6, marginBottom: 8 }}>
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New project…" style={{ flex: 1, fontSize: "0.72rem", background: "rgb(var(--c-surface) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.35rem 0.5rem", color: "var(--text-faint)", outline: "none" }} />
             <button type="submit" style={{ padding: "0.35rem 0.6rem", background: "rgb(var(--c-border) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, color: "var(--text-faint)", cursor: "pointer", fontSize: "0.8rem" }}>+</button>
@@ -3248,7 +3248,7 @@ export default function App() {
                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, var(--accent-strong), var(--violet-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "white" }}>G</div>
                 <div>
                   <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text)", margin: 0 }}>GenomeChat</p>
-                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "var(--border-solid)", margin: 0 }}>Genomics research · Powered by Claude AI</p>
+                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0 }}>Genomics research · Powered by Claude AI</p>
                 </div>
               </div>
               {/* Desktop-only actions */}
@@ -3267,7 +3267,7 @@ export default function App() {
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
-                  <span style={{ fontSize: "0.72rem", color: "var(--border-solid)", textTransform: "capitalize" }}>{apiStatus}</span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)", textTransform: "capitalize" }}>{apiStatus}</span>
                 </div>
                 <PlanBadge currentUser={currentUser} onClick={() => setShowUpgrade("buy")} />
                 {currentUser ? (
@@ -3411,7 +3411,7 @@ export default function App() {
                         <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--accent)", margin: 0 }}>{dnaData.totalCount.toLocaleString()} variants loaded</p>
                         <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 2 }}>{dnaData.filename} · {dnaData.format} · session only</p>
                       </div>
-                      <button onClick={() => updateDnaData(null)} style={{ background: "none", border: "none", color: "var(--border-solid)", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
+                      <button onClick={() => updateDnaData(null)} style={{ background: "none", border: "none", color: "var(--text-faintest)", cursor: "pointer", fontSize: "0.8rem" }}>Clear</button>
                     </div>
                   ) : (
                     <button
@@ -3423,13 +3423,13 @@ export default function App() {
                       <span style={{ fontSize: "1rem" }}>🧬</span>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-dimmer)", margin: 0 }}>Upload your DNA data</p>
-                        <p style={{ fontSize: "0.68rem", color: "var(--border-solid)", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
+                        <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
                       </div>
                       <a
                         href="/sample_23andme.txt"
                         download="sample_23andme.txt"
                         onClick={e => e.stopPropagation()}
-                        style={{ fontSize: "0.65rem", color: "var(--border-solid)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.2rem 0.5rem", whiteSpace: "nowrap", textDecoration: "none", flexShrink: 0 }}
+                        style={{ fontSize: "0.65rem", color: "var(--text-faintest)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.2rem 0.5rem", whiteSpace: "nowrap", textDecoration: "none", flexShrink: 0 }}
                       >↓ sample</a>
                     </button>
                   )}
@@ -3473,7 +3473,7 @@ export default function App() {
                   </svg>
                 </button>
               </div>
-              <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--border-solid)", marginTop: 8 }}>
+              <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 8 }}>
                 Ensembl · ClinVar · gnomAD · UniProt · PubMed · Claude AI
               </p>
             </div>

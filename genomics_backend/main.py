@@ -1,5 +1,6 @@
 import asyncio
 import json
+import stripe
 import time
 import logging
 from contextlib import asynccontextmanager
@@ -768,6 +769,25 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
         if not user:
             logger.error("Stripe %s for unknown user %s", etype, user_id)
             return {"received": True}
+
+        # A customer can hold more than one subscription — double-clicking
+        # checkout is enough to do it. Revoking on the first cancellation would
+        # cut off someone who is still being billed for another, so only revoke
+        # once nothing active remains.
+        if not active and sub.get("customer"):
+            try:
+                stripe.api_key = (get_settings().stripe_test_secret_key if is_test
+                                  else get_settings().stripe_secret_key)
+                others = stripe.Subscription.list(customer=sub["customer"], status="active", limit=20)
+                still_paying = [o for o in others.get("data", []) if o["id"] != sub.get("id")]
+                if still_paying:
+                    logger.info(
+                        "User %s cancelled %s but still holds %d active subscription(s) — access kept",
+                        user_id, sub.get("id"), len(still_paying))
+                    return {"received": True}
+            except Exception as e:
+                logger.warning("Could not check for other subscriptions (%s) — revoking", e)
+
         if user.byok_unlocked != active:
             user.byok_unlocked = active
             db.commit()

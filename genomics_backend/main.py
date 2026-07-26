@@ -705,14 +705,11 @@ class CheckoutRequest(BaseModel):
 async def billing_prices(current_user: Optional[User] = Depends(get_current_user)):
     """Live pricing for whichever Stripe mode applies to this caller."""
     test_mode = is_test_mode_user(current_user)
-    cache_key = f"__prices__:{'test' if test_mode else 'live'}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    data = get_price_display(test_mode)
-    if data.get("unlock") or data.get("credits"):
-        cache.set(cache_key, data)
-    return data
+    # Deliberately uncached. The shared cache has a 24h TTL, which for prices
+    # means a pricing change stays invisible for up to a day — the same class of
+    # bug as hardcoding them, just slower to notice. Two Stripe reads per modal
+    # open is a fair price for always telling the customer the truth.
+    return get_price_display(test_mode)
 
 
 @app.post("/billing/checkout")

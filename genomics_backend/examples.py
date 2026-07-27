@@ -2,11 +2,25 @@
 MyDNA API - Example Client
 Run: python examples.py
 Requires backend running: docker-compose up -d
+
+Uses the same endpoints the app itself uses. The old /execute-query,
+/interpret-query and /batch-query routes this script previously called have been
+removed — they had no authentication and no query quota, so anyone could spend
+the shared Anthropic key through them.
 """
-import httpx
 import json
 
+import httpx
+
 BASE_URL = "http://localhost:8000"
+
+# Most endpoints work anonymously; set a JWT here to exercise the ones that need
+# an account (cache management, billing, stored API keys).
+TOKEN = ""
+
+
+def headers() -> dict:
+    return {"Authorization": f"Bearer {TOKEN}"} if TOKEN else {}
 
 
 def print_result(label: str, data: dict):
@@ -17,95 +31,103 @@ def print_result(label: str, data: dict):
 
 
 def health_check():
-    r = httpx.get(f"{BASE_URL}/health")
+    r = httpx.get(f"{BASE_URL}/health", timeout=30)
     print_result("Health Check", r.json())
 
 
-def gene_query(text: str):
-    r = httpx.post(
-        f"{BASE_URL}/execute-query",
-        json={"text": text},
-        timeout=60,
-    )
-    data = r.json()
+def ask(question: str):
+    """Ask a question the way the app does — streamed, staged, metered."""
     print(f"\n{'='*60}")
-    print(f"  Query: {text}")
+    print(f"  {question}")
     print('='*60)
-    print(f"  Type     : {data.get('interpreted', {}).get('query_type')}")
-    print(f"  Target   : {data.get('interpreted', {}).get('target')}")
-    print(f"  Results  : {data.get('result_count')} items")
-    print(f"  Sources  : {', '.join(data.get('sources', []))}")
-    print(f"  Cached   : {data.get('cached')}")
-    if data.get("results"):
-        print(f"\n  First result:")
-        print(f"  {json.dumps(data['results'][0], indent=4, default=str)}")
+
+    event = None
+    answer = []
+    with httpx.stream(
+        "POST", f"{BASE_URL}/chat/stream",
+        json={"message": question},
+        headers={"Content-Type": "application/json", **headers()},
+        timeout=180,
+    ) as r:
+        if r.status_code == 402:
+            print("  Out of queries — this account needs credits or a subscription.")
+            return
+        for line in r.iter_lines():
+            if line.startswith("event: "):
+                event = line[7:].strip()
+            elif line.startswith("data: "):
+                payload = json.loads(line[6:])
+                if event == "status":
+                    print(f"  ... {payload.get('stage')}")
+                elif event == "data":
+                    d = payload.get("data") or {}
+                    print(f"  sources: {', '.join(payload.get('sources') or [])}")
+                    print(f"  results: {payload.get('result_count', 0)}")
+                    pending = d.get("pending_sections") or []
+                    if pending:
+                        print(f"  {len(pending)} more datasets available on request")
+                elif event == "token":
+                    answer.append(payload.get("text", ""))
+                elif event == "error":
+                    print(f"  ERROR: {payload.get('message')}")
+
+    text = "".join(answer).strip()
+    if text:
+        print("\n" + "\n".join("  " + l for l in text.splitlines()[:14]))
+        if len(text.splitlines()) > 14:
+            print("  ...")
 
 
-def batch_query(items: list[str]):
+def load_section(gene: str, section: str):
+    """Pull one of the deferred datasets. Costs a credit only if data comes back."""
     r = httpx.post(
-        f"{BASE_URL}/batch-query",
-        json={"genes_or_diseases": items},
+        f"{BASE_URL}/gene/section",
+        json={"gene": gene, "section": section},
+        headers={"Content-Type": "application/json", **headers()},
         timeout=120,
     )
+    if r.status_code != 200:
+        print(f"  {section}: HTTP {r.status_code}")
+        return
+    d = r.json()
+    state = "empty" if d.get("empty") else "has data"
+    print(f"  {gene} / {section}: {state}, charged={d.get('charged')}, cached={d.get('cached')}")
+
+
+def prices():
+    r = httpx.get(f"{BASE_URL}/billing/prices", headers=headers(), timeout=30)
     data = r.json()
     print(f"\n{'='*60}")
-    print(f"  Batch Query ({len(items)} items)")
+    print("  Pricing")
     print('='*60)
-    for q in data.get("queries", []):
-        if "error" in q:
-            print(f"  {q.get('query')}: ERROR - {q['error']}")
-        else:
-            print(f"  {q.get('query')}: {q.get('result_count')} results")
-
-
-def create_project(name: str, description: str = "") -> int:
-    r = httpx.post(
-        f"{BASE_URL}/projects",
-        json={"name": name, "description": description},
-    )
-    data = r.json()
-    print_result(f"Created Project: {name}", data)
-    return data["id"]
-
-
-def list_projects():
-    r = httpx.get(f"{BASE_URL}/projects")
-    data = r.json()
-    print(f"\n{'='*60}")
-    print(f"  Projects ({len(data)} total)")
-    print('='*60)
-    for p in data:
-        print(f"  [{p['id']}] {p['name']} — {p['query_count']} queries")
+    for key in ("unlock", "credits", "byok"):
+        p = data.get(key)
+        print(f"  {key:8} {p['label'] if p else 'not configured'}")
 
 
 def cache_stats():
-    r = httpx.get(f"{BASE_URL}/cache-stats")
+    """Requires an account — the cache endpoints are no longer anonymous."""
+    r = httpx.get(f"{BASE_URL}/cache-stats", headers=headers(), timeout=30)
+    if r.status_code == 401:
+        print("\n  Cache stats need a signed-in account. Set TOKEN at the top of this file.")
+        return
     print_result("Cache Stats", r.json())
 
 
 if __name__ == "__main__":
     print("\nMyDNA API — Example Queries")
-    print("Make sure docker-compose is running: docker-compose up -d\n")
+    print("Make sure docker-compose is running: docker compose up -d\n")
 
     health_check()
+    prices()
 
-    print("\n--- Gene Queries ---")
-    gene_query("What are the pathogenic variants in BRCA1?")
-    gene_query("Show me BRCA2 variants in European populations")
-    gene_query("TP53 variants")
+    ask("What are the pathogenic variants in BRCA1?")
+    ask("Which genes are associated with Parkinson's disease?")
 
-    print("\n--- Disease Queries ---")
-    gene_query("Which genes are associated with early-onset Alzheimer's?")
-    gene_query("What genes cause hereditary breast cancer?")
+    print(f"\n{'='*60}")
+    print("  Deferred datasets")
+    print('='*60)
+    load_section("BRCA1", "pathways")
+    load_section("BRCA1", "expression")
 
-    print("\n--- Batch Query ---")
-    batch_query(["BRCA1", "TP53", "EGFR"])
-
-    print("\n--- Project Management ---")
-    project_id = create_project("BRCA Research", "Variants in BRCA genes")
-    list_projects()
-
-    print("\n--- Cache Stats ---")
     cache_stats()
-
-    print("\nDone! Visit http://localhost:8000/docs to explore the full API.")

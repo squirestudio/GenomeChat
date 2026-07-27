@@ -445,65 +445,31 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     return ChatResponse(**response_data)
 
 
-# Keep legacy endpoints for backwards compatibility
-@app.post("/execute-query", response_model=QueryResponse)
-async def execute_query(request: QueryRequest, db: Session = Depends(get_db)):
-    cached = cache.get(request.text)
-    if cached:
-        cached["cached"] = True
-        return QueryResponse(**cached)
-
-    interpreted = await interpret_query(request.text)
-    if interpreted.query_type == QueryType.UNKNOWN:
-        raise HTTPException(status_code=422, detail=f"Could not interpret: '{request.text}'")
-
-    if interpreted.query_type == QueryType.GENE_QUERY:
-        pipeline_result = await run_gene_pipeline(interpreted.target, population=interpreted.population)
-        results = pipeline_result.get("variants", [])
-        sources = pipeline_result.get("sources", [])
-    else:
-        pipeline_result = await run_disease_pipeline(interpreted.target)
-        results = pipeline_result.get("genes", [])
-        sources = pipeline_result.get("sources", [])
-
-    return QueryResponse(
-        query=request.text,
-        interpreted=interpreted,
-        results=results,
-        result_count=len(results),
-        sources=sources,
-    )
-
-
-@app.post("/interpret-query")
-async def interpret_only(request: QueryRequest):
-    interpreted = await interpret_query(request.text)
-    return {"query": request.text, "interpreted": interpreted.dict()}
-
-
-@app.post("/batch-query")
-async def batch_query(request: BatchQueryRequest, db: Session = Depends(get_db)):
-    import asyncio
-    tasks = [execute_query(QueryRequest(text=item, project_id=request.project_id), db)
-             for item in request.genes_or_diseases]
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
-    results = []
-    for item, resp in zip(request.genes_or_diseases, responses):
-        if isinstance(resp, Exception):
-            results.append({"query": item, "error": str(resp)})
-        else:
-            results.append(resp)
-    return {"queries": results, "total": len(results)}
-
+# The legacy /execute-query, /interpret-query and /batch-query endpoints were
+# removed. They predated the chat endpoints and were never brought under
+# authentication or the query quota, so anyone could spend the shared Anthropic
+# key and the NCBI rate budget without an account. /batch-query was the worst of
+# them: it fanned out one full pipeline per list item with no cap on list
+# length, turning a single anonymous request into dozens of model calls and
+# hundreds of upstream fetches. Nothing in the app used them.
 
 @app.get("/cache-stats")
-async def cache_stats():
+async def cache_stats(current_user: User = Depends(require_user)):
+    """Cache occupancy. Operational detail, so it needs an account."""
     return cache.stats()
 
 
 @app.delete("/cache")
-async def clear_cache():
+async def clear_cache(current_user: User = Depends(require_user)):
+    """Drop every cached answer.
+
+    Requires an account: the cache is what stops repeat questions re-running
+    seventeen upstream APIs and a model generation apiece, so an anonymous
+    caller emptying it in a loop is both a cost amplifier and a denial of
+    service. Entries expire on their own; this is for deliberate invalidation.
+    """
     cache.clear()
+    logger.info("Cache cleared by user %s", current_user.id)
     return {"message": "Cache cleared"}
 
 

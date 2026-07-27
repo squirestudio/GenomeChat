@@ -58,7 +58,7 @@ class LRUCache:
             "valid_entries": valid,
             "expired_entries": len(self._cache) - valid,
             "max_size": self.max_size,
-            "ttl_hours": self.ttl.seconds // 3600,
+            "ttl_hours": round(self.ttl.total_seconds() / 3600, 1),
         }
 
 

@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
-from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, section_has_data, remember_empty_section
+from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
 from database.models import create_tables_safe, get_db, Query as QueryModel, ProcessedStripeEvent
@@ -658,7 +658,7 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
     cost falls on a useful answer rather than on the attempt — and an empty
     result is remembered so the option stops being offered for that gene.
     """
-    cache_key = f"__section__:{body.gene}:{body.section}"
+    cache_key = section_cache_key(body.gene, body.section)
     cached = cache.get(cache_key)
     if cached is not None:
         return {"section": body.section, "data": cached, "cached": True,
@@ -691,8 +691,6 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
 
     has_data = section_has_data(data)
     if not has_data:
-        # Nothing to show: no charge, and do not offer this one again.
-        remember_empty_section(body.gene, body.section)
         logger.info("Section %s empty for %s — not charged", body.section, body.gene)
 
     charged = False
@@ -700,7 +698,9 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
         consume_query(current_user, db, has_working_key=has_working_key)
         charged = True
 
-    cache.set(cache_key, data)
+    # A negative expires sooner than a real answer, so a source that later
+    # gains data for this gene surfaces again on its own.
+    cache.set(cache_key, data, ttl_hours=None if has_data else EMPTY_SECTION_TTL_HOURS)
     return {"section": body.section, "data": data, "cached": False,
             "empty": not has_data, "charged": charged}
 

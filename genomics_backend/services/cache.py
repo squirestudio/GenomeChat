@@ -18,18 +18,26 @@ class LRUCache:
         key = self._make_key(query)
         if key not in self._cache:
             return None
-        value, timestamp = self._cache[key]
-        if datetime.utcnow() - timestamp > self.ttl:
+        value, timestamp, expiry = self._cache[key]
+        if datetime.utcnow() - timestamp > expiry:
             del self._cache[key]
             return None
         self._cache.move_to_end(key)
         return value
 
-    def set(self, query: str, value: Any) -> None:
+    def set(self, query: str, value: Any, ttl_hours: Optional[float] = None) -> None:
+        """Store a value. ttl_hours overrides the default for this entry.
+
+        A shorter TTL is useful for negative results: "this source had nothing
+        for this gene" should be rechecked sooner than a populated answer needs
+        refreshing, because upstream databases gain entries over time and a
+        stale negative silently hides something that now exists.
+        """
         key = self._make_key(query)
         if key in self._cache:
             self._cache.move_to_end(key)
-        self._cache[key] = (value, datetime.utcnow())
+        expiry = timedelta(hours=ttl_hours) if ttl_hours is not None else self.ttl
+        self._cache[key] = (value, datetime.utcnow(), expiry)
         if len(self._cache) > self.max_size:
             self._cache.popitem(last=False)
 
@@ -42,8 +50,8 @@ class LRUCache:
     def stats(self) -> dict:
         now = datetime.utcnow()
         valid = sum(
-            1 for _, (_, ts) in self._cache.items()
-            if now - ts <= self.ttl
+            1 for _, (_, ts, exp) in self._cache.items()
+            if now - ts <= exp
         )
         return {
             "total_entries": len(self._cache),

@@ -1452,18 +1452,31 @@ SECTION_SOURCE = {
 }
 
 
-# Genes whose sections came back empty, so the option can be withheld next time.
-# Per-process and intentionally simple: being wrong only means offering a card
-# that turns out empty, which now costs nothing anyway.
-_EMPTY_SECTIONS: dict[str, set] = {}
+# How long a "this source had nothing for this gene" result is trusted before
+# the option is offered again. Upstream databases gain entries over time, so a
+# negative must expire — otherwise a section that later acquires data stays
+# hidden forever. Short enough to recover quickly, long enough that a reader
+# clicking around does not keep meeting the same dead card.
+EMPTY_SECTION_TTL_HOURS = 6
 
 
-def remember_empty_section(gene_symbol: str, section: str) -> None:
-    _EMPTY_SECTIONS.setdefault(gene_symbol.upper(), set()).add(section)
+def section_cache_key(gene_symbol: str, section: str) -> str:
+    return f"__section__:{gene_symbol.upper()}:{section}"
 
 
 def empty_sections_for(gene_symbol: str) -> set:
-    return _EMPTY_SECTIONS.get(gene_symbol.upper(), set())
+    """Sections known — recently — to hold nothing for this gene.
+
+    Derived from the section cache rather than a separate registry, so there is
+    one expiry to reason about and a negative cannot outlive its own evidence.
+    """
+    from services.cache import cache
+    out = set()
+    for key in OPTIONAL_SECTIONS:
+        cached = cache.get(section_cache_key(gene_symbol, key))
+        if cached is not None and not section_has_data(cached):
+            out.add(key)
+    return out
 
 
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,

@@ -721,20 +721,37 @@ async def billing_portal(db: Session = Depends(get_db), current_user: User = Dep
     customer_id = current_user.stripe_customer_id
 
     # Anyone who subscribed before we started recording the customer id still
-    # needs a way to cancel, so fall back to looking them up by email.
+    # needs a way to cancel. Resolve it from the user_id stamped on their
+    # subscriptions — matching on email is unreliable, because the Stripe
+    # customer's email comes from whatever they typed at checkout (or from
+    # Link), which need not be the address they signed in with.
     if not customer_id:
-        try:
-            secret_key, _ = stripe_credentials_for(test_mode)
-            if secret_key:
-                stripe.api_key = secret_key
-                found = stripe.Customer.list(email=current_user.email, limit=1).get("data", [])
-                if found:
-                    customer_id = found[0]["id"]
-                    current_user.stripe_customer_id = customer_id
-                    db.commit()
-                    logger.info("Backfilled Stripe customer %s for user %s", customer_id, current_user.id)
-        except Exception as e:
-            logger.warning("Customer lookup by email failed for user %s: %s", current_user.id, e)
+        secret_key, _ = stripe_credentials_for(test_mode)
+        if secret_key:
+            stripe.api_key = secret_key
+            try:
+                hits = stripe.Subscription.search(
+                    query=f"metadata['user_id']:'{current_user.id}'", limit=5
+                ).get("data", [])
+                if hits:
+                    # Prefer one that is still active, else any of them.
+                    chosen = next((h for h in hits if h.get("status") in ("active", "trialing")), hits[0])
+                    customer_id = chosen.get("customer")
+            except Exception as e:
+                logger.warning("Subscription search failed for user %s: %s", current_user.id, e)
+
+            if not customer_id:
+                try:
+                    found = stripe.Customer.list(email=current_user.email, limit=1).get("data", [])
+                    if found:
+                        customer_id = found[0]["id"]
+                except Exception as e:
+                    logger.warning("Customer lookup by email failed for user %s: %s", current_user.id, e)
+
+            if customer_id:
+                current_user.stripe_customer_id = customer_id
+                db.commit()
+                logger.info("Backfilled Stripe customer %s for user %s", customer_id, current_user.id)
 
     if not customer_id:
         raise HTTPException(status_code=404, detail={

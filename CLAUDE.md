@@ -93,7 +93,9 @@ own Stripe events, so no real keys are needed.
 
 ### The `/chat` request pipeline
 
-`POST /chat` in [main.py](genomics_backend/main.py) is the only endpoint that matters; everything else is legacy or supporting. It runs three stages:
+`POST /chat/stream` in [main.py](genomics_backend/main.py) is the only chat endpoint — there is deliberately no second, non-streaming copy. One existed until it was removed: it duplicated the quota check, key resolution, pipeline dispatch, charging, persistence and caching, and the two drifted badly enough that the streaming path charged nobody for its entire life while the other worked. If you need a non-streaming response, collect the stream rather than adding a parallel handler.
+
+It runs three stages:
 
 1. **Interpret** — [services/query_interpreter.py](genomics_backend/services/query_interpreter.py) asks Claude to classify the message into `gene_query` / `disease_query` / `comparison_query` / `unknown`, using tool-calling (one tool per query type) rather than parsing free text. A regex `_fallback_interpret()` runs if the API key is missing or the call fails, so the endpoint never hard-fails on interpretation.
 2. **Fetch** — [services/genomics_api_real.py](genomics_backend/services/genomics_api_real.py) runs the corresponding pipeline (`run_gene_pipeline` / `run_disease_pipeline`).

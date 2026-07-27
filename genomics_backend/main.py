@@ -985,6 +985,11 @@ async def billing_checkout(body: CheckoutRequest, current_user: User = Depends(r
         url = create_checkout_session(current_user.id, body.type, test_mode=test_mode)
     except ValueError:
         raise HTTPException(status_code=501, detail="Billing not configured")
+    except Exception as e:
+        # Bad key, Stripe outage, price removed — anything from their side. The
+        # caller gets a clean failure instead of a 500 with a stack trace.
+        logger.error("Checkout failed for user %s (%s): %s", current_user.id, body.type, e)
+        raise HTTPException(status_code=502, detail="Could not reach the payment provider")
     return {"url": url, "test_mode": test_mode}
 
 

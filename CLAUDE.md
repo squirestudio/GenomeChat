@@ -66,7 +66,22 @@ In production there is no bind mount, so the mounted and baked files are the sam
 
 `genomics_backend/.dockerignore` excludes env files, `.git`, and bytecode from the build context — `.gitignore` has no effect on Docker builds, and the Dockerfile does `COPY . .`. Runtime is unaffected: compose passes secrets via `env_file`, Railway injects them from its dashboard, and pydantic-settings prefers real env vars over the `.env` file.
 
-There is no test suite — no pytest/vitest, no test files. `test_data/` holds sample 23andMe and AncestryDNA files for manually exercising the DNA upload path; `frontend/public/sample_23andme.txt` is the in-app downloadable sample. Verify changes by running the stack and issuing real queries.
+**Tests live in `genomics_backend/tests/` and run on every push.**
+
+```bash
+cd genomics_backend
+python -m pytest -m "not external"   # 63 checks, ~1s, no network — what CI runs
+python -m pytest                     # all 69, adds the ones hitting real APIs
+```
+
+Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
+by default: those tests are as flaky as the sources they call. Everything else —
+access control, entitlements, subscription lifecycle, webhook idempotency,
+allowlists, stored-key handling — is pure application logic and runs in CI
+against a throwaway Postgres with placeholder credentials. The suite signs its
+own Stripe events, so no real keys are needed.
+
+`test_data/` holds sample 23andMe and AncestryDNA files for manually exercising the DNA upload path. `frontend/public/sample_23andme.txt` is the in-app downloadable sample.
 
 `alembic` is in `requirements.txt` but unused — see "Schema migrations" below.
 

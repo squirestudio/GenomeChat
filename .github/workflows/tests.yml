@@ -1,0 +1,77 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: genomechat
+          POSTGRES_USER: genomechat
+          POSTGRES_PASSWORD: genomechat
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U genomechat -d genomechat"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://genomechat:genomechat@localhost:5432/genomechat
+      # Deterministic test values. No real credentials are needed: the suite
+      # signs its own Stripe events, and the tests that would reach Anthropic or
+      # NCBI are marked `external` and excluded here.
+      JWT_SECRET: ci-only-not-a-real-secret
+      STRIPE_WEBHOOK_SECRET: whsec_ci_testing_secret
+      ENCRYPTION_KEY: 5NRXQ1s6mIQb6BgTPZ0jJ3vIYaMDLkbGx6vE8vG8uJc=
+      STRIPE_SECRET_KEY: sk_test_ci_placeholder
+      STRIPE_PRICE_UNLOCK: price_ci_unlock
+      STRIPE_PRICE_CREDITS: price_ci_credits
+      STRIPE_PRICE_BYOK: price_ci_byok
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: genomics_backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Start the API
+        working-directory: genomics_backend
+        run: |
+          uvicorn main:app --host 127.0.0.1 --port 8000 --log-level warning &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/health >/dev/null && exit 0
+            sleep 1
+          done
+          echo "API did not become healthy"; exit 1
+
+      - name: Run tests
+        working-directory: genomics_backend
+        run: python -m pytest -m "not external"
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build
+        working-directory: frontend
+        run: npm run build

@@ -2629,6 +2629,16 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
   }
 }
 
+// Labels for sections, used when reporting one that came back empty.
+const EXPLORE_LABELS = {
+  pathways: "Biological pathways", expression: "Tissue expression",
+  interactions: "Protein interactions", drugs: "Drugs & clinical trials",
+  omim: "OMIM disease entries", pharmgkb: "Pharmacogenomics",
+  cancer_mutations: "Somatic cancer mutations", clingen: "ClinGen validity",
+  publication_timeline: "Publication trend", gwas: "GWAS associations",
+  phenotypes: "Phenotypes",
+};
+
 const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
   "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline"];
 
@@ -2735,6 +2745,14 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             </div>
           );
         })}
+
+        {(msg.emptySections || []).length > 0 && (
+          <p style={{ marginTop: 12, fontSize: "0.68rem", color: "var(--text-faintest)", lineHeight: 1.5 }}>
+            No data for this gene in{" "}
+            {(msg.emptySections || []).map(k => (EXPLORE_LABELS[k] || k)).join(", ")}
+            {" "}— not charged.
+          </p>
+        )}
 
         {/* 5. everything else, chosen by the reader */}
         {!msg.streaming && msg.data && (
@@ -3084,7 +3102,22 @@ export default function App() {
       });
       if (r.status === 402) { setShowUpgrade("blocked"); return; }
       if (!r.ok) throw new Error(String(r.status));
-      const { data: sectionData } = await r.json();
+      const payload = await r.json();
+      const { data: sectionData, empty } = payload;
+
+      if (empty) {
+        // Nothing there for this gene. Say so, drop the option, and charge
+        // nothing — the server has already declined to spend a credit.
+        setMessages(prev => prev.map((m, i) => i !== msgIndex ? m : {
+          ...m,
+          emptySections: [...(m.emptySections || []), sectionKey],
+          data: {
+            ...m.data,
+            pending_sections: (m.data.pending_sections || []).filter(p => p.key !== sectionKey),
+          },
+        }));
+        return;
+      }
       setMessages(prev => prev.map((m, i) => {
         if (i !== msgIndex) return m;
         const next = withOpened(m);
@@ -3098,7 +3131,7 @@ export default function App() {
         };
       }));
       reveal();
-      fetchMe();   // a credit was spent — refresh the badge
+      if (payload.charged) fetchMe();   // a credit was spent — refresh the badge
     } catch {
       setSectionErrors(prev => ({ ...prev, [`${msgIndex}:${sectionKey}`]: true }));
     } finally {

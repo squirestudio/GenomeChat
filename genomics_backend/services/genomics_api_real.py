@@ -1433,12 +1433,37 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
     return {section: result if result is not None else empty}
 
 
+def section_has_data(payload: dict) -> bool:
+    """True if a fetched section actually contains anything worth showing."""
+    for v in (payload or {}).values():
+        if isinstance(v, (list, tuple, dict)):
+            if len(v) > 0:
+                return True
+        elif v:
+            return True
+    return False
+
+
 SECTION_SOURCE = {
     "structure": "AlphaFold", "pathways": "Reactome", "expression": "GTEx",
     "interactions": "STRING", "drugs": "OpenTargets", "omim": "OMIM",
     "pharmgkb": "PharmGKB", "cancer_mutations": "COSMIC/GDC", "clingen": "ClinGen",
     "publication_timeline": "PubMed", "gwas": "GWAS Catalog", "phenotypes": "HPO",
 }
+
+
+# Genes whose sections came back empty, so the option can be withheld next time.
+# Per-process and intentionally simple: being wrong only means offering a card
+# that turns out empty, which now costs nothing anyway.
+_EMPTY_SECTIONS: dict[str, set] = {}
+
+
+def remember_empty_section(gene_symbol: str, section: str) -> None:
+    _EMPTY_SECTIONS.setdefault(gene_symbol.upper(), set()).add(section)
+
+
+def empty_sections_for(gene_symbol: str) -> set:
+    return _EMPTY_SECTIONS.get(gene_symbol.upper(), set())
 
 
 async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
@@ -1523,9 +1548,14 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
 
     if staged:
         core["sources"] = core_sources
+        # Sections already discovered to be empty for this gene are not offered
+        # again — a card that costs a credit and returns nothing is worse than
+        # no card at all.
+        known_empty = empty_sections_for(gene_symbol)
         core["pending_sections"] = [
             {"key": k, "label": v, "source": SECTION_SOURCE.get(k, "")}
             for k, v in OPTIONAL_SECTIONS.items()
+            if k not in known_empty
         ]
         return core
 

@@ -3310,6 +3310,10 @@ export default function App() {
       }
 
       patch({ streaming: false });
+      // The query was just metered server-side; re-read the account so the
+      // counter in the header reflects it. Without this the badge only moves
+      // on reload, which reads as "my query was free".
+      if (currentUser) fetchMe();
       setChatHistory(prev => [{ label: msg.slice(0, 50) }, ...prev.filter(h => h.label !== msg.slice(0, 50)).slice(0, 19)]);
     } catch (err) {
       setMessages(prev => [...prev, { role: "assistant", content: `**Connection error:** ${err.message}\n\nMake sure the backend is running.` }]);

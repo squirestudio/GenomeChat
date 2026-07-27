@@ -488,8 +488,8 @@ async def _fetch_gene_details(gene_symbols: list[str], disease_name: str, client
     if not fetch_data:
         return []
 
-    results = []
     result = fetch_data.get("result", {})
+    usable = []
     for uid in result.get("uids", []):
         item = result.get(uid, {})
         if not item or item.get("status") == "discontinued":
@@ -497,17 +497,29 @@ async def _fetch_gene_details(gene_symbols: list[str], disease_name: str, client
         symbol = item.get("name", "")
         if not symbol or symbol == "1":
             continue
-        pub_count = await fetch_pubmed_count(symbol)
-        results.append(GeneResult(
+        usable.append((uid, item, symbol))
+
+    # Publication counts in parallel. Awaiting one per gene inside the loop made
+    # a twenty-gene disease twenty sequential NCBI round trips, each additionally
+    # paced by the shared rate limiter. The limiter still enforces the cap; it
+    # just no longer has a serial queue in front of it.
+    counts = await asyncio.gather(
+        *[fetch_pubmed_count(sym) for _, _, sym in usable],
+        return_exceptions=True,
+    )
+
+    return [
+        GeneResult(
             gene_symbol=symbol,
             gene_id=uid,
             disease_association=disease_name,
             description=item.get("description", ""),
-            publication_count=pub_count,
+            publication_count=count if isinstance(count, int) else 0,
             chromosome=item.get("chromosome", ""),
-            source="NCBI"
-        ))
-    return results
+            source="NCBI",
+        )
+        for (uid, item, symbol), count in zip(usable, counts)
+    ]
 
 
 async def fetch_disease_genes(disease_name: str) -> list[GeneResult]:
@@ -548,8 +560,8 @@ async def fetch_disease_genes(disease_name: str) -> list[GeneResult]:
         if not fetch_data:
             return []
 
-        genes = []
         result = fetch_data.get("result", {})
+        usable = []
         for uid in result.get("uids", []):
             item = result.get(uid, {})
             if not item or item.get("status") == "discontinued":
@@ -557,16 +569,25 @@ async def fetch_disease_genes(disease_name: str) -> list[GeneResult]:
             symbol = item.get("name", "")
             if not symbol or symbol == "1":
                 continue
-            pub_count = await fetch_pubmed_count(symbol)
-            genes.append(GeneResult(
+            usable.append((uid, item, symbol))
+
+        # Same parallelisation as the primary path above.
+        counts = await asyncio.gather(
+            *[fetch_pubmed_count(sym) for _, _, sym in usable],
+            return_exceptions=True,
+        )
+        genes = [
+            GeneResult(
                 gene_symbol=symbol,
                 gene_id=uid,
                 disease_association=disease_name,
                 description=item.get("description", ""),
-                publication_count=pub_count,
+                publication_count=count if isinstance(count, int) else 0,
                 chromosome=item.get("chromosome", ""),
-                source="NCBI"
-            ))
+                source="NCBI",
+            )
+            for (uid, item, symbol), count in zip(usable, counts)
+        ]
         return sorted(genes, key=lambda g: g.publication_count or 0, reverse=True)
 
 
@@ -1602,13 +1623,39 @@ async def _gather_one(coro):
         return None
 
 
-async def run_disease_pipeline(disease_name: str) -> dict:
+# How many genes to offer as follow-ups. The list is already ranked by
+# publication volume, so the first few are the ones worth reading about.
+DISEASE_FOLLOWUP_GENES = 6
+
+
+async def run_disease_pipeline(disease_name: str, staged: bool = False) -> dict:
     genes = await fetch_disease_genes(disease_name)
     gene_dicts = [g.dict() for g in genes]
 
-    return {
+    result = {
         "disease": disease_name,
         "genes": gene_dicts,
         "gene_count": len(gene_dicts),
-        "sources": ["NCBI", "PubMed"] if gene_dicts else []
+        "sources": ["NCBI", "PubMed"] if gene_dicts else [],
+        "pending_sections": [],
     }
+
+    if not staged:
+        return result
+
+    # A disease answer has no eleven datasets to defer — it has a list of genes,
+    # and the useful next step is reading about one of them. These are offered as
+    # follow-up questions rather than data fetches: asking about a gene runs the
+    # whole gene pipeline and renders through the path that already exists, which
+    # is both better than a cut-down inline panel and far less code.
+    result["pending_sections"] = [
+        {
+            "key": f"ask:{g['gene_symbol']}",
+            "label": f"{g['gene_symbol']} in depth",
+            "source": f"{g['publication_count']:,} publications" if g.get("publication_count")
+                      else (g.get("description") or "")[:48],
+            "ask": f"{g['gene_symbol']} variants",
+        }
+        for g in gene_dicts[:DISEASE_FOLLOWUP_GENES]
+    ]
+    return result

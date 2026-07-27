@@ -1345,7 +1345,7 @@ function OpenedSection({ label, open, pinned, onToggle, children }) {
   );
 }
 
-function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
+function ExploreFurther({ items, opened, onLoadSection, onAsk, sectionState }) {
   if (!onLoadSection) return null;
   const remaining = items.filter(it => !opened.includes(it.key));
   if (!remaining.length) return null;
@@ -1368,7 +1368,8 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
           const busy = !!loading[key];
           const failed = !!errors[key];
           return (
-            <button key={it.key} disabled={busy} onClick={() => onLoadSection(it.key, it.instant, it.label)}
+            <button key={it.key} disabled={busy}
+              onClick={() => it.ask ? onAsk?.(it.ask) : onLoadSection(it.key, it.instant, it.label)}
               style={{
                 display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2,
                 padding: "0.6rem 0.7rem", borderRadius: 10, textAlign: "left",
@@ -1386,7 +1387,7 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
                 {/* Only the ones that cost anything are marked; absence of a
                     chip means free, which keeps sixteen cards from becoming a
                     wall of labels. */}
-                {!it.instant && !busy && (
+                {!it.instant && !busy && !it.ask && (
                   <span
                     title="Uses one query credit — only if data is found"
                     style={{
@@ -1402,6 +1403,7 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
               </div>
               <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>
                 {failed ? "Could not load — click to retry" : it.source}
+                {it.ask && !failed ? " · asks a new question" : ""}
               </span>
             </button>
           );
@@ -2686,12 +2688,15 @@ function buildExploreItems(msg) {
 
   // Not yet fetched.
   for (const p of d.pending_sections || []) {
-    items.push({ key: p.key, label: p.label, source: p.source, instant: false });
+    // Disease answers offer follow-up questions rather than datasets: the useful
+    // next step from a gene list is reading about one of the genes, which runs
+    // the whole gene pipeline through the path that already exists.
+    items.push({ key: p.key, label: p.label, source: p.source, instant: false, ask: p.ask });
   }
   return items;
 }
 
-function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, sectionState }) {
+function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, onAsk, sectionState }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
@@ -2778,6 +2783,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             items={buildExploreItems(msg)}
             opened={msg.loadedOrder || []}
             onLoadSection={onLoadSection}
+            onAsk={onAsk}
             sectionState={sectionState}
           />
         )}
@@ -3954,7 +3960,7 @@ export default function App() {
                   const isAnchor = i === messages.map(m => m.role).lastIndexOf("user");
                   return msg.role === "user"
                     ? <div key={i} ref={isAnchor ? latestTurnRef : null} style={{ scrollMarginTop: "1rem" }}><UserMessage content={msg.content} /></div>
-                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant, label) => loadSection(i, sec, instant, label)} onToggleSection={sec => toggleSection(i, sec)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant, label) => loadSection(i, sec, instant, label)} onToggleSection={sec => toggleSection(i, sec)} onAsk={q => sendMessage(q)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
                 })}
                 {loading && <TypingIndicator stage={streamStage} />}
                 <div ref={bottomRef} />

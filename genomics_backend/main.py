@@ -476,7 +476,7 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                     interpreted.target, population=interpreted.population, staged=body.staged)
                 raw_results = pipeline_result.get("variants", [])
             else:
-                pipeline_result = await run_disease_pipeline(interpreted.target)
+                pipeline_result = await run_disease_pipeline(interpreted.target, staged=body.staged)
                 raw_results = pipeline_result.get("genes", [])
             sources = pipeline_result.get("sources", [])
 
@@ -629,197 +629,6 @@ def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
-@app.post("/chat/stream")
-async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
-                      current_user: Optional[User] = Depends(get_current_user)):
-    """Same pipeline as /chat, delivered as server-sent events.
-
-    Emits progress while interpreting and fetching, then the data payload so
-    panels can render, then the explanation token by token. The wait is the
-    same length; it stops being a blank one.
-    """
-    history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
-
-    user_api_key = request.user_api_key
-    if not user_api_key and current_user:
-        user_api_key = try_decrypt_key(current_user.encrypted_api_key)
-    has_working_key = bool(user_api_key)
-
-    if current_user:
-        allowed, _ = user_can_query(current_user, has_working_key=has_working_key)
-        if not allowed:
-            raise HTTPException(status_code=402, detail={
-                "upgrade_required": True,
-                "total_queries": current_user.total_queries or 0,
-                "query_credits": current_user.query_credits or 0,
-                "free_limit": FREE_QUERY_LIMIT,
-                "stored_key_unusable": bool(current_user.encrypted_api_key and not has_working_key),
-            })
-
-    async def events():
-        try:
-            cached = cache.get(request.message)
-            if cached:
-                yield _sse("data", {k: v for k, v in cached.items() if k != "content"})
-                yield _sse("token", {"text": cached.get("content", "")})
-                yield _sse("done", {"cached": True, "query_id": cached.get("query_id")})
-                return
-
-            yield _sse("status", {"stage": "interpreting"})
-            interpreted = await interpret_query(request.message)
-
-            if interpreted.query_type == QueryType.UNKNOWN:
-                yield _sse("status", {"stage": "thinking"})
-                parts = []
-                async for chunk in stream_followup(
-                    request.message, history_dicts,
-                    personal_variants=request.personal_variants,
-                    response_detail=request.response_detail,
-                    user_api_key=user_api_key,
-                ):
-                    parts.append(chunk)
-                    yield _sse("token", {"text": chunk})
-                if current_user:
-                    consume_query(current_user, db, has_working_key=has_working_key)
-                yield _sse("done", {"content_length": len("".join(parts))})
-                return
-
-            yield _sse("status", {"stage": "fetching", "target": interpreted.target,
-                                  "query_type": interpreted.query_type.value})
-
-            if interpreted.query_type == QueryType.GENE_QUERY:
-                pipeline_result = await run_gene_pipeline(
-                    interpreted.target, population=interpreted.population, staged=request.staged)
-                raw_results = pipeline_result.get("variants", [])
-            else:
-                pipeline_result = await run_disease_pipeline(interpreted.target)
-                raw_results = pipeline_result.get("genes", [])
-            sources = pipeline_result.get("sources", [])
-
-            # Panels render now, before a single token of prose exists.
-            yield _sse("data", {
-                "data": pipeline_result,
-                "query_type": interpreted.query_type.value,
-                "target": interpreted.target,
-                "sources": sources,
-                "result_count": len(raw_results),
-            })
-
-            yield _sse("status", {"stage": "explaining"})
-            parts = []
-            async for chunk in stream_explanation(
-                query=request.message,
-                query_type=interpreted.query_type.value,
-                data=pipeline_result,
-                conversation_history=history_dicts,
-                personal_variants=request.personal_variants,
-                response_detail=request.response_detail,
-                user_api_key=user_api_key,
-            ):
-                parts.append(chunk)
-                yield _sse("token", {"text": chunk})
-
-            explanation = "".join(parts)
-            if current_user:
-                consume_query(current_user, db, has_working_key=has_working_key)
-
-            query_id = None
-            stored = {
-                "content": explanation, "data": pipeline_result,
-                "query_type": interpreted.query_type.value, "target": interpreted.target,
-                "sources": sources, "result_count": len(raw_results),
-            }
-            try:
-                row = QueryModel(
-                    project_id=request.project_id,
-                    user_id=current_user.id if current_user else None,
-                    query_text=request.message,
-                    query_type=interpreted.query_type.value,
-                    target=interpreted.target,
-                    results=stored, result_count=len(raw_results),
-                    sources=sources, cached=0,
-                )
-                db.add(row); db.commit(); db.refresh(row)
-                query_id = row.id
-            except Exception as e:
-                logger.warning(f"DB save failed: {e}")
-
-            cache.set(request.message, {**stored, "query_id": query_id})
-            yield _sse("done", {"query_id": query_id, "cached": False})
-
-        except Exception as e:
-            logger.error(f"Stream failed: {e}")
-            yield _sse("error", {"message": str(e)})
-
-    return StreamingResponse(events(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",   # keep proxies from buffering the stream
-    })
-
-
-# ── Staged gene sections ──────────────────────────────────────────────────────
-
-class SectionRequest(BaseModel):
-    gene: str
-    section: str
-    uniprot_accession: Optional[str] = None
-    ensembl_id: Optional[str] = None
-
-
-@app.post("/gene/section")
-async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
-                       current_user: Optional[User] = Depends(get_current_user)):
-    """Fetch one optional section of a gene result, on demand.
-
-    Counts against the query quota: each section is a separate round of
-    upstream fetching, and choosing to pull one is a deliberate act of asking
-    for more. Cached repeats are free — re-reading something already fetched
-    is not a new question.
-    """
-    cache_key = f"__section__:{body.gene}:{body.section}"
-    cached = cache.get(cache_key)
-    if cached:
-        return {"section": body.section, "data": cached, "cached": True}
-
-    user_api_key = try_decrypt_key(current_user.encrypted_api_key) if current_user else None
-    has_working_key = bool(user_api_key)
-    if current_user:
-        allowed, _ = user_can_query(current_user, has_working_key=has_working_key)
-        if not allowed:
-            raise HTTPException(status_code=402, detail={
-                "upgrade_required": True,
-                "total_queries": current_user.total_queries or 0,
-                "query_credits": current_user.query_credits or 0,
-                "free_limit": FREE_QUERY_LIMIT,
-                "stored_key_unusable": bool(current_user.encrypted_api_key and not has_working_key),
-            })
-
-    try:
-        data = await fetch_gene_section(
-            body.gene, body.section,
-            uniprot_accession=body.uniprot_accession,
-            ensembl_id=body.ensembl_id,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Section {body.section} failed for {body.gene}: {e}")
-        raise HTTPException(status_code=502, detail=f"Could not load {body.section}")
-
-    # Charged only after the fetch succeeds — a failed lookup costs nothing.
-    if current_user:
-        consume_query(current_user, db, has_working_key=has_working_key)
-
-    cache.set(cache_key, data)
-    return {"section": body.section, "data": data, "cached": False}
-
-
-# ── Billing ───────────────────────────────────────────────────────────────────
-
-class CheckoutRequest(BaseModel):
-    type: str  # "unlock" | "credits" | "byok"
-
-
 @app.get("/billing/prices")
 async def billing_prices(current_user: Optional[User] = Depends(get_current_user)):
     """Live pricing for whichever Stripe mode applies to this caller."""
@@ -882,6 +691,10 @@ async def billing_portal(db: Session = Depends(get_db), current_user: User = Dep
         logger.error("Portal session failed for user %s: %s", current_user.id, e)
         raise HTTPException(status_code=502, detail="Could not open the billing portal")
     return {"url": url}
+
+
+class CheckoutRequest(BaseModel):
+    type: str  # "unlock" | "credits" | "byok"
 
 
 @app.post("/billing/checkout")

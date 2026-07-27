@@ -36,3 +36,57 @@ def test_an_empty_section_costs_nothing(base_url, make_user, auth, fresh):
     else:
         assert body["charged"] is True
         assert fresh(user).query_credits == 9
+
+
+# ── disease answers offer follow-up questions, not datasets ──────────────────
+
+def test_disease_results_are_unstaged_by_default():
+    """Callers that ask for everything still get the original shape."""
+    import asyncio
+    from services.genomics_api_real import run_disease_pipeline
+    # No network needed for the shape check when the gene list is empty.
+    result = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        _empty_disease()
+    )
+    assert result["pending_sections"] == []
+
+
+async def _empty_disease():
+    from services.genomics_api_real import run_disease_pipeline
+    import services.genomics_api_real as g
+    original = g.fetch_disease_genes
+    g.fetch_disease_genes = lambda name: _no_genes()
+    try:
+        return await run_disease_pipeline("nothing at all", staged=True)
+    finally:
+        g.fetch_disease_genes = original
+
+
+async def _no_genes():
+    return []
+
+
+@pytest.mark.external
+def test_a_disease_query_offers_its_top_genes_as_follow_ups(base_url):
+    """The useful next step from a gene list is reading about one of the genes."""
+    import json
+    import httpx
+
+    event = None
+    with httpx.stream("POST", f"{base_url}/chat/stream",
+                      json={"message": "Which genes are linked to Parkinson's disease?"},
+                      headers={"X-Forwarded-For": "203.0.113.60"}, timeout=300) as r:
+        assert r.status_code == 200
+        for line in r.iter_lines():
+            if line.startswith("event: "):
+                event = line[7:].strip()
+            elif line.startswith("data: ") and event == "data":
+                data = json.loads(line[6:])["data"]
+                break
+
+    assert data["gene_count"] > 0
+    pending = data["pending_sections"]
+    assert pending, "a disease answer should offer somewhere to go next"
+    for p in pending:
+        assert p["key"].startswith("ask:")
+        assert p["ask"].endswith(" variants"), "follow-ups are questions, not fetches"

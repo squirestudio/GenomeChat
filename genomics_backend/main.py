@@ -18,7 +18,7 @@ from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
-from database.models import create_tables_safe, get_db, Query as QueryModel, ProcessedStripeEvent
+from database.models import create_tables_safe, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
@@ -323,9 +323,11 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
                 ),
             })
 
-    # Check cache
+    # Check cache. Charged like any other answer — see /chat/stream.
     cached = cache.get(request.message)
     if cached:
+        if current_user:
+            consume_query(current_user, db, has_working_key=has_working_key)
         return ChatResponse(**{**cached, "cached": True})
 
     # Try to interpret as genomics query
@@ -538,10 +540,32 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 "stored_key_unusable": bool(current_user.encrypted_api_key and not has_working_key),
             })
 
+    # The generator runs after this handler returns, by which point FastAPI has
+    # already closed the request-scoped session and detached current_user —
+    # mutations on it commit nothing. Everything inside the stream therefore
+    # uses its own session and re-reads the user by id.
+    user_id_for_stream = current_user.id if current_user else None
+
     async def events():
+        stream_db = SessionLocal() if user_id_for_stream else None
+
+        def charge():
+            """Spend a query against a freshly-loaded user."""
+            if not stream_db:
+                return
+            u = stream_db.query(User).filter(User.id == user_id_for_stream).first()
+            if u:
+                consume_query(u, stream_db, has_working_key=has_working_key)
+
         try:
             cached = cache.get(request.message)
             if cached:
+                # A cached answer is still an answer. The cache exists to save
+                # upstream calls, not to make questions free — and since it is
+                # keyed on the question alone, not the user, leaving it
+                # uncharged would make any question already asked by anyone
+                # free for everyone for a day.
+                charge()
                 yield _sse("data", {k: v for k, v in cached.items() if k != "content"})
                 yield _sse("token", {"text": cached.get("content", "")})
                 yield _sse("done", {"cached": True, "query_id": cached.get("query_id")})
@@ -561,8 +585,7 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 ):
                     parts.append(chunk)
                     yield _sse("token", {"text": chunk})
-                if current_user:
-                    consume_query(current_user, db, has_working_key=has_working_key)
+                charge()
                 yield _sse("done", {"content_length": len("".join(parts))})
                 return
 
@@ -602,8 +625,7 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 yield _sse("token", {"text": chunk})
 
             explanation = "".join(parts)
-            if current_user:
-                consume_query(current_user, db, has_working_key=has_working_key)
+            charge()
 
             query_id = None
             stored = {
@@ -611,20 +633,24 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 "query_type": interpreted.query_type.value, "target": interpreted.target,
                 "sources": sources, "result_count": len(raw_results),
             }
+            save_db = stream_db or SessionLocal()
             try:
                 row = QueryModel(
                     project_id=request.project_id,
-                    user_id=current_user.id if current_user else None,
+                    user_id=user_id_for_stream,
                     query_text=request.message,
                     query_type=interpreted.query_type.value,
                     target=interpreted.target,
                     results=stored, result_count=len(raw_results),
                     sources=sources, cached=0,
                 )
-                db.add(row); db.commit(); db.refresh(row)
+                save_db.add(row); save_db.commit(); save_db.refresh(row)
                 query_id = row.id
             except Exception as e:
                 logger.warning(f"DB save failed: {e}")
+            finally:
+                if save_db is not stream_db:
+                    save_db.close()
 
             cache.set(request.message, {**stored, "query_id": query_id})
             yield _sse("done", {"query_id": query_id, "cached": False})
@@ -632,6 +658,9 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
         except Exception as e:
             logger.error(f"Stream failed: {e}")
             yield _sse("error", {"message": str(e)})
+        finally:
+            if stream_db:
+                stream_db.close()
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",

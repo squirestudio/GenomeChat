@@ -160,6 +160,12 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS byok_purchased BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
+        # Columns added by ALTER TABLE do not get the index the model declares,
+        # so these were never created and every history load and ownership check
+        # was a sequential scan. The composite matches how the rows are actually
+        # read: filtered by owner, newest first.
+        "CREATE INDEX IF NOT EXISTS ix_queries_user_created ON queries (user_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_projects_user_id ON projects (user_id)",
         # Anyone who already stored a key did so when it was free — keep them.
         "UPDATE users SET byok_purchased = TRUE WHERE encrypted_api_key IS NOT NULL AND byok_purchased IS NOT TRUE",
     ]

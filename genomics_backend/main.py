@@ -8,7 +8,7 @@ from typing import Optional, Any
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -37,14 +37,19 @@ settings = get_settings()
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
-    content: str
+    content: str = Field(max_length=20000)
 
 
 class ChatRequest(BaseModel):
-    message: str
-    history: list[ChatMessage] = []
+    # Bounded because every one of these is forwarded into the model prompt, so
+    # payload size maps directly onto token spend — and because nothing else
+    # stopped a caller sending an arbitrarily large body.
+    message: str = Field(min_length=1, max_length=4000)
+    history: list[ChatMessage] = Field(default=[], max_length=40)
     project_id: Optional[int] = None
-    personal_variants: Optional[list[dict]] = None  # [{rsid, genotype, chromosome?}] — session only, never stored
+    # [{rsid, genotype, chromosome?}] — session only, never stored. The UI sends
+    # at most 200; the ceiling is here so that stays true of every caller.
+    personal_variants: Optional[list[dict]] = Field(default=None, max_length=500)
     response_detail: Optional[str] = "standard"     # concise | standard | detailed
     staged: bool = True                             # core data first; sections on demand
     user_api_key: Optional[str] = None              # user-supplied Anthropic key; never logged or stored
@@ -697,8 +702,8 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
 # ── Staged gene sections ──────────────────────────────────────────────────────
 
 class SectionRequest(BaseModel):
-    gene: str
-    section: str
+    gene: str = Field(min_length=1, max_length=32)
+    section: str = Field(min_length=1, max_length=64)
     uniprot_accession: Optional[str] = None
     ensembl_id: Optional[str] = None
 

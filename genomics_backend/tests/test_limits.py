@@ -120,3 +120,32 @@ def test_the_api_refuses_an_anonymous_caller_past_the_allowance(base_url):
 
     assert 401 in seen, f"expected a sign-in gate after the allowance, saw {seen}"
     assert seen.count(200) >= 1, "the first questions should have been answered"
+
+
+# ── request payload bounds ───────────────────────────────────────────────────
+# Every one of these is forwarded into the model prompt, so payload size maps
+# directly onto token spend. Rejection happens in validation, before any work.
+
+@pytest.mark.parametrize("body,why", [
+    ({"message": "x" * 5000}, "message over 4000 chars"),
+    ({"message": ""}, "empty message"),
+    ({"message": "hi", "history": [{"role": "user", "content": "x"}] * 60}, "history over 40 turns"),
+    ({"message": "hi", "personal_variants": [{"rsid": "rs1"}] * 600}, "over 500 variants"),
+])
+def test_oversized_requests_are_rejected(base_url, body, why):
+    import httpx
+    r = httpx.post(f"{base_url}/chat/stream", json=body,
+                   headers={"X-Forwarded-For": "203.0.113.250"}, timeout=30)
+    assert r.status_code == 422, f"{why} should be rejected, got {r.status_code}"
+
+
+def test_a_reasonable_request_passes_validation(base_url):
+    """Guards against the bounds being set so tight they reject normal use."""
+    import httpx
+    body = {"message": "BRCA1 variants",
+            "history": [{"role": "user", "content": "hello"}] * 10,
+            "personal_variants": [{"rsid": "rs1", "genotype": "AA"}] * 200}
+    r = httpx.post(f"{base_url}/gene/section",
+                   json={"gene": "BRCA1", "section": "pathways"},
+                   headers={"X-Forwarded-For": "203.0.113.251"}, timeout=180)
+    assert r.status_code != 422

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose exec -T backend python -m pytest*)",
+      "Bash(docker compose exec -T postgres psql*)",
+      "Bash(docker compose restart backend)",
+      "Bash(docker compose up -d*)",
+      "Bash(docker compose build*)",
+      "Bash(docker compose logs*)",
+      "Bash(curl -s*)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(npm ci)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)"
+    ]
+  }
+}

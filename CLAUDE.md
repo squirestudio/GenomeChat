@@ -66,12 +66,16 @@ In production there is no bind mount, so the mounted and baked files are the sam
 
 `genomics_backend/.dockerignore` excludes env files, `.git`, and bytecode from the build context — `.gitignore` has no effect on Docker builds, and the Dockerfile does `COPY . .`. Runtime is unaffected: compose passes secrets via `env_file`, Railway injects them from its dashboard, and pydantic-settings prefers real env vars over the `.env` file.
 
+**Abuse limits are server-side.** `ANON_QUERY_LIMIT` (default 3) is enforced per client IP in [services/limits.py](genomics_backend/services/limits.py), not just counted in `localStorage` — the browser copy only decides when to show the sign-in prompt early. Per-IP rate limits apply to every route except `/health` (so a limited client cannot take the healthcheck down with it) and `/billing/webhook` (Stripe retries in bursts and is already authenticated by signature); expensive paths get a tighter ceiling than the rest.
+
+Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` reads the left-most `X-Forwarded-For` entry. That is spoofable in general, which is why these are a fairness measure and a cost brake, never an authentication boundary. All of this state is per-process — see the note about scaling out under "Two independent allowlists".
+
 **Tests live in `genomics_backend/tests/` and run on every push.**
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 63 checks, ~1s, no network — what CI runs
-python -m pytest                     # all 69, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 73 checks, ~1s, no network — what CI runs
+python -m pytest                     # all 80, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded

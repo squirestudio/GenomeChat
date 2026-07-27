@@ -23,6 +23,14 @@ class Settings(BaseSettings):
         "https://genomechat.vercel.app",
         "https://mydna.chat", "https://www.mydna.chat",
     ]
+    # Anonymous callers get this many questions before signing in. The browser
+    # shows the prompt at the same number; this is the copy that enforces it.
+    anon_query_limit: int = 3
+    # Per-IP request ceilings. The expensive figure covers anything that reaches
+    # an upstream API or a model; the default covers everything else.
+    rate_limit_expensive_per_min: int = 20
+    rate_limit_default_per_min: int = 120
+
     cache_ttl_hours: int = 24
     cache_max_size: int = 1000
     request_timeout: int = 30

@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional, Any
 from fastapi import FastAPI, HTTPException, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
+from services.limits import AnonymousAllowance, SlidingWindow, client_ip
 from database.models import create_tables_safe, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
@@ -271,6 +272,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Abuse limits ──────────────────────────────────────────────────────────────
+# Paths that reach an upstream API or a model get a tighter ceiling than the
+# rest. /health is exempt so a limited client cannot take the healthcheck down
+# with it, and /billing/webhook is exempt because Stripe retries in bursts and
+# is already authenticated by signature.
+EXPENSIVE_PATHS = ("/chat", "/chat/stream", "/gene/section")
+UNLIMITED_PATHS = ("/health", "/billing/webhook")
+
+_expensive_limiter = SlidingWindow(settings.rate_limit_expensive_per_min, 60.0)
+_default_limiter = SlidingWindow(settings.rate_limit_default_per_min, 60.0)
+anon_allowance = AnonymousAllowance(settings.anon_query_limit)
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    path = request.url.path
+    if path in UNLIMITED_PATHS or request.method == "OPTIONS":
+        return await call_next(request)
+
+    limiter = _expensive_limiter if path in EXPENSIVE_PATHS else _default_limiter
+    ip = client_ip(request)
+    allowed, retry_after = limiter.check(ip)
+    if not allowed:
+        logger.warning("Rate limit hit by %s on %s", ip, path)
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please slow down and try again shortly."},
+            headers={"Retry-After": str(max(1, int(retry_after)))},
+        )
+    _expensive_limiter.prune()
+    _default_limiter.prune()
+    return await call_next(request)
+
+
 app.include_router(projects_router)
 app.include_router(share_router)
 app.include_router(auth_router)
@@ -289,12 +324,32 @@ async def health_check():
     return HealthResponse(status="healthy", database=db_status, cache_size=cache.size())
 
 
+
+def enforce_anonymous_allowance(request: Request, current_user: Optional[User]) -> Optional[str]:
+    """Gate unauthenticated callers, returning the key to charge on success.
+
+    Returns None for signed-in users. Raises 401 once an anonymous caller has
+    used their allowance, with a marker the UI turns into the sign-in prompt.
+    """
+    if current_user:
+        return None
+    key = client_ip(request)
+    if not anon_allowance.allowed(key):
+        raise HTTPException(status_code=401, detail={
+            "sign_in_required": True,
+            "anon_limit": anon_allowance.limit,
+            "message": "Sign in to keep asking questions.",
+        })
+    return key
+
+
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_current_user)):
+async def chat(http_request: Request, request: ChatRequest, db: Session = Depends(get_db), current_user: Optional[User] = Depends(get_current_user)):
     """
     Primary chat endpoint. Interprets the message, fetches genomics data if needed,
     then has Claude explain the results with full conversation context.
     """
+    anon_key = enforce_anonymous_allowance(http_request, current_user)
     history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
 
     # Resolve API key first: request body → server-stored → shared server key.
@@ -399,6 +454,8 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db), current_user
     # Count the query against the user's limit
     if current_user:
         consume_query(current_user, db, has_working_key=has_working_key)
+    elif anon_key:
+        anon_allowance.record(anon_key)
 
     # Save to DB — store full response so history can replay it
     query_id = None
@@ -480,7 +537,7 @@ def _sse(event: str, payload: dict) -> str:
 
 
 @app.post("/chat/stream")
-async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
+async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends(get_db),
                       current_user: Optional[User] = Depends(get_current_user)):
     """Same pipeline as /chat, delivered as server-sent events.
 
@@ -488,9 +545,10 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
     panels can render, then the explanation token by token. The wait is the
     same length; it stops being a blank one.
     """
-    history_dicts = [{"role": m.role, "content": m.content} for m in request.history]
+    anon_key = enforce_anonymous_allowance(request, current_user)
+    history_dicts = [{"role": m.role, "content": m.content} for m in body.history]
 
-    user_api_key = request.user_api_key
+    user_api_key = body.user_api_key
     if not user_api_key and current_user:
         user_api_key = try_decrypt_key(current_user.encrypted_api_key)
     has_working_key = bool(user_api_key)
@@ -516,7 +574,9 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
         stream_db = SessionLocal() if user_id_for_stream else None
 
         def charge():
-            """Spend a query against a freshly-loaded user."""
+            """Spend a query: a credit for members, an allowance slot otherwise."""
+            if anon_key:
+                anon_allowance.record(anon_key)
             if not stream_db:
                 return
             u = stream_db.query(User).filter(User.id == user_id_for_stream).first()
@@ -524,7 +584,7 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 consume_query(u, stream_db, has_working_key=has_working_key)
 
         try:
-            cached = cache.get(request.message)
+            cached = cache.get(body.message)
             if cached:
                 # A cached answer is still an answer. The cache exists to save
                 # upstream calls, not to make questions free — and since it is
@@ -538,15 +598,15 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 return
 
             yield _sse("status", {"stage": "interpreting"})
-            interpreted = await interpret_query(request.message)
+            interpreted = await interpret_query(body.message)
 
             if interpreted.query_type == QueryType.UNKNOWN:
                 yield _sse("status", {"stage": "thinking"})
                 parts = []
                 async for chunk in stream_followup(
-                    request.message, history_dicts,
-                    personal_variants=request.personal_variants,
-                    response_detail=request.response_detail,
+                    body.message, history_dicts,
+                    personal_variants=body.personal_variants,
+                    response_detail=body.response_detail,
                     user_api_key=user_api_key,
                 ):
                     parts.append(chunk)
@@ -560,7 +620,7 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
 
             if interpreted.query_type == QueryType.GENE_QUERY:
                 pipeline_result = await run_gene_pipeline(
-                    interpreted.target, population=interpreted.population, staged=request.staged)
+                    interpreted.target, population=interpreted.population, staged=body.staged)
                 raw_results = pipeline_result.get("variants", [])
             else:
                 pipeline_result = await run_disease_pipeline(interpreted.target)
@@ -579,12 +639,12 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
             yield _sse("status", {"stage": "explaining"})
             parts = []
             async for chunk in stream_explanation(
-                query=request.message,
+                query=body.message,
                 query_type=interpreted.query_type.value,
                 data=pipeline_result,
                 conversation_history=history_dicts,
-                personal_variants=request.personal_variants,
-                response_detail=request.response_detail,
+                personal_variants=body.personal_variants,
+                response_detail=body.response_detail,
                 user_api_key=user_api_key,
             ):
                 parts.append(chunk)
@@ -602,9 +662,9 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
             save_db = stream_db or SessionLocal()
             try:
                 row = QueryModel(
-                    project_id=request.project_id,
+                    project_id=body.project_id,
                     user_id=user_id_for_stream,
-                    query_text=request.message,
+                    query_text=body.message,
                     query_type=interpreted.query_type.value,
                     target=interpreted.target,
                     results=stored, result_count=len(raw_results),
@@ -618,7 +678,7 @@ async def chat_stream(request: ChatRequest, db: Session = Depends(get_db),
                 if save_db is not stream_db:
                     save_db.close()
 
-            cache.set(request.message, {**stored, "query_id": query_id})
+            cache.set(body.message, {**stored, "query_id": query_id})
             yield _sse("done", {"query_id": query_id, "cached": False})
 
         except Exception as e:
@@ -644,7 +704,7 @@ class SectionRequest(BaseModel):
 
 
 @app.post("/gene/section")
-async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
+async def gene_section(request: Request, body: SectionRequest, db: Session = Depends(get_db),
                        current_user: Optional[User] = Depends(get_current_user)):
     """Fetch one optional section of a gene result, on demand.
 
@@ -653,9 +713,16 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
     cost falls on a useful answer rather than on the attempt — and an empty
     result is remembered so the option stops being offered for that gene.
     """
+    anon_key = enforce_anonymous_allowance(request, current_user)
     cache_key = section_cache_key(body.gene, body.section)
     cached = cache.get(cache_key)
     if cached is not None:
+        # Free for members — someone already paid to fetch this, and re-reading
+        # is not a new question. Anonymous callers still spend an allowance
+        # slot: that gate is about access, not cost, and serving unlimited
+        # cached content would quietly defeat it.
+        if anon_key and section_has_data(cached):
+            anon_allowance.record(anon_key)
         return {"section": body.section, "data": cached, "cached": True,
                 "empty": not section_has_data(cached), "charged": False}
 
@@ -689,9 +756,12 @@ async def gene_section(body: SectionRequest, db: Session = Depends(get_db),
         logger.info("Section %s empty for %s — not charged", body.section, body.gene)
 
     charged = False
-    if current_user and has_data:
-        consume_query(current_user, db, has_working_key=has_working_key)
-        charged = True
+    if has_data:
+        if current_user:
+            consume_query(current_user, db, has_working_key=has_working_key)
+            charged = True
+        elif anon_key:
+            anon_allowance.record(anon_key)
 
     # A negative expires sooner than a real answer, so a source that later
     # gains data for this gene surfaces again on its own.

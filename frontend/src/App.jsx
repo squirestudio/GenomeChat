@@ -3119,6 +3119,7 @@ export default function App() {
         }),
       });
       if (r.status === 402) { setShowUpgrade("blocked"); return; }
+      if (r.status === 401) { setShowSignInGate(true); return; }
       if (!r.ok) throw new Error(String(r.status));
       const payload = await r.json();
       const { data: sectionData, empty } = payload;
@@ -3276,6 +3277,20 @@ export default function App() {
       if (r.status === 402) {
         setMessages(prev => prev.slice(0, -1));   // drop the optimistic user turn
         setShowUpgrade("blocked");
+        return;
+      }
+      if (r.status === 401) {
+        // The server keeps its own count of anonymous questions; the localStorage
+        // counter above only decides when to show this prompt early.
+        setMessages(prev => prev.slice(0, -1));
+        setShowSignInGate(true);
+        return;
+      }
+      if (r.status === 429) {
+        setMessages(prev => prev.slice(0, -1));
+        const wait = Number(r.headers.get("retry-after")) || 60;
+        setMessages(prev => [...prev, { role: "assistant",
+          content: `**Slow down a moment.** You've made a lot of requests in a short time — try again in about ${wait} seconds.` }]);
         return;
       }
       if (!r.ok || !r.body) {

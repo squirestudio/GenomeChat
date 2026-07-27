@@ -1359,7 +1359,7 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
           Explore further
         </p>
         <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)" }}>
-          {remaining.length} available{costCount > 0 ? ` · ${costCount} use a credit` : ""}
+          {remaining.length} available{costCount > 0 ? ` · ${costCount} use a credit — only if data is found` : ""}
         </span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>

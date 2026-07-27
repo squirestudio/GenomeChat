@@ -1388,7 +1388,7 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
                     wall of labels. */}
                 {!it.instant && !busy && (
                   <span
-                    title="Uses one query credit — only charged if data is found"
+                    title="Uses one query credit — only if data is found"
                     style={{
                       flexShrink: 0, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.03em",
                       padding: "0.12em 0.4em", borderRadius: 5, whiteSpace: "nowrap",
@@ -2768,7 +2768,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
           <p style={{ marginTop: 12, fontSize: "0.68rem", color: "var(--text-faintest)", lineHeight: 1.5 }}>
             No data for this gene in{" "}
             {(msg.emptySections || []).map(k => (EXPLORE_LABELS[k] || k)).join(", ")}
-            {" "}— not charged.
+            {" "}— no credits used.
           </p>
         )}
 

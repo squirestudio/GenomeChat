@@ -1379,9 +1379,27 @@ function ExploreFurther({ items, opened, onLoadSection, sectionState }) {
               onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.4)"; }}
               onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.35)"; }}
             >
-              <span style={{ fontSize: "0.74rem", fontWeight: 600, color: busy ? "var(--accent)" : "var(--text-muted)" }}>
-                {busy ? "Loading…" : failed ? "Retry" : it.label}
-              </span>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 6, width: "100%" }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: "0.74rem", fontWeight: 600, color: busy ? "var(--accent)" : "var(--text-muted)" }}>
+                  {busy ? "Loading…" : failed ? "Retry" : it.label}
+                </span>
+                {/* Only the ones that cost anything are marked; absence of a
+                    chip means free, which keeps sixteen cards from becoming a
+                    wall of labels. */}
+                {!it.instant && !busy && (
+                  <span
+                    title="Uses one query credit — only charged if data is found"
+                    style={{
+                      flexShrink: 0, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.03em",
+                      padding: "0.12em 0.4em", borderRadius: 5, whiteSpace: "nowrap",
+                      color: "var(--accent)", background: "rgb(var(--c-accent) / 0.12)",
+                      border: "1px solid rgb(var(--c-accent) / 0.3)",
+                    }}
+                  >
+                    1 CREDIT
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>
                 {failed ? "Could not load — click to retry" : it.source}
               </span>

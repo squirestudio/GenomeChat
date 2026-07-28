@@ -41,6 +41,12 @@ class VariantResult(BaseModel):
     hgvs: Optional[str] = None
     protein_position: Optional[int] = None
     review_status: Optional[str] = None
+    # GRCh37 coordinates, which is how consumer DNA files report position.
+    # These carry the match to a reader's own data: ClinVar stopped publishing
+    # dbSNP cross-references in its summaries, so rsid is now empty for every
+    # record and matching on it finds nothing.
+    chromosome: Optional[str] = None
+    position_grch37: Optional[int] = None
     source: str = "ClinVar"
 
 

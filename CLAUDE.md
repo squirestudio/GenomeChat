@@ -14,7 +14,9 @@ The most recent work audited NCBI coverage and closed the gaps: the app used 4 o
 
 That audit then found **ten of the twenty sources silently returning nothing** — all now repaired; see "Upstream drift" below, which is the most important section in this file for anyone picking the project up. A BRCA1 query went from 6 populated datasets to 18.
 
-**In flight:** an interactive rebuild of the variant map. `frontend/src/lollipop.js` holds the finished geometry and encoding logic (lane packing, zoom clamping, consequence glyphs, GRCh37 overlay matching) with no component wired to it yet — `LollipopMap` in App.jsx is still the old static version. The ClinVar repair is what makes this worth doing: `clinical_significance` and `molecular_consequence_list` now carry real values, so the map can encode severity as colour and damage type as shape instead of drawing every variant identically grey.
+`LollipopMap` is now interactive — scroll to zoom, drag to select a range, click to pin, filter chips, keyboard pan/zoom. Geometry and encodings live in [lollipop.js](frontend/src/lollipop.js) with 59 tests; the component is only SVG.
+
+**Next, and worth deciding deliberately:** `fetch_clinvar_variants` searches `{gene}[gene] AND clinsig_pathogenic[Properties]`, so the app only ever sees *pathogenic* variants — every gene comes back ~100% Pathogenic. The map's colour channel is therefore near-constant while the shape channel (nonsense / frameshift / splice / missense) does the real work. A lollipop plot's classic value is showing where pathogenic variants cluster *relative to* benign ones, which this search can never show. Broadening it would change the variant table for everyone too, so it is a product call rather than a bug.
 
 `NCBI_API_KEY` **is set in Railway** but is not in the local `genomics_backend/.env`, so a dev container runs at 2.5 req/sec against production's 9.0. Worth adding locally before profiling anything or debugging a source that returns nothing — the symptom of the anonymous cap is an empty result, not an error.
 

@@ -287,7 +287,11 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
             # difference between one submitter's opinion and an expert panel.
             review_status = germline.get("review_status") or legacy.get("review_status") or None
 
-            # Extract rsID from variation_xrefs (db_source == "dbSNP", db_id is numeric)
+            # ClinVar no longer publishes dbSNP cross-references in esummary —
+            # `variation_xrefs` is empty for every record now, including common
+            # variants that certainly have rsIDs, and elink to dbSNP returns
+            # nothing either. Kept because it costs nothing and may come back,
+            # but nothing may depend on it being populated.
             rsid = None
             for vs in item.get("variation_set", []):
                 for xref in vs.get("variation_xrefs", []):
@@ -297,6 +301,26 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
                             rsid = f"rs{db_id}" if not str(db_id).startswith("rs") else db_id
                         break
                 if rsid:
+                    break
+
+            # Genomic position on GRCh37, which is what a 23andMe or AncestryDNA
+            # file reports. This is what actually ties a ClinVar record to a
+            # reader's own genotype now that rsIDs are gone. GRCh38 is
+            # deliberately not used as a fallback: the builds disagree by
+            # ~1.85 Mb at BRCA1, so a position from the wrong one would match
+            # some unrelated variant rather than simply failing to match.
+            chromosome = None
+            position_grch37 = None
+            for vs in item.get("variation_set", []):
+                for loc in vs.get("variation_loc") or []:
+                    if loc.get("assembly_name") == "GRCh37" and loc.get("start"):
+                        chromosome = str(loc.get("chr") or "") or None
+                        try:
+                            position_grch37 = int(loc["start"])
+                        except (TypeError, ValueError):
+                            position_grch37 = None
+                        break
+                if position_grch37:
                     break
 
             variants.append(VariantResult(
@@ -309,6 +333,8 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
                 hgvs=hgvs,
                 protein_position=protein_position,
                 review_status=review_status,
+                chromosome=chromosome,
+                position_grch37=position_grch37,
                 source="ClinVar"
             ))
 

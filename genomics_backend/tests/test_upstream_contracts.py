@@ -203,3 +203,22 @@ def test_pharmgkb_moved_to_clinpgx():
     assert "clopidogrel" in drugs, "the canonical CYP2C19 interaction"
     assert any(d["level"] == "1A" for d in data["related_drugs"])
     assert data["annotation_total"] > 10
+
+
+@pytest.mark.external
+def test_variants_carry_grch37_coordinates_for_matching_uploaded_dna():
+    """ClinVar stopped publishing dbSNP cross-references: `variation_xrefs` is
+    empty for every record now, even for common variants that certainly have
+    rsIDs, and elink to dbSNP returns nothing either. Position is what ties a
+    ClinVar record to a reader's own file, and it must be GRCh37 — the build
+    consumer tests report — because GRCh38 is ~1.85 Mb away at BRCA1 and would
+    match some unrelated variant rather than failing to match.
+    """
+    from services.genomics_api_real import fetch_clinvar_variants
+    variants = asyncio.run(fetch_clinvar_variants("BRCA1"))
+    placed = [v for v in variants if v.position_grch37]
+    assert len(placed) >= len(variants) - 2, "most records should carry a position"
+    assert all(v.chromosome == "17" for v in placed)
+    # BRCA1 on GRCh37 spans 41,196,312–41,277,500. A GRCh38 coordinate would
+    # land near 43,044,295 and fall outside this range entirely.
+    assert all(41_196_312 <= v.position_grch37 <= 41_277_500 for v in placed)

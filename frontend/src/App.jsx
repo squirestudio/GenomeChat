@@ -8,6 +8,12 @@ import {
 import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems } from "./response";
+import {
+  consequenceClass, significanceClass, evidenceLevel,
+  fullView, clampView, zoomView, panView, isFullView,
+  positionVariants, filterVariants, facetCounts,
+  assignLanes, domainAt, prepareDomains, matchUserGenotypes,
+} from "./lollipop";
 
 // Registry so exportPDF can grab a live protein viewer snapshot (WebGL → PNG)
 const viewerRegistry = new Map(); // geneName -> $3Dmol viewer instance
@@ -2354,145 +2360,424 @@ const LOLLIPOP_SIG_COLOR = (sig) => {
 
 const DOMAIN_PALETTE = ["#3b82f6","#8b5cf6","#ec4899","#f59e0b","#10b981","#06b6d4","#f97316","#a855f7","#14b8a6","#6366f1"];
 
-function LollipopMap({ variants, domains, proteinLength, geneName }) {
-  const [tooltip, setTooltip] = useState(null);
-  if (!proteinLength) return null;
+/**
+ * The variant map: where in a protein each known variant sits, what kind of
+ * damage it does, and how confident anyone is that it matters.
+ *
+ * Protein position is the axis a genome browser cannot offer, and it is the
+ * one that answers the question a reader actually has. All 1,863 residues of
+ * BRCA1 fit on one screen; its 81,000 bases of DNA do not, which is why the
+ * NCBI Variation Viewer shows a 33-base window and cannot show a gene and its
+ * variants legibly at the same time.
+ *
+ * Encoding is deliberately split across three channels so they can be read
+ * independently: colour is clinical significance, shape is molecular
+ * consequence, opacity is how much evidence stands behind the call. Geometry
+ * and the encodings themselves live in lollipop.js, where they are tested.
+ */
+/** Neutral-coloured glyphs for the legend, where only shape carries meaning. */
+const LEGEND_GLYPH = {
+  square: <rect x={2} y={2} width={8} height={8} rx={1} fill="var(--text-dim)" />,
+  diamond: <path d="M6 1L11 6L6 11L1 6Z" fill="var(--text-dim)" />,
+  triangle: <path d="M6 1L11 10H1Z" fill="var(--text-dim)" />,
+  hollow: <circle cx={6} cy={6} r={4} fill="none" stroke="var(--text-dim)" strokeWidth={1.5} />,
+  dot: <circle cx={6} cy={6} r={2.4} fill="var(--text-dim)" />,
+  circle: <circle cx={6} cy={6} r={4} fill="var(--text-dim)" />,
+};
 
-  const positioned = (variants || [])
-    .filter(v => v.protein_position > 0 && v.protein_position <= proteinLength)
-    .sort((a, b) => a.protein_position - b.protein_position);
+function LollipopMap({ variants, domains, proteinLength, geneName, dnaData }) {
+  const svgRef = useRef(null);
+  const [view, setView] = useState(() => fullView(proteinLength || 1));
+  const [hover, setHover] = useState(null);
+  const [pinned, setPinned] = useState(null);
+  const [sigFilter, setSigFilter] = useState(() => new Set());
+  const [conFilter, setConFilter] = useState(() => new Set());
+  const [drag, setDrag] = useState(null);
 
-  if (!positioned.length && !domains?.length) return null;
+  const W = 680, H = 250;
+  const ML = 10, MR = 10;
+  const barY = 176, barH = 20;
+  const laneTop = 26, laneStep = 22;
+  const userY = barY + barH + 30;
 
-  const W = 680, H = 225;
-  const ML = 8, MR = 8, MB = 40;
+  const positioned = useMemo(
+    () => positionVariants(variants, proteinLength),
+    [variants, proteinLength],
+  );
+  const facets = useMemo(() => facetCounts(positioned), [positioned]);
+  const filtered = useMemo(
+    () => filterVariants(positioned, { significance: sigFilter, consequence: conFilter }),
+    [positioned, sigFilter, conFilter],
+  );
+  const preparedDomains = useMemo(() => prepareDomains(domains), [domains]);
+  const userMatches = useMemo(
+    () => matchUserGenotypes(positioned, dnaData),
+    [positioned, dnaData],
+  );
+
+  // A zoom, a pin and a set of filters are all specific to one protein —
+  // "residues 1600–1700" and "only splice variants" mean nothing carried onto
+  // a different gene. Callers pass `key={geneName}` so React remounts this
+  // with fresh state instead of it having to unpick its own on a prop change.
+
   const plotW = W - ML - MR;
-  const barY = H - MB - 18;
-  const barH = 18;
-  const toX = (pos) => ML + (pos / proteinLength) * plotW;
+  const span = Math.max(view.end - view.start, 1);
+  const toX = useCallback(
+    (pos) => ML + ((pos - view.start) / span) * plotW,
+    [view.start, span, plotW],
+  );
+  const toPos = useCallback(
+    (x) => view.start + ((x - ML) / plotW) * span,
+    [view.start, span, plotW],
+  );
 
-  // Lane assignment: stack colliding lollipops
-  const LANE_Y = [28, 52, 76, 100, 120];
-  const MIN_GAP = 12;
-  const laneEnds = LANE_Y.map(() => -Infinity);
-  const lollipops = positioned.map(v => {
-    const x = toX(v.protein_position);
-    let lane = laneEnds.findIndex(end => x - end > MIN_GAP);
-    if (lane === -1) lane = LANE_Y.length - 1;
-    laneEnds[lane] = x;
-    return { ...v, x, cy: LANE_Y[lane] };
+  /** Pointer position in SVG user units, which is what every hit test needs. */
+  const svgX = useCallback((clientX) => {
+    const el = svgRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return ((clientX - rect.left) / rect.width) * W;
+  }, []);
+
+  const inView = useCallback(
+    (pos) => pos >= view.start && pos <= view.end,
+    [view.start, view.end],
+  );
+
+  const lanes = useMemo(() => {
+    const visible = filtered
+      .filter(v => inView(v.protein_position))
+      .map(v => ({ ...v, x: toX(v.protein_position) }));
+    return assignLanes(visible, { minGap: 11, maxLanes: 6 });
+  }, [filtered, inView, toX]);
+
+  // Wheel-to-zoom needs a non-passive listener: React's synthetic handler
+  // cannot preventDefault here, so the page would scroll as well as the map.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const focus = toPos(svgX(e.clientX));
+      setView(v => zoomView(v, e.deltaY > 0 ? 1.25 : 0.8, focus, proteinLength));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [toPos, svgX, proteinLength]);
+
+  if (!proteinLength) return null;
+  if (!positioned.length && !preparedDomains.length) return null;
+
+  const active = pinned || hover;
+  const zoomed = !isFullView(view, proteinLength);
+
+  const toggle = (setter) => (key) => setter(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
   });
 
-  const ticks = [0, 0.25, 0.5, 0.75, 1.0];
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    const x = svgX(e.clientX);
+    setDrag({ from: x, to: x, moved: false });
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!drag) return;
+    const x = svgX(e.clientX);
+    setDrag(d => (d ? { ...d, to: x, moved: Math.abs(x - d.from) > 3 } : d));
+  };
+
+  const onPointerUp = () => {
+    if (!drag) return;
+    // A drag across the plot selects a range to zoom into; a click without
+    // movement clears the pinned variant rather than zooming to a sliver.
+    if (drag.moved) {
+      const a = toPos(Math.min(drag.from, drag.to));
+      const b = toPos(Math.max(drag.from, drag.to));
+      setView(clampView({ start: a, end: b }, proteinLength));
+    } else {
+      setPinned(null);
+    }
+    setDrag(null);
+  };
+
+  const onKeyDown = (e) => {
+    const step = { ArrowLeft: -0.2, ArrowRight: 0.2 }[e.key];
+    if (step !== undefined) {
+      e.preventDefault();
+      setView(v => panView(v, step, proteinLength));
+    } else if (e.key === "+" || e.key === "=") {
+      e.preventDefault();
+      setView(v => zoomView(v, 0.7, (v.start + v.end) / 2, proteinLength));
+    } else if (e.key === "-") {
+      e.preventDefault();
+      setView(v => zoomView(v, 1.4, (v.start + v.end) / 2, proteinLength));
+    } else if (e.key === "Escape") {
+      setView(fullView(proteinLength));
+      setPinned(null);
+    }
+  };
+
+  /** Glyph for one variant. Shape is consequence; colour is significance. */
+  const glyph = (v, cx, cy, r, emphasis) => {
+    const sig = significanceClass(v.clinical_significance);
+    const con = consequenceClass(v.consequence);
+    const common = {
+      fill: con.glyph === "hollow" ? "none" : sig.color,
+      stroke: con.glyph === "hollow" ? sig.color : (emphasis ? "var(--text)" : "none"),
+      strokeWidth: con.glyph === "hollow" ? 1.6 : 1.2,
+      // Evidence shows as opacity: a single-submitter call recedes behind an
+      // expert-panel one without being hidden.
+      opacity: emphasis ? 1 : 0.55 + 0.15 * evidenceLevel(v.review_status),
+    };
+    switch (con.glyph) {
+      case "square":
+        return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={1} {...common} />;
+      case "diamond":
+        return <path d={`M${cx} ${cy - r * 1.3}L${cx + r * 1.3} ${cy}L${cx} ${cy + r * 1.3}L${cx - r * 1.3} ${cy}Z`} {...common} />;
+      case "triangle":
+        return <path d={`M${cx} ${cy - r * 1.25}L${cx + r * 1.15} ${cy + r}L${cx - r * 1.15} ${cy + r}Z`} {...common} />;
+      case "dot":
+        return <circle cx={cx} cy={cy} r={r * 0.6} {...common} />;
+      default:
+        return <circle cx={cx} cy={cy} r={r} {...common} />;
+    }
+  };
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(view.start + f * span));
+
+  const chip = (item, selected, onClick, color) => (
+    <button key={item.key} onClick={() => onClick(item.key)}
+      aria-pressed={selected}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5, padding: "0.2rem 0.5rem",
+        borderRadius: 100, cursor: "pointer", fontSize: "0.64rem",
+        background: selected ? `${color}22` : "rgb(var(--c-surface) / 0.4)",
+        border: `1px solid ${selected ? color : "rgb(var(--c-border) / 0.35)"}`,
+        color: selected ? color : "var(--text-dimmer)",
+      }}>
+      {color && <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />}
+      {item.label}
+      <span style={{ opacity: 0.65 }}>{item.count}</span>
+    </button>
+  );
 
   return (
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Variant Domain Map</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.12)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Variant Map</span>
         <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
-          {positioned.length} variants · {proteinLength} aa · UniProt / ClinVar
+          {filtered.length === positioned.length
+            ? `${positioned.length} variants`
+            : `${filtered.length} of ${positioned.length} variants`}
+          {" · "}{proteinLength} aa · ClinVar / UniProt
         </span>
       </div>
 
-      <div style={{ padding: "0.75rem 0.875rem", position: "relative" }}>
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", overflow: "visible" }}>
-          {/* Protein bar */}
+      {/* Filters. Chips are counts of what is present, not a fixed vocabulary,
+          so a gene with only truncating variants is not offered five dead
+          options. */}
+      {(facets.significance.length > 1 || facets.consequence.length > 1) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "0.55rem 0.875rem 0" }}>
+          {facets.significance.map(s => chip(s, sigFilter.has(s.key), toggle(setSigFilter), s.color))}
+          {facets.consequence.length > 1 && (
+            <span style={{ width: 1, alignSelf: "stretch", background: "rgb(var(--c-border) / 0.4)", margin: "0 3px" }} />
+          )}
+          {facets.consequence.map(c => chip(c, conFilter.has(c.key), toggle(setConFilter), null))}
+        </div>
+      )}
+
+      <div style={{ padding: "0.6rem 0.875rem 0.75rem", position: "relative" }}>
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width="100%"
+          tabIndex={0} role="img" onKeyDown={onKeyDown}
+          aria-label={`Variant map for ${geneName}: ${filtered.length} variants across ${proteinLength} amino acids`}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp} onPointerLeave={() => { setDrag(null); setHover(null); }}
+          style={{ display: "block", overflow: "visible", cursor: drag?.moved ? "col-resize" : "crosshair", outline: "none", touchAction: "none" }}>
+
+          {/* Brush */}
+          {drag?.moved && (
+            <rect x={Math.min(drag.from, drag.to)} y={laneTop - 12}
+              width={Math.abs(drag.to - drag.from)} height={barY + barH - laneTop + 12}
+              fill="rgb(var(--c-accent) / 0.12)" stroke="rgb(var(--c-accent) / 0.5)" strokeWidth={1} />
+          )}
+
+          {/* Protein backbone */}
           <rect x={ML} y={barY} width={plotW} height={barH} rx={3}
             fill="rgb(var(--c-surface) / 0.9)" stroke="rgb(var(--c-indigo) / 0.3)" strokeWidth={1} />
 
-          {/* Domain blocks */}
-          {(domains || []).map((d, i) => {
-            const x = toX(d.start);
-            const w = Math.max(4, toX(d.end) - x);
+          {/* Domains. Disordered regions are drawn faintly and unlabelled:
+              eleven of BRCA1's annotations are those, and a map whose bands
+              mostly read "Disordered" says nothing about which part matters. */}
+          {preparedDomains.map((d, i) => {
+            const x0 = Math.max(ML, toX(d.start));
+            const x1 = Math.min(W - MR, toX(d.end));
+            if (x1 <= ML || x0 >= W - MR) return null;
+            const w = Math.max(1.5, x1 - x0);
             const color = DOMAIN_PALETTE[i % DOMAIN_PALETTE.length];
             return (
-              <g key={i}>
-                <rect x={x} y={barY} width={w} height={barH} rx={2} fill={color} opacity={0.75} />
-                {w > 32 && (
-                  <text x={x + w / 2} y={barY + barH / 2 + 4} textAnchor="middle"
-                    fill="white" fontSize={7.5} fontWeight={600} style={{ pointerEvents: "none" }}>
-                    {d.name.length > 14 ? d.name.slice(0, 12) + "…" : d.name}
+              <g key={`${d.name}-${d.start}`}>
+                <rect x={x0} y={barY} width={w} height={barH} rx={2}
+                  fill={color} opacity={d.structural ? 0.8 : 0.22} />
+                {d.structural && w > 34 && (
+                  <text x={x0 + w / 2} y={barY + barH / 2 + 3.5} textAnchor="middle"
+                    fill="white" fontSize={8} fontWeight={600} style={{ pointerEvents: "none" }}>
+                    {d.name.length > 16 ? `${d.name.slice(0, 14)}…` : d.name}
                   </text>
                 )}
               </g>
             );
           })}
 
-          {/* Position ticks */}
-          {ticks.map(frac => {
-            const pos = Math.round(frac * proteinLength);
-            const x = ML + frac * plotW;
+          {/* Axis */}
+          {ticks.map((pos, i) => {
+            const x = ML + (i / (ticks.length - 1)) * plotW;
             return (
-              <g key={frac}>
+              <g key={i}>
                 <line x1={x} y1={barY + barH} x2={x} y2={barY + barH + 5} stroke="var(--border-solid)" strokeWidth={1} />
                 <text x={x} y={barY + barH + 15} textAnchor="middle" fill="var(--text-dimmer)" fontSize={9}>{pos}</text>
               </g>
             );
           })}
 
-          {/* Gene label */}
-          <text x={ML} y={barY - 5} fill="var(--text-dimmer)" fontSize={9}>{geneName}</text>
-          <text x={W - MR} y={barY - 5} textAnchor="end" fill="var(--text-dimmer)" fontSize={9}>{proteinLength} aa</text>
-
           {/* Lollipops */}
-          {lollipops.map((v, i) => {
-            const color = LOLLIPOP_SIG_COLOR(v.clinical_significance);
-            const isHovered = tooltip?.variant_id === v.variant_id;
+          {lanes.placed.map((v) => {
+            const cy = laneTop + v.lane * laneStep;
+            const emphasis = active?.variant_id === v.variant_id;
+            const sig = significanceClass(v.clinical_significance);
+            const mine = userMatches.has(v.variant_id);
             return (
-              <g key={i} style={{ cursor: "pointer" }}
-                onMouseEnter={() => setTooltip(v)}
-                onMouseLeave={() => setTooltip(null)}>
-                <line x1={v.x} y1={v.cy + 5} x2={v.x} y2={barY}
-                  stroke={color} strokeWidth={isHovered ? 1.5 : 1} opacity={isHovered ? 0.9 : 0.55} />
-                <circle cx={v.x} cy={v.cy} r={isHovered ? 6.5 : 5}
-                  fill={color} opacity={isHovered ? 1 : 0.8}
-                  stroke={isHovered ? "white" : "none"} strokeWidth={1} />
+              <g key={v.variant_id} style={{ cursor: "pointer" }}
+                onMouseEnter={() => setHover(v)}
+                onMouseLeave={() => setHover(null)}
+                // Without this the background handler runs first and clears the
+                // pin, so the click that should unpin a variant re-pins it.
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); setPinned(p => (p?.variant_id === v.variant_id ? null : v)); }}>
+                <line x1={v.x} y1={cy} x2={v.x} y2={barY}
+                  stroke={sig.color} strokeWidth={emphasis ? 1.6 : 1} opacity={emphasis ? 0.9 : 0.4} />
+                {/* A halo marks a variant the reader actually carries. */}
+                {mine && <circle cx={v.x} cy={cy} r={9} fill="none" stroke="var(--accent)" strokeWidth={1.5} opacity={0.9} />}
+                {glyph(v, v.x, cy, emphasis ? 6 : 5, emphasis)}
+                {/* Invisible, generous hit target — the glyphs are small. */}
+                <circle cx={v.x} cy={cy} r={11} fill="transparent" />
               </g>
             );
           })}
+
+          {/* The reader's own variants in this stretch of protein */}
+          {userMatches.size > 0 && (
+            <g>
+              {filtered.filter(v => userMatches.has(v.variant_id) && inView(v.protein_position)).map(v => (
+                <g key={`me-${v.variant_id}`}>
+                  <path d={`M${toX(v.protein_position)} ${userY - 6}l4 7h-8Z`} fill="var(--accent)" opacity={0.9} />
+                  <text x={toX(v.protein_position)} y={userY + 15} textAnchor="middle"
+                    fill="var(--accent)" fontSize={7.5} fontFamily="monospace">
+                    {userMatches.get(v.variant_id).genotype}
+                  </text>
+                </g>
+              ))}
+              <text x={ML} y={userY + 2} fill="var(--accent)" fontSize={8} opacity={0.8}>your DNA</text>
+            </g>
+          )}
+
+          {/* Gene label and window */}
+          <text x={ML} y={barY - 7} fill="var(--text-dimmer)" fontSize={9}>{geneName}</text>
+          <text x={W - MR} y={barY - 7} textAnchor="end" fill="var(--text-dimmer)" fontSize={9}>
+            {zoomed ? `${view.start}–${view.end} of ${proteinLength} aa` : `${proteinLength} aa`}
+          </text>
         </svg>
 
-        {/* Tooltip */}
-        {tooltip && (
-          <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
-            background: "rgb(var(--c-deep) / 0.97)", border: "1px solid rgb(var(--c-indigo) / 0.45)",
-            borderRadius: 8, padding: "0.5rem 0.75rem", pointerEvents: "none", zIndex: 10,
-            minWidth: 210, boxShadow: "0 4px 20px rgb(var(--c-shadow) / 0.5)" }}>
-            <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--violet-faint)", fontWeight: 600 }}>
-              {tooltip.hgvs || tooltip.variant_id}
-            </p>
-            <p style={{ fontSize: "0.7rem", color: LOLLIPOP_SIG_COLOR(tooltip.clinical_significance), marginTop: 3 }}>
-              {tooltip.clinical_significance || "Unknown significance"}
-            </p>
-            {tooltip.condition && (
-              <p style={{ fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 3 }}>{tooltip.condition}</p>
-            )}
-            <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 3 }}>
-              Position: {tooltip.protein_position}
-            </p>
-          </div>
-        )}
+        {/* Tooltip, near the variant rather than pinned to the centre. */}
+        {active && (() => {
+          const x = toX(active.protein_position);
+          const onLeft = x > W * 0.55;
+          const sig = significanceClass(active.clinical_significance);
+          const con = consequenceClass(active.consequence);
+          const domain = domainAt(active.protein_position, preparedDomains);
+          const mine = userMatches.get(active.variant_id);
+          return (
+            <div style={{
+              position: "absolute", top: 10,
+              left: onLeft ? undefined : `${(x / W) * 100}%`,
+              right: onLeft ? `${((W - x) / W) * 100}%` : undefined,
+              margin: onLeft ? "0 10px 0 0" : "0 0 0 10px",
+              background: "rgb(var(--c-deep) / 0.97)", border: `1px solid ${sig.color}66`,
+              borderRadius: 8, padding: "0.5rem 0.7rem", pointerEvents: "none", zIndex: 10,
+              minWidth: 190, maxWidth: 260, boxShadow: "0 4px 20px rgb(var(--c-shadow) / 0.5)",
+            }}>
+              <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--violet-faint)", fontWeight: 600 }}>
+                {active.hgvs || active.variant_id}
+              </p>
+              <p style={{ fontSize: "0.7rem", color: sig.color, marginTop: 3 }}>{sig.label}</p>
+              <p style={{ fontSize: "0.66rem", color: "var(--text-dim)", marginTop: 2 }}>
+                {con.label} · residue {active.protein_position}
+                {domain ? ` · ${domain.name}` : ""}
+              </p>
+              {active.condition && active.condition !== "Unknown" && (
+                <p style={{ fontSize: "0.66rem", color: "var(--text-dim)", marginTop: 3 }}>{active.condition}</p>
+              )}
+              {active.review_status && (
+                <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", marginTop: 3 }}>{active.review_status}</p>
+              )}
+              {mine && (
+                <p style={{ fontSize: "0.66rem", color: "var(--accent)", marginTop: 4, fontWeight: 600 }}>
+                  Your genotype: {mine.genotype}
+                </p>
+              )}
+              {pinned && <p style={{ fontSize: "0.58rem", color: "var(--text-faintest)", marginTop: 4 }}>Click again to unpin</p>}
+            </div>
+          );
+        })()}
 
-        {/* Domain legend */}
-        {domains?.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "0.5rem" }}>
-            {domains.slice(0, 8).map((d, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length], opacity: 0.8 }} />
-                <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{d.name}</span>
-              </div>
+        {/* Controls and honesty about what is not drawn */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)" }}>
+            Scroll to zoom · drag to select a region · click a variant to pin
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {lanes.overflow > 0 && (
+              <span style={{ fontSize: "0.6rem", color: "var(--warning)" }}>
+                {lanes.overflow} too crowded to draw — zoom in
+              </span>
+            )}
+            {zoomed && (
+              <button onClick={() => setView(fullView(proteinLength))}
+                style={{ fontSize: "0.62rem", padding: "0.2rem 0.55rem", borderRadius: 6, cursor: "pointer",
+                         background: "rgb(var(--c-accent) / 0.12)", border: "1px solid rgb(var(--c-accent) / 0.3)", color: "var(--accent)" }}>
+                Reset zoom
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Legend: three channels, stated separately because they are read
+            separately. */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgb(var(--c-border) / 0.25)" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
+            <span style={{ fontSize: "0.58rem", color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Shape</span>
+            {facets.consequence.map(c => (
+              <span key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <svg width={12} height={12}>{LEGEND_GLYPH[c.glyph] || LEGEND_GLYPH.circle}</svg>
+                <span style={{ fontSize: "0.6rem", color: "var(--text-dimmer)" }}>{c.label}</span>
+              </span>
             ))}
           </div>
-        )}
-
-        {/* Variant significance legend */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: "0.4rem" }}>
-          {[["#ef4444","Pathogenic"],["#f97316","Likely path."],["#eab308","VUS"],["#14b8a6","Likely benign"],["#22c55e","Benign"],["var(--text-faint)","Other"]].map(([color, label]) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <svg width={10} height={10} style={{ flexShrink: 0 }}><circle cx={5} cy={5} r={4} fill={color} /></svg>
-              <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{label}</span>
-            </div>
-          ))}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
+            <span style={{ fontSize: "0.58rem", color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Colour</span>
+            {facets.significance.map(s => (
+              <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color }} />
+                <span style={{ fontSize: "0.6rem", color: "var(--text-dimmer)" }}>{s.label}</span>
+              </span>
+            ))}
+          </div>
+          <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)" }}>
+            Fainter glyphs carry less supporting evidence.
+          </span>
         </div>
       </div>
     </div>
@@ -2632,7 +2917,7 @@ function ComparisonView({ msg }) {
       {data.pathways?.length > 0 && <PathwayViewer pathways={data.pathways} />}
       {data.expression?.length > 0 && <ExpressionChart expression={data.expression} />}
       {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} />}
-      {data.protein_info?.length && <LollipopMap variants={data.variants || []} domains={data.domains || []} proteinLength={data.protein_info.length} geneName={gene} />}
+      {data.protein_info?.length && <LollipopMap key={gene} variants={data.variants || []} domains={data.domains || []} proteinLength={data.protein_info.length} geneName={gene} />}
       {data.drugs?.length > 0 && <DrugPanel drugs={data.drugs} />}
       {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} />}
       {(data.clingen?.length > 0) && <ClinGenPanel curations={data.clingen} />}
@@ -2760,8 +3045,9 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
       return <DataSection data={d} queryType={msg.query_type} dnaData={dnaData} settings={settings} />;
     case "domainmap":
       return d.protein_info?.length ? (
-        <LollipopMap variants={d.variants || []} domains={d.domains || []}
-                     proteinLength={d.protein_info.length} geneName={msg.target} />
+        <LollipopMap key={msg.target} variants={d.variants || []} domains={d.domains || []}
+                     proteinLength={d.protein_info.length} geneName={msg.target}
+                     dnaData={dnaData} />
       ) : null;
     case "popfreq":
       return d.population_summary?.length > 0 ? <PopulationFrequencyChart populations={d.population_summary} /> : null;

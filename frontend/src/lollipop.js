@@ -64,6 +64,10 @@ function significanceClass(significance) {
  */
 function evidenceLevel(reviewStatus) {
   const s = String(reviewStatus || "").toLowerCase();
+  // "no assertion criteria provided" contains "criteria provided", so the
+  // negative has to be ruled out first — otherwise the weakest evidence
+  // ClinVar records is scored as though criteria had been applied.
+  if (s.includes("no assertion criteria")) return 0;
   if (s.includes("practice guideline")) return 3;
   if (s.includes("expert panel")) return 3;
   if (s.includes("multiple submitters")) return 2;
@@ -84,7 +88,10 @@ function fullView(proteinLength) {
 /** Clamp a window to the protein, preserving its width where possible. */
 function clampView(view, proteinLength) {
   const max = Math.max(proteinLength, MIN_SPAN);
-  let span = Math.min(Math.max(view.end - view.start, MIN_SPAN), max - 1 + 1);
+  // The window is inclusive of both ends, so the widest possible `end - start`
+  // is `max - 1`, not `max`. Capping at `max` let a fully zoomed-out view run
+  // one residue past the end of the protein.
+  const span = Math.min(Math.max(view.end - view.start, MIN_SPAN), max - 1);
   let start = view.start;
   if (start < 1) start = 1;
   if (start + span > max) start = Math.max(1, max - span);
@@ -228,19 +235,42 @@ function prepareDomains(domains) {
 
 // ─── The reader's own variants ───────────────────────────────────────────────
 
+const chrKey = (chromosome, position) =>
+  `${String(chromosome ?? "").replace(/^chr/i, "").toUpperCase()}:${position}`;
+
 /**
- * Match an uploaded file against the variants on the map, by rsID.
+ * Match an uploaded file against the variants on the map.
  *
- * Returns a Map keyed by rsID. Only ClinVar records carrying an rsID can match,
- * which is a real limitation and the reason the panel states how many did.
+ * Matches on GRCh37 chromosome and position, not rsID. ClinVar stopped
+ * publishing dbSNP cross-references in its summaries — `variation_xrefs` is
+ * empty for every record now, even for common variants that certainly have
+ * rsIDs — so an rsID match would silently find nothing at all. Position is the
+ * better key regardless: it is what consumer files actually report, and it does
+ * not depend on two databases agreeing about an identifier.
+ *
+ * Returns a Map keyed by `variant_id`, since that is what the caller holds.
  */
 function matchUserGenotypes(variants, dnaData) {
   const out = new Map();
   if (!dnaData || !dnaData.variants) return out;
+
+  // One pass over the reader's file, which may hold hundreds of thousands of
+  // rows; doing it per variant would be quadratic.
+  const byPosition = new Map();
+  for (const [rsid, v] of dnaData.variants) {
+    if (v.chromosome == null || v.position == null) continue;
+    byPosition.set(chrKey(v.chromosome, v.position), { rsid, ...v });
+  }
+
   for (const v of variants || []) {
-    if (!v.rsid) continue;
-    const mine = dnaData.variants.get(v.rsid);
-    if (mine) out.set(v.rsid, mine);
+    let mine = null;
+    if (v.chromosome != null && v.position_grch37 != null) {
+      mine = byPosition.get(chrKey(v.chromosome, v.position_grch37)) || null;
+    }
+    // rsID remains a fallback for any record that still carries one, and for
+    // sources other than ClinVar.
+    if (!mine && v.rsid) mine = dnaData.variants.get(v.rsid) || null;
+    if (mine) out.set(v.variant_id, mine.rsid ? mine : { rsid: v.rsid, ...mine });
   }
   return out;
 }

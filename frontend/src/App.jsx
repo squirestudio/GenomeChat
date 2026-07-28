@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { parseDNAFile, saveDnaToSession, loadDnaFromSession } from "./dna";
+import {
+  parseDNAFile, saveDnaToSession, loadDnaFromSession,
+  computeDnaSummary, variantsInLocus, selectRelevantVariants,
+} from "./dna";
 import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems } from "./response";
@@ -81,26 +84,6 @@ const CATEGORY_META = {
   hereditary:       { label: "Hereditary Conditions", color: "var(--success)", bg: "rgb(var(--c-success) / 0.1)",  border: "rgb(var(--c-success) / 0.2)" },
   metabolism:       { label: "Metabolism",             color: "var(--warning)", bg: "rgb(var(--c-warning) / 0.1)",  border: "rgb(var(--c-warning) / 0.2)" },
 };
-
-function computeDnaSummary(dnaData) {
-  if (!dnaData) return null;
-  const findings = [];
-  for (const nv of NOTABLE_VARIANTS) {
-    const userVariant = dnaData.variants.get(nv.rsid);
-    if (!userVariant) continue;
-    const genotype = userVariant.genotype || "";
-    const hasRisk = genotype.includes(nv.riskAllele);
-    const isHomozygous = genotype.length === 2 && genotype[0] === genotype[1];
-    findings.push({ ...nv, genotype, hasRisk, isHomozygous, userVariant });
-  }
-  // Group by category
-  const byCategory = {};
-  for (const f of findings) {
-    if (!byCategory[f.category]) byCategory[f.category] = [];
-    byCategory[f.category].push(f);
-  }
-  return { findings, byCategory, totalFound: findings.length };
-}
 
 function DNASummaryDashboard({ dnaData, onQuery }) {
   const summary = computeDnaSummary(dnaData);
@@ -801,13 +784,18 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
           <PurchaseOptions testMode={currentUser?.stripe_test_mode} currentUserHasBilling={currentUser?.has_billing_account} />
         </div>
 
-        <p style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0, lineHeight: 1.5 }}>
-          Want free unlimited access?{" "}
-          <button onClick={() => { onClose(); onOpenSettings(); }}
-            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.7rem", padding: 0, textDecoration: "underline" }}>
-            Add your own Anthropic API key
-          </button>{" "}in Settings — billed directly to your Anthropic account.
-        </p>
+        {/* Only useful to someone who already bought the right to store a key but
+            hasn't entered one — they're paid up and stuck. For everyone else the
+            BYOK option above says the same thing, at its real price. */}
+        {currentUser?.byok_purchased && !currentUser?.has_stored_key && (
+          <p style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0, lineHeight: 1.5 }}>
+            You've already purchased Bring Your Own Key.{" "}
+            <button onClick={() => { onClose(); onOpenSettings(); }}
+              style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.7rem", padding: 0, textDecoration: "underline" }}>
+              Add your Anthropic API key
+            </button>{" "}in Settings to run unlimited queries, billed to your Anthropic account.
+          </p>
+        )}
       </div>
     </>
   );
@@ -1757,6 +1745,288 @@ function ClinGenPanel({ curations }) {
   );
 }
 
+// ─── Structural variants (dbVar) ──────────────────────────────────────────────
+
+const bp = (n) => {
+  if (!Number.isFinite(n)) return null;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)} Mb`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)} kb`;
+  return `${n} bp`;
+};
+
+function StructuralVariantsPanel({ data }) {
+  if (!data?.variants?.length) return null;
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet)" }}>Structural Variants</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          dbVar · {data.variants.length} large pathogenic{data.matched > data.total ? ` of ${data.matched} reported` : ""}
+        </span>
+      </div>
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
+        Deletions and duplications spanning 50 bp or more — the class of change that
+        variant-by-variant testing does not detect.
+      </p>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {data.variants.map((v, i) => (
+          <a key={i} href={v.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
+            >
+              <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: "rgb(var(--c-violet) / 0.12)", color: "var(--violet)", border: "1px solid rgb(var(--c-violet) / 0.28)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                {bp(v.span_bp) || "size n/a"}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: "0.73rem", color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {v.variant_type || "structural variant"}
+                </p>
+                <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2, fontFamily: "monospace" }}>
+                  {[v.accession, v.chromosome ? `chr${v.chromosome}` : null, v.assembly].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+              <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>↗</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Clinically available tests (GTR) ─────────────────────────────────────────
+
+function GeneticTestsPanel({ data }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!data?.tests?.length) return null;
+  const shown = expanded ? data.tests : data.tests.slice(0, 5);
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>Clinical Tests Available</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          GTR · {data.total} registered
+        </span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {shown.map((t) => (
+          <a key={t.id} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.3)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <p style={{ fontSize: "0.73rem", color: "var(--text-faint)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</p>
+                {t.test_type && (
+                  <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>{t.test_type}</span>
+                )}
+              </div>
+              {t.lab && <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2 }}>{t.lab}</p>}
+              {t.conditions?.length > 0 && (
+                <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2 }}>
+                  {t.conditions.slice(0, 2).join(" · ")}
+                  {t.genes_tested?.length > 1 ? ` · ${t.genes_tested.length} genes on panel` : ""}
+                </p>
+              )}
+            </div>
+          </a>
+        ))}
+      </div>
+      <div style={{ padding: "0 0.875rem 0.7rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {data.tests.length > 5 && (
+          <button onClick={() => setExpanded(v => !v)}
+            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: "0.66rem", padding: 0 }}>
+            {expanded ? "Show fewer" : `Show all ${data.tests.length} shown`}
+          </button>
+        )}
+        <a href={data.registry_url} target="_blank" rel="noreferrer" style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginLeft: "auto" }}>
+          Full registry ↗
+        </a>
+      </div>
+      <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", padding: "0 0.875rem 0.7rem", margin: 0, lineHeight: 1.5 }}>
+        Listing a test is not a recommendation. Ordering one generally requires a
+        clinician or genetic counsellor.
+      </p>
+    </div>
+  );
+}
+
+// ─── Medical genetics concepts (MedGen) ───────────────────────────────────────
+
+function MedGenPanel({ data }) {
+  if (!data?.concepts?.length) return null;
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-border) / 0.2)" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)" }}>Linked Conditions</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>MedGen · {data.concepts.length}</span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {data.concepts.map((c, i) => (
+          <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <p style={{ fontSize: "0.73rem", color: "var(--text-faint)", flex: 1, minWidth: 0 }}>{c.name}</p>
+                {c.concept_id && (
+                  <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", fontFamily: "monospace", flexShrink: 0 }}>{c.concept_id}</span>
+                )}
+              </div>
+              {c.definition && (
+                <p style={{ fontSize: "0.64rem", color: "var(--text-dimmer)", marginTop: 3, lineHeight: 1.5 }}>
+                  {c.definition.length > 220 ? `${c.definition.slice(0, 220)}…` : c.definition}
+                </p>
+              )}
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Open-access full text (PMC) ──────────────────────────────────────────────
+
+function FullTextPanel({ data }) {
+  if (!data?.articles?.length) return null;
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-border) / 0.2)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)" }}>Full-Text Papers</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          PMC · {data.total.toLocaleString()} open access
+        </span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {data.articles.map((a) => (
+          <a key={a.pmcid} href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
+            >
+              <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.45 }}>{a.title}</p>
+              <p style={{ fontSize: "0.62rem", color: "var(--text-dimmer)", marginTop: 3 }}>
+                {[
+                  a.authors?.length
+                    ? `${a.authors[0]}${a.author_count > a.authors.length ? " et al." : ""}`
+                    : null,
+                  a.journal,
+                  a.pubdate,
+                ].filter(Boolean).join(" · ")}
+              </p>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── The reader's own variants in this gene ───────────────────────────────────
+
+/**
+ * Which of an uploaded file's variants fall inside the gene being discussed.
+ *
+ * The intersection happens in the browser against GRCh37 coordinates — no part
+ * of the reader's file is sent anywhere to compute it. Annotation is opt-in and
+ * explicit, because that request does disclose which variants they carry.
+ */
+function MyVariantsPanel({ dnaData, locus, gene }) {
+  const [annotations, setAnnotations] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const hits = useMemo(() => variantsInLocus(dnaData, locus), [dnaData, locus]);
+  if (!hits.length) return null;
+
+  const annotate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/dna/annotate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ rsids: hits.slice(0, 200).map(h => h.rsid) }),
+      });
+      if (!r.ok) throw new Error(`dbSNP lookup failed (${r.status})`);
+      const { annotations: got } = await r.json();
+      setAnnotations(got || {});
+    } catch (e) {
+      setError(e.message || "Could not reach dbSNP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.25)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>
+          🧬 Your Variants in {gene}
+        </span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {hits.length} of your file · GRCh37
+        </span>
+      </div>
+
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {hits.slice(0, 40).map((h) => {
+          const a = annotations?.[h.rsid];
+          const sig = a?.clinical_significance?.filter(s => /pathogenic|risk|association|drug/i.test(s)) || [];
+          return (
+            <div key={h.rsid} style={{ padding: "0.45rem 0.6rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: "monospace", fontSize: "0.7rem", color: "var(--text-muted)", flexShrink: 0, minWidth: 88 }}>{h.rsid}</span>
+              <span style={{ fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700, color: "var(--accent)", flexShrink: 0, minWidth: 30 }}>{h.genotype}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {a ? (
+                  <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {[a.consequences?.[0]?.replace(/_/g, " "),
+                      a.maf != null ? `${(a.maf * 100).toFixed(1)}% population` : null,
+                     ].filter(Boolean).join(" · ") || "no annotation"}
+                  </p>
+                ) : (
+                  <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", fontFamily: "monospace" }}>chr{h.chromosome}:{h.position}</p>
+                )}
+              </div>
+              {sig.length > 0 && (
+                <span style={{ fontSize: "0.6rem", padding: "0.15em 0.45em", borderRadius: 4, background: "rgb(var(--c-warning) / 0.12)", color: "var(--warning)", border: "1px solid rgb(var(--c-warning) / 0.3)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                  {sig[0].replace(/-/g, " ")}
+                </span>
+              )}
+              {a && (
+                <a href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>↗</a>
+              )}
+            </div>
+          );
+        })}
+        {hits.length > 40 && (
+          <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", margin: "2px 0 0" }}>
+            …and {hits.length - 40} more in this gene.
+          </p>
+        )}
+      </div>
+
+      <div style={{ padding: "0 0.875rem 0.75rem" }}>
+        {!annotations && (
+          <button onClick={annotate} disabled={loading}
+            style={{ width: "100%", padding: "0.45rem", borderRadius: 8, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.3)", color: "var(--accent)", cursor: loading ? "default" : "pointer", fontSize: "0.68rem", opacity: loading ? 0.6 : 1 }}>
+            {loading ? "Looking up…" : "Look up what these mean (dbSNP)"}
+          </button>
+        )}
+        {error && <p style={{ fontSize: "0.65rem", color: "var(--danger)", margin: "6px 0 0" }}>{error}</p>}
+        <p style={{ fontSize: "0.61rem", color: "var(--text-faintest)", margin: "6px 0 0", lineHeight: 1.5 }}>
+          {annotations
+            ? "Annotations from NCBI dbSNP. Carrying a variant is not a diagnosis — significance depends on context a raw file cannot supply."
+            : "Matched on your device — nothing from your file has been sent. Looking these up sends only these rsIDs to NCBI."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Publication Timeline ─────────────────────────────────────────────────────
 
 function PublicationTimeline({ timeline }) {
@@ -2361,6 +2631,10 @@ function ComparisonView({ msg }) {
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
       {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} />}
       {(data.hpo?.phenotype_terms?.length > 0 || data.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={data.hpo} monarch={data.monarch} />}
+      {data.structural_variants?.variants?.length > 0 && <StructuralVariantsPanel data={data.structural_variants} />}
+      {data.genetic_tests?.tests?.length > 0 && <GeneticTestsPanel data={data.genetic_tests} />}
+      {data.medgen?.concepts?.length > 0 && <MedGenPanel data={data.medgen} />}
+      {data.full_text?.articles?.length > 0 && <FullTextPanel data={data.full_text} />}
       {data.publication_timeline?.length > 0 && <PublicationTimeline timeline={data.publication_timeline} />}
     </div>
   );
@@ -2494,6 +2768,10 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} /> : null;
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
+    case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} /> : null;
+    case "genetic_tests":        return d.genetic_tests?.tests?.length > 0 ? <GeneticTestsPanel data={d.genetic_tests} /> : null;
+    case "medgen":               return d.medgen?.concepts?.length > 0 ? <MedGenPanel data={d.medgen} /> : null;
+    case "full_text":            return d.full_text?.articles?.length > 0 ? <FullTextPanel data={d.full_text} /> : null;
     default: return null;
   }
 }
@@ -2543,6 +2821,17 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
               )}
 
               {findings && <Markdown content={`## ${findings.title}\n${findings.body}`} />}
+
+              {/* Sits high, and is free: it is the reader's own data, matched
+                  against this gene in the browser. Nothing was fetched to
+                  produce it beyond the locus that came with the answer. */}
+              {dnaData && msg.data?.gene_locus_grch37 && (
+                <MyVariantsPanel
+                  dnaData={dnaData}
+                  locus={msg.data.gene_locus_grch37}
+                  gene={msg.target || msg.data.gene_symbol}
+                />
+              )}
             </>
           );
         })()}
@@ -3114,9 +3403,11 @@ export default function App() {
         response_detail: settings.responseDetail,
         // Only send a key from localStorage if the user has no server-stored key.
         user_api_key: (!currentUser?.has_stored_key && settings.apiKey) ? settings.apiKey : null,
-        personal_variants: dnaData
-          ? Array.from(dnaData.variants.entries()).slice(0, 200).map(([rsid, v]) => ({ rsid, ...v }))
-          : null,
+        // Chosen by relevance to the question, not by position in the file.
+        // The gene locus is unknown at this point — it arrives with the answer —
+        // so selection falls back to variants named in the question and the
+        // curated panel.
+        personal_variants: dnaData ? selectRelevantVariants(dnaData, msg) : null,
       });
 
       const r = await fetch(`${API}/chat/stream`, {

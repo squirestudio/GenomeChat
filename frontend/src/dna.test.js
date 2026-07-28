@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDNAFile } from "./dna";
+import { parseDNAFile, computeDnaSummary, variantsInLocus, selectRelevantVariants } from "./dna";
 
 /**
  * The most consequential thing this app does. A genotype parsed wrong
@@ -118,5 +118,142 @@ describe("parseDNAFile", () => {
       const dupes = ["rs1\t1\t1\tAA", "rs1\t1\t1\tGG"].join("\n");
       expect(parseDNAFile(dupes).variants.get("rs1").genotype).toBe("GG");
     });
+  });
+});
+
+describe("computeDnaSummary", () => {
+  /* Regression: this function used to live in App.jsx while NOTABLE_VARIANTS
+     lived here and was not exported, so it threw for every reader with DNA
+     loaded. A test that merely imports it would have caught that. */
+  const load = (rows) => parseDNAFile(rows.join("\n"));
+
+  it("finds a curated variant the reader carries", () => {
+    const s = computeDnaSummary(load(["rs1801133\t1\t11856378\tCT"]));
+    expect(s.totalFound).toBe(1);
+    expect(s.findings[0].gene).toBe("MTHFR");
+  });
+
+  it("flags the risk allele when present", () => {
+    const s = computeDnaSummary(load(["rs6025\t1\t169519049\tAG"]));
+    expect(s.findings[0].hasRisk).toBe(true);
+    expect(s.findings[0].isHomozygous).toBe(false);
+  });
+
+  it("recognises a homozygous call", () => {
+    const s = computeDnaSummary(load(["rs1800562\t6\t26093141\tAA"]));
+    expect(s.findings[0].isHomozygous).toBe(true);
+  });
+
+  it("does not flag risk when the allele is absent", () => {
+    const s = computeDnaSummary(load(["rs6025\t1\t169519049\tGG"]));
+    expect(s.findings[0].hasRisk).toBe(false);
+  });
+
+  it("groups findings by category", () => {
+    const s = computeDnaSummary(load([
+      "rs1801133\t1\t11856378\tCT",
+      "rs429358\t19\t45411941\tCT",
+    ]));
+    expect(Object.keys(s.byCategory).sort()).toEqual(["cardiovascular", "neurological"]);
+  });
+
+  it("returns null without DNA rather than throwing", () => {
+    expect(computeDnaSummary(null)).toBeNull();
+  });
+
+  it("finds nothing in a file with no panel variants", () => {
+    expect(computeDnaSummary(load(["rs99999999\t1\t100\tAA"])).totalFound).toBe(0);
+  });
+});
+
+describe("variantsInLocus", () => {
+  const brca1 = { chromosome: "17", start: 41196312, end: 41277500, assembly: "GRCh37" };
+  const dna = parseDNAFile([
+    "rs799917\t17\t41244000\tCT",     // inside BRCA1
+    "rs1799950\t17\t41246000\tAG",    // inside BRCA1
+    "rs00000\t17\t41000000\tAA",      // chr17 but before the gene
+    "rs11111\t17\t41300000\tGG",      // chr17 but after the gene
+    "rs22222\t13\t41246000\tCC",      // right position, wrong chromosome
+  ].join("\n"));
+
+  it("returns only variants inside the gene", () => {
+    expect(variantsInLocus(dna, brca1).map(v => v.rsid)).toEqual(["rs799917", "rs1799950"]);
+  });
+
+  it("returns them in positional order", () => {
+    const pos = variantsInLocus(dna, brca1).map(v => Number(v.position));
+    expect(pos).toEqual([...pos].sort((a, b) => a - b));
+  });
+
+  it("keeps the genotype with each hit", () => {
+    expect(variantsInLocus(dna, brca1)[0].genotype).toBe("CT");
+  });
+
+  it("refuses a GRCh38 locus outright", () => {
+    /* GRCh38 BRCA1 is ~1.85 Mb away. Silently intersecting against it would
+       report a different stretch of chromosome 17 as the reader's BRCA1. */
+    const grch38 = { chromosome: "17", start: 43044292, end: 43170245, assembly: "GRCh38" };
+    expect(variantsInLocus(dna, grch38)).toEqual([]);
+  });
+
+  it("tolerates a chr-prefixed chromosome", () => {
+    expect(variantsInLocus(dna, { ...brca1, chromosome: "chr17" })).toHaveLength(2);
+  });
+
+  it("is safe with no DNA or no locus", () => {
+    expect(variantsInLocus(null, brca1)).toEqual([]);
+    expect(variantsInLocus(dna, null)).toEqual([]);
+    expect(variantsInLocus(dna, { chromosome: "17" })).toEqual([]);
+  });
+});
+
+describe("selectRelevantVariants", () => {
+  /* A real file is sorted by chromosome and position, so taking the first N
+     always yields the start of chromosome 1 — never the gene being asked
+     about. These rows imitate that shape. */
+  const rows = [];
+  for (let i = 0; i < 300; i++) rows.push(`rs${900000 + i}\t1\t${10000 + i}\tAA`);
+  rows.push("rs1801133\t1\t11856378\tCT");        // curated panel
+  rows.push("rs799917\t17\t41244000\tCT");        // inside BRCA1
+  const dna = parseDNAFile(rows.join("\n"));
+  const brca1 = { chromosome: "17", start: 41196312, end: 41277500, assembly: "GRCh37" };
+
+  it("puts a variant named in the question first", () => {
+    const picked = selectRelevantVariants(dna, "what does rs799917 mean?");
+    expect(picked[0].rsid).toBe("rs799917");
+  });
+
+  it("includes variants inside the gene asked about", () => {
+    const picked = selectRelevantVariants(dna, "tell me about BRCA1", brca1);
+    expect(picked.map(v => v.rsid)).toContain("rs799917");
+  });
+
+  it("includes the curated panel even with no locus", () => {
+    expect(selectRelevantVariants(dna, "hello").map(v => v.rsid)).toContain("rs1801133");
+  });
+
+  it("respects the budget", () => {
+    expect(selectRelevantVariants(dna, "hello")).toHaveLength(200);
+  });
+
+  it("never repeats a variant that qualifies twice over", () => {
+    const picked = selectRelevantVariants(dna, "rs1801133 and BRCA1", brca1);
+    expect(new Set(picked.map(v => v.rsid)).size).toBe(picked.length);
+  });
+
+  it("beats file order — the old behaviour would have missed both", () => {
+    const firstTwoHundred = Array.from(dna.variants.keys()).slice(0, 200);
+    expect(firstTwoHundred).not.toContain("rs799917");
+    const picked = selectRelevantVariants(dna, "BRCA1", brca1).map(v => v.rsid);
+    expect(picked).toContain("rs799917");
+    expect(picked).toContain("rs1801133");
+  });
+
+  it("matches an rsID in the question case-insensitively", () => {
+    expect(selectRelevantVariants(dna, "RS799917")[0].rsid).toBe("rs799917");
+  });
+
+  it("is safe with no DNA", () => {
+    expect(selectRelevantVariants(null, "BRCA1")).toEqual([]);
   });
 });

@@ -10,6 +10,12 @@ from models import VariantResult, GeneResult
 logger = logging.getLogger(__name__)
 
 ENSEMBL_BASE = "https://rest.ensembl.org"
+# Consumer DNA files (23andMe, AncestryDNA) are reported against GRCh37, while
+# Ensembl's main REST endpoint serves GRCh38. The two differ by ~1.85 Mb at
+# BRCA1, so intersecting a user's variant positions against a GRCh38 locus does
+# not merely blur the result — it lands in an entirely different gene. Anything
+# compared against uploaded coordinates must come from this endpoint.
+ENSEMBL_GRCH37_BASE = "https://grch37.rest.ensembl.org"
 CLINVAR_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 GNOMAD_BASE = "https://gnomad.broadinstitute.org/api"
 UNIPROT_BASE = "https://rest.uniprot.org/uniprotkb"
@@ -78,6 +84,7 @@ _failed_sources: contextvars.ContextVar[Optional[set]] = contextvars.ContextVar(
 
 SOURCE_BY_HOST = {
     "eutils.ncbi.nlm.nih.gov": "NCBI",
+    "grch37.rest.ensembl.org": "Ensembl",
     "rest.ensembl.org": "Ensembl",
     "gnomad.broadinstitute.org": "gnomAD",
     "rest.uniprot.org": "UniProt",
@@ -1440,6 +1447,388 @@ CORE_SECTIONS = ("gene_info", "protein_info", "variants", "publication_count",
                  "population_summary", "alphafold", "domains")
 
 # Each optional section: label for the UI, and the keys it populates.
+# ─── NCBI cross-database traversal ────────────────────────────────────────────
+# Most NCBI databases key off the numeric Gene ID rather than the symbol, and
+# resolving it by search costs a call each time. Two fetchers already did that
+# lookup inline; everything added below shares this one instead.
+
+
+async def resolve_ncbi_gene_id(gene_symbol: str, client: httpx.AsyncClient = None) -> Optional[str]:
+    """NCBI Gene UID for a human gene symbol, or None."""
+    async def _lookup(c):
+        data = await _get(c, f"{NCBI_BASE}/esearch.fcgi", {
+            "db": "gene",
+            "term": f"{gene_symbol}[gene] AND Homo sapiens[orgn]",
+            "retmode": "json", "retmax": 1,
+        })
+        ids = (data or {}).get("esearchresult", {}).get("idlist", [])
+        return ids[0] if ids else None
+
+    try:
+        if client is not None:
+            return await _lookup(client)
+        async with httpx.AsyncClient() as c:
+            return await _lookup(c)
+    except Exception as e:
+        logger.warning(f"NCBI gene id lookup failed for {gene_symbol}: {e}")
+        return None
+
+
+async def elink_ids(dbfrom: str, db: str, uid: str, client: httpx.AsyncClient,
+                    limit: int = 200) -> list[str]:
+    """UIDs in `db` linked to `uid` in `dbfrom`.
+
+    Note the explicit `db`: an elink call that omits it returns PubMed links
+    only, which looks like a working call that simply found nothing elsewhere.
+    """
+    try:
+        data = await _get(client, f"{NCBI_BASE}/elink.fcgi", {
+            "dbfrom": dbfrom, "db": db, "id": uid, "retmode": "json",
+        })
+        out = []
+        for linkset in (data or {}).get("linksets", []):
+            for linksetdb in linkset.get("linksetdbs") or []:
+                for link in linksetdb.get("links") or []:
+                    out.append(str(link))
+                    if len(out) >= limit:
+                        return out
+        return out
+    except Exception as e:
+        logger.warning(f"elink {dbfrom}->{db} failed for {uid}: {e}")
+        return []
+
+
+async def fetch_gene_locus_grch37(gene_symbol: str) -> Optional[dict]:
+    """Gene coordinates on GRCh37, the build consumer DNA files are reported in.
+
+    Kept separate from `lookup_gene_ensembl` (GRCh38) precisely so the two can
+    never be confused at the call site — see the note on ENSEMBL_GRCH37_BASE.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            data = await _get(
+                client, f"{ENSEMBL_GRCH37_BASE}/lookup/symbol/homo_sapiens/{gene_symbol}",
+                {"expand": 0},
+            )
+            if not data or not data.get("seq_region_name"):
+                return None
+            return {
+                "chromosome": str(data.get("seq_region_name")),
+                "start": data.get("start"),
+                "end": data.get("end"),
+                "assembly": data.get("assembly_name") or "GRCh37",
+            }
+    except Exception as e:
+        logger.warning(f"GRCh37 locus lookup failed for {gene_symbol}: {e}")
+        return None
+
+
+def _parse_maf(entry: dict) -> Optional[float]:
+    """Highest-quality global minor allele frequency dbSNP reports, if any.
+
+    `global_mafs` is a list of per-study strings shaped like "A=0.161342/808".
+    1000Genomes is preferred when present because it is the study most readers
+    will have seen quoted elsewhere.
+    """
+    mafs = entry.get("global_mafs") or []
+    chosen = next((m for m in mafs if m.get("study") == "1000Genomes"), None) or (mafs[0] if mafs else None)
+    if not chosen:
+        return None
+    freq = str(chosen.get("freq", ""))
+    if "=" not in freq:
+        return None
+    try:
+        return float(freq.split("=", 1)[1].split("/", 1)[0])
+    except (ValueError, IndexError):
+        return None
+
+
+# dbSNP accepts many ids per esummary call; batching keeps a lookup of a
+# reader's matched variants to one or two requests against the shared NCBI
+# budget rather than one per variant.
+DBSNP_BATCH = 100
+
+# Conventional lower bound for calling something a structural variant.
+SV_MIN_SPAN_BP = 50
+
+
+async def fetch_dbsnp_annotations(rsids: list[str]) -> dict:
+    """Annotate rsIDs with gene, consequence, clinical significance and frequency.
+
+    Keyed by rsID with the `rs` prefix intact, so callers can look up the same
+    string they hold. Unknown rsIDs are simply absent.
+    """
+    clean = []
+    for r in rsids:
+        digits = str(r).strip().lower().lstrip("rs")
+        if digits.isdigit():
+            clean.append(digits)
+    if not clean:
+        return {}
+
+    out = {}
+    try:
+        async with httpx.AsyncClient() as client:
+            for i in range(0, len(clean), DBSNP_BATCH):
+                batch = clean[i:i + DBSNP_BATCH]
+                data = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                    "db": "snp", "id": ",".join(batch), "retmode": "json",
+                })
+                result = (data or {}).get("result", {})
+                for uid in result.get("uids", []):
+                    entry = result.get(str(uid)) or {}
+                    # An unknown rsID comes back as a record carrying an error
+                    # rather than as an omission. Passing it through would tell
+                    # a reader their variant exists and means nothing, when in
+                    # fact dbSNP has never heard of it.
+                    if entry.get("error") or not entry.get("snp_id"):
+                        continue
+                    genes = [g.get("name") for g in (entry.get("genes") or []) if g.get("name")]
+                    sig = (entry.get("clinical_significance") or "").strip()
+                    fxn = (entry.get("fxn_class") or "").strip()
+                    out[f"rs{uid}"] = {
+                        "rsid": f"rs{uid}",
+                        "genes": genes,
+                        # Both fields arrive comma-joined and unordered.
+                        "clinical_significance": [s for s in sig.split(",") if s] or [],
+                        "consequences": sorted({s for s in fxn.split(",") if s}),
+                        "chrpos": entry.get("chrpos") or None,
+                        "chrpos_grch37": entry.get("chrpos_prev_assembly") or None,
+                        "maf": _parse_maf(entry),
+                        "url": f"https://www.ncbi.nlm.nih.gov/snp/rs{uid}",
+                    }
+    except Exception as e:
+        logger.warning(f"dbSNP annotation failed: {e}")
+    return out
+
+
+async def fetch_genetic_tests(gene_symbol: str) -> dict:
+    """Clinically available genetic tests for a gene, from NCBI's GTR."""
+    try:
+        async with httpx.AsyncClient() as client:
+            data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+                "db": "gtr", "term": f"{gene_symbol}[gene]",
+                "retmode": "json", "retmax": 25,
+            })
+            search = (data or {}).get("esearchresult", {})
+            ids = search.get("idlist", [])
+            if not ids:
+                return {}
+
+            summary = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                "db": "gtr", "id": ",".join(ids[:25]), "retmode": "json",
+            })
+            result = (summary or {}).get("result", {})
+
+            tests = []
+            for uid in result.get("uids", []):
+                entry = result.get(str(uid)) or {}
+                name = (entry.get("testname") or "").strip()
+                if not name:
+                    continue
+                conditions = [c.get("name") for c in (entry.get("conditionlist") or []) if c.get("name")]
+                analytes = [a.get("name") for a in (entry.get("analytes") or []) if a.get("name")]
+                tests.append({
+                    "id": str(uid),
+                    "name": name,
+                    "lab": (entry.get("labname") or "").strip() or None,
+                    "test_type": (entry.get("testtype") or "").strip() or None,
+                    "conditions": conditions[:5],
+                    "genes_tested": analytes[:12],
+                    "url": f"https://www.ncbi.nlm.nih.gov/gtr/tests/{uid}/",
+                })
+
+            if not tests:
+                return {}
+            return {
+                # The count from the search, not the page — "25 of 450" is the
+                # honest framing, and the reader needs the real total to judge.
+                "total": int(search.get("count") or len(tests)),
+                "tests": tests,
+                "registry_url": f"https://www.ncbi.nlm.nih.gov/gtr/all/tests/?term={gene_symbol}",
+                "source": "GTR",
+            }
+    except Exception as e:
+        logger.warning(f"GTR fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
+async def fetch_structural_variants(gene_symbol: str) -> dict:
+    """Pathogenic structural variants from dbVar.
+
+    ClinVar covers SNVs and small indels; whole-exon deletions and duplications
+    live in dbVar and are otherwise invisible to this app. Restricted to
+    pathogenic interpretations because the unfiltered set is mostly common
+    insertions of no clinical interest.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+                "db": "dbvar",
+                "term": f"{gene_symbol}[gene] AND pathogenic[Clinical_Interpretation]",
+                "retmode": "json", "retmax": 25,
+            })
+            search = (data or {}).get("esearchresult", {})
+            ids = search.get("idlist", [])
+            if not ids:
+                return {}
+
+            summary = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                "db": "dbvar", "id": ",".join(ids[:25]), "retmode": "json",
+            })
+            result = (summary or {}).get("result", {})
+
+            variants = []
+            for uid in result.get("uids", []):
+                entry = result.get(str(uid)) or {}
+                accession = entry.get("sv") or entry.get("st")
+                if not accession:
+                    continue
+                placement = next(
+                    (p for p in (entry.get("dbvarplacementlist") or []) if p.get("chr")), {}
+                )
+                start, end = placement.get("chr_start"), placement.get("chr_end")
+                span = (end - start + 1) if isinstance(start, int) and isinstance(end, int) else None
+                vtype = (entry.get("dbvarvarianttypelist") or [None])[0]
+                # dbVar's clinical filter admits single-base events, and a 1 bp
+                # insertion under a heading that promises deletions and
+                # duplications is simply wrong. 50 bp is the conventional lower
+                # bound for a structural variant; copy-number calls qualify on
+                # type regardless of the span recorded.
+                is_copy_number = vtype and ("copy number" in vtype.lower() or "duplication" in vtype.lower())
+                if not is_copy_number and (span is None or span < SV_MIN_SPAN_BP):
+                    continue
+                variants.append({
+                    "accession": accession,
+                    "variant_type": (entry.get("dbvarvarianttypelist") or [None])[0],
+                    "clinical_significance": entry.get("dbvarclinicalsignificancelist") or [],
+                    "chromosome": placement.get("chr"),
+                    "start": start,
+                    "end": end,
+                    "assembly": placement.get("assembly"),
+                    # What a reader actually wants from a structural variant:
+                    # how much of the gene it removes or duplicates.
+                    "span_bp": span,
+                    "url": f"https://www.ncbi.nlm.nih.gov/dbvar/variants/{accession}/",
+                })
+
+            if not variants:
+                return {}
+            variants.sort(key=lambda v: v.get("span_bp") or 0, reverse=True)
+            return {
+                # The search total counts what dbVar matched before the size
+                # filter above, so report the kept count as the honest figure.
+                "total": len(variants),
+                "matched": int(search.get("count") or len(variants)),
+                "variants": variants,
+                "source": "dbVar",
+            }
+    except Exception as e:
+        logger.warning(f"dbVar fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
+async def fetch_medgen_concepts(gene_symbol: str) -> dict:
+    """Curated medical-genetics concepts linked to a gene, from MedGen.
+
+    Reached by elink rather than a text search: a search for "BRCA1" matches
+    concepts that merely mention it, while the link is the curated assertion.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            gene_id = await resolve_ncbi_gene_id(gene_symbol, client)
+            if not gene_id:
+                return {}
+            ids = await elink_ids("gene", "medgen", gene_id, client, limit=20)
+            if not ids:
+                return {}
+
+            summary = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                "db": "medgen", "id": ",".join(ids[:20]), "retmode": "json",
+            })
+            result = (summary or {}).get("result", {})
+
+            concepts = []
+            for uid in result.get("uids", []):
+                entry = result.get(str(uid)) or {}
+                title = entry.get("title")
+                # Both fields arrive either as a plain string or as
+                # {"value": ...} depending on the record.
+                if isinstance(title, dict):
+                    title = title.get("value")
+                definition = entry.get("definition")
+                if isinstance(definition, dict):
+                    definition = definition.get("value")
+                if not title:
+                    continue
+                cui = entry.get("conceptid")
+                concepts.append({
+                    "concept_id": cui,
+                    "name": str(title).strip(),
+                    "definition": (str(definition).strip() or None) if definition else None,
+                    "semantic_type": entry.get("semantictype") or None,
+                    "url": f"https://www.ncbi.nlm.nih.gov/medgen/{uid}",
+                })
+
+            if not concepts:
+                return {}
+            return {"concepts": concepts, "source": "MedGen"}
+    except Exception as e:
+        logger.warning(f"MedGen fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
+async def fetch_pmc_articles(gene_symbol: str, limit: int = 10) -> dict:
+    """Recent open-access full-text articles from PubMed Central.
+
+    PubMed gives abstracts behind a mix of paywalls; PMC entries are readable
+    in full, which is the difference that matters to someone following up.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+                "db": "pmc", "term": f"{gene_symbol}[title]",
+                "retmode": "json", "retmax": limit, "sort": "pub_date",
+            })
+            search = (data or {}).get("esearchresult", {})
+            ids = search.get("idlist", [])
+            if not ids:
+                return {}
+
+            summary = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                "db": "pmc", "id": ",".join(ids[:limit]), "retmode": "json",
+            })
+            result = (summary or {}).get("result", {})
+
+            articles = []
+            for uid in result.get("uids", []):
+                entry = result.get(str(uid)) or {}
+                title = (entry.get("title") or "").strip()
+                if not title:
+                    continue
+                authors = [a.get("name") for a in (entry.get("authors") or []) if a.get("name")]
+                articles.append({
+                    "pmcid": f"PMC{uid}",
+                    "title": title,
+                    "journal": entry.get("fulljournalname") or entry.get("source") or None,
+                    "pubdate": entry.get("pubdate") or entry.get("epubdate") or None,
+                    "authors": authors[:4],
+                    "author_count": len(authors),
+                    "url": f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{uid}/",
+                })
+
+            if not articles:
+                return {}
+            return {
+                "total": int(search.get("count") or len(articles)),
+                "articles": articles,
+                "source": "PMC",
+            }
+    except Exception as e:
+        logger.warning(f"PMC fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
 OPTIONAL_SECTIONS = {
     "pathways":             "Biological pathways",
     "expression":           "Tissue expression",
@@ -1452,6 +1841,18 @@ OPTIONAL_SECTIONS = {
     "publication_timeline": "Publication trend",
     "gwas":                 "GWAS trait associations",
     "phenotypes":           "Phenotypes (HPO & Monarch)",
+    "structural_variants":  "Structural variants (deletions & duplications)",
+    "genetic_tests":        "Available clinical tests",
+    "medgen":               "Medical genetics concepts",
+    "full_text":            "Open-access full-text papers",
+}
+
+# Sections whose fetcher returns a dict rather than a list. Getting this wrong
+# hands the frontend `[]` where it expects `{}`, which renders as a silently
+# missing panel rather than an error, so it is kept next to the registry.
+DICT_SECTIONS = {
+    "omim", "pharmgkb", "cancer_mutations",
+    "structural_variants", "genetic_tests", "medgen", "full_text",
 }
 
 
@@ -1499,6 +1900,10 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "clingen": fetch_clingen_validity,
         "publication_timeline": fetch_pubmed_timeline,
         "gwas": fetch_gwas_associations,
+        "structural_variants": fetch_structural_variants,
+        "genetic_tests": fetch_genetic_tests,
+        "medgen": fetch_medgen_concepts,
+        "full_text": fetch_pmc_articles,
     }
     fn = simple.get(section)
     if not fn:
@@ -1508,7 +1913,7 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
     except Exception as e:
         logger.warning(f"Section {section} failed for {gene_symbol}: {e}")
         result = None
-    empty = {} if section in ("omim", "pharmgkb", "cancer_mutations") else []
+    empty = {} if section in DICT_SECTIONS else []
     return {section: result if result is not None else empty}
 
 
@@ -1528,6 +1933,8 @@ SECTION_SOURCE = {
     "interactions": "STRING", "drugs": "OpenTargets", "omim": "OMIM",
     "pharmgkb": "PharmGKB", "cancer_mutations": "COSMIC/GDC", "clingen": "ClinGen",
     "publication_timeline": "PubMed", "gwas": "GWAS Catalog", "phenotypes": "HPO",
+    "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
+    "full_text": "PMC",
 }
 
 
@@ -1609,13 +2016,18 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
 
     # AlphaFold + domains ride along in core: neither touches NCBI, so they add
     # no rate-limit pressure, and the 3D view is what the reader most wants to see.
-    pop_summary, structure = await asyncio.gather(
+    # The GRCh37 locus rides along for the same reason: it is an Ensembl call,
+    # and it is what lets the browser work out which of a reader's own uploaded
+    # variants fall inside this gene without any of them leaving the device.
+    pop_summary, structure, locus37 = await asyncio.gather(
         _gather_one(fetch_gnomad_population_summary(gene_symbol)),
         _gather_one(fetch_gene_section(gene_symbol, "structure", accession, ensembl_id)),
+        _gather_one(fetch_gene_locus_grch37(gene_symbol)),
         return_exceptions=True,
     )
     pop_summary = safe(pop_summary) or []
     structure = safe(structure) or {}
+    locus37 = safe(locus37)
 
     core = {
         "gene_info": ensembl_safe,
@@ -1625,6 +2037,10 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
         "population_summary": pop_summary,
         "alphafold": structure.get("alphafold"),
         "domains": structure.get("domains", []),
+        # GRCh37 — the build 23andMe and AncestryDNA report in. Named for the
+        # assembly so no caller can mistake it for the GRCh38 coordinates in
+        # `gene_info`, which are ~1.85 Mb away at BRCA1.
+        "gene_locus_grch37": locus37,
         # identifiers the section endpoint needs, so it need not re-resolve them
         "_uniprot_accession": accession,
         "_ensembl_id": ensembl_id,

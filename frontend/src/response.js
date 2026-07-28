@@ -40,17 +40,24 @@ const PROSE_PRIMARY = ["overview", "keyfindings"];
 
 
 // Labels for sections, used when reporting one that came back empty.
+/* Both lists mirror OPTIONAL_SECTIONS in the backend's genomics_api_real.py.
+   Adding a section there means adding it to both of these: a key missing from
+   EXPLORE_LABELS is reported to the reader by its raw name, and one missing
+   from ALL_SECTION_KEYS never renders at all on an unstaged response. */
 const EXPLORE_LABELS = {
   pathways: "Biological pathways", expression: "Tissue expression",
   interactions: "Protein interactions", drugs: "Drugs & clinical trials",
   omim: "OMIM disease entries", pharmgkb: "Pharmacogenomics",
   cancer_mutations: "Somatic cancer mutations", clingen: "ClinGen validity",
   publication_timeline: "Publication trend", gwas: "GWAS associations",
-  phenotypes: "Phenotypes",
+  phenotypes: "Phenotypes", structural_variants: "Structural variants",
+  genetic_tests: "Available clinical tests", medgen: "Linked conditions",
+  full_text: "Full-text papers",
 };
 
 const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
-  "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline"];
+  "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline",
+  "structural_variants", "genetic_tests", "medgen", "full_text"];
 
 /** Everything the reader can open, in one list. Items already in hand cost
  *  nothing; the rest are fetched on demand and consume a credit. */

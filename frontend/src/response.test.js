@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitProseSections, buildExploreItems } from "./response";
+import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS } from "./response";
 
 describe("splitProseSections", () => {
   const answer = [
@@ -113,5 +113,30 @@ describe("buildExploreItems", () => {
   it("omits the domain map without protein length", () => {
     const noProtein = { ...msg, data: { ...msg.data, protein_info: null } };
     expect(buildExploreItems(noProtein).find(i => i.key === "domainmap")).toBeUndefined();
+  });
+});
+
+describe("section registries stay in step", () => {
+  /* These two lists mirror OPTIONAL_SECTIONS in the backend. Drift is quiet in
+     both directions — a raw key shown to the reader, or a panel that never
+     renders on an unstaged response — so it is worth asserting rather than
+     remembering. */
+  it("names every section it can render", () => {
+    const unnamed = ALL_SECTION_KEYS.filter(
+      k => !EXPLORE_LABELS[k] && !["variants", "domainmap", "popfreq"].includes(k),
+    );
+    expect(unnamed).toEqual([]);
+  });
+
+  it("can render every section it names", () => {
+    const unrenderable = Object.keys(EXPLORE_LABELS).filter(k => !ALL_SECTION_KEYS.includes(k));
+    expect(unrenderable).toEqual([]);
+  });
+
+  it("carries the sources added from NCBI", () => {
+    for (const k of ["structural_variants", "genetic_tests", "medgen", "full_text"]) {
+      expect(EXPLORE_LABELS[k]).toBeTruthy();
+      expect(ALL_SECTION_KEYS).toContain(k);
+    }
   });
 });

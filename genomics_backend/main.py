@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
-from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
+from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
@@ -299,7 +299,7 @@ app.add_middleware(
 # rest. /health is exempt so a limited client cannot take the healthcheck down
 # with it, and /billing/webhook is exempt because Stripe retries in bursts and
 # is already authenticated by signature.
-EXPENSIVE_PATHS = ("/chat", "/chat/stream", "/gene/section")
+EXPENSIVE_PATHS = ("/chat", "/chat/stream", "/gene/section", "/dna/annotate")
 UNLIMITED_PATHS = ("/health", "/billing/webhook")
 
 # SharedWindow uses Redis when REDIS_URL is set and falls back to the local
@@ -641,6 +641,42 @@ async def gene_section(request: Request, body: SectionRequest, db: Session = Dep
     cache.set(cache_key, data, ttl_hours=None if has_data else EMPTY_SECTION_TTL_HOURS)
     return {"section": body.section, "data": data, "cached": False,
             "empty": not has_data, "charged": charged}
+
+
+class AnnotateRequest(BaseModel):
+    # Capped well below what dbSNP would accept per call. A reader's variants
+    # inside one gene number in the tens; a request for thousands is not that.
+    rsids: list[str] = Field(min_length=1, max_length=200)
+
+
+@app.post("/dna/annotate")
+async def dna_annotate(request: Request, current_user: Optional[User] = Depends(get_current_user)):
+    """Annotate rsIDs with gene, consequence, clinical significance and frequency.
+
+    Deliberately free and uncharged. These are the reader's own variants, and
+    the app already made them pay to ask the question that surfaced them —
+    charging again to say what they mean would be billing twice for one answer.
+    The per-IP rate limit is what keeps it from being used as a bulk dbSNP proxy.
+
+    Privacy: which rsIDs a person carries is personal data. It is passed to
+    dbSNP and returned, and is never written to the database or the log. Do not
+    add persistence or logging of `rsids` here — see the privacy invariant in
+    CLAUDE.md.
+    """
+    try:
+        body = AnnotateRequest(**(await request.json()))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Expected a list of rsIDs")
+
+    try:
+        annotations = await fetch_dbsnp_annotations(body.rsids)
+    except Exception as e:
+        # Note the deliberate absence of the rsIDs from this message.
+        logger.error(f"dbSNP annotation failed for {len(body.rsids)} variants: {e}")
+        raise HTTPException(status_code=502, detail="Could not reach dbSNP")
+
+    return {"annotations": annotations, "requested": len(body.rsids),
+            "resolved": len(annotations), "source": "dbSNP"}
 
 
 # ── Streaming chat ────────────────────────────────────────────────────────────

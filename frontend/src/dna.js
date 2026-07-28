@@ -117,4 +117,121 @@ const NOTABLE_VARIANTS = [
 ];
 
 
-export { parseDNAFile, saveDnaToSession, loadDnaFromSession, SESSION_KEY };
+/**
+ * Match an uploaded file against the curated panel above.
+ *
+ * Lives here rather than in App.jsx because it reads NOTABLE_VARIANTS: when it
+ * sat in the component it referenced a constant that had moved to this module
+ * and was never exported, so it threw a ReferenceError for every reader with
+ * DNA loaded. Keeping the function next to the data it depends on is what stops
+ * that recurring.
+ */
+function computeDnaSummary(dnaData) {
+  if (!dnaData) return null;
+  const findings = [];
+  for (const nv of NOTABLE_VARIANTS) {
+    const userVariant = dnaData.variants.get(nv.rsid);
+    if (!userVariant) continue;
+    const genotype = userVariant.genotype || "";
+    const hasRisk = genotype.includes(nv.riskAllele);
+    const isHomozygous = genotype.length === 2 && genotype[0] === genotype[1];
+    findings.push({ ...nv, genotype, hasRisk, isHomozygous, userVariant });
+  }
+  const byCategory = {};
+  for (const f of findings) {
+    if (!byCategory[f.category]) byCategory[f.category] = [];
+    byCategory[f.category].push(f);
+  }
+  return { findings, byCategory, totalFound: findings.length };
+}
+
+/**
+ * Which of a reader's variants sit inside a gene, by GRCh37 coordinates.
+ *
+ * Consumer DNA files report GRCh37, so the locus must be GRCh37 too — the
+ * GRCh38 coordinates for BRCA1 are ~1.85 Mb away and would select a different
+ * stretch of chromosome 17 entirely. `assembly` is checked rather than trusted
+ * so a future caller cannot pass the wrong build silently.
+ *
+ * Runs entirely in the browser: the reader's variants are never sent anywhere
+ * to work out which ones are relevant.
+ */
+function variantsInLocus(dnaData, locus) {
+  if (!dnaData || !locus || !locus.chromosome) return [];
+  if (locus.assembly && locus.assembly !== "GRCh37") return [];
+  const start = Number(locus.start);
+  const end = Number(locus.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+
+  // Files write chromosomes as "17", AncestryDNA sometimes as "chr17", and the
+  // sex chromosomes vary in case.
+  const norm = (c) => String(c ?? "").replace(/^chr/i, "").toUpperCase();
+  const target = norm(locus.chromosome);
+
+  const hits = [];
+  for (const [rsid, v] of dnaData.variants) {
+    if (norm(v.chromosome) !== target) continue;
+    const pos = Number(v.position);
+    if (!Number.isFinite(pos) || pos < start || pos > end) continue;
+    hits.push({ rsid, ...v });
+  }
+  hits.sort((a, b) => Number(a.position) - Number(b.position));
+  return hits;
+}
+
+// Upper bound on variants sent with a question. The prompt has to stay a
+// reasonable size, so what matters is that the budget is spent on the most
+// relevant variants rather than on whichever ones happen to sort first.
+const VARIANT_PROMPT_BUDGET = 200;
+
+/**
+ * Choose which of a reader's variants to send with a question.
+ *
+ * The obvious implementation — take the first 200 — is what this replaces, and
+ * it was worse than it looks: these files are sorted by chromosome and
+ * position, so the first 200 are always the start of chromosome 1 and were
+ * therefore almost never related to whatever was being asked about. The model
+ * was given a slice of someone's genome chosen by file order.
+ *
+ * Priority is by evidence of relevance: variants named in the question, then
+ * those inside the gene being asked about, then the curated panel, then
+ * whatever else fits.
+ */
+function selectRelevantVariants(dnaData, message = "", locus = null) {
+  if (!dnaData || !dnaData.variants) return [];
+
+  const chosen = new Map();
+  const take = (rsid, v) => {
+    if (!chosen.has(rsid) && chosen.size < VARIANT_PROMPT_BUDGET) {
+      chosen.set(rsid, { rsid, ...v });
+    }
+  };
+
+  for (const rsid of String(message).match(/rs\d+/gi) || []) {
+    const key = rsid.toLowerCase();
+    const v = dnaData.variants.get(key);
+    if (v) take(key, v);
+  }
+
+  for (const hit of variantsInLocus(dnaData, locus)) {
+    take(hit.rsid, hit);
+  }
+
+  for (const nv of NOTABLE_VARIANTS) {
+    const v = dnaData.variants.get(nv.rsid);
+    if (v) take(nv.rsid, v);
+  }
+
+  for (const [rsid, v] of dnaData.variants) {
+    if (chosen.size >= VARIANT_PROMPT_BUDGET) break;
+    take(rsid, v);
+  }
+
+  return Array.from(chosen.values());
+}
+
+export {
+  parseDNAFile, saveDnaToSession, loadDnaFromSession, SESSION_KEY,
+  NOTABLE_VARIANTS, computeDnaSummary, variantsInLocus, selectRelevantVariants,
+  VARIANT_PROMPT_BUDGET,
+};

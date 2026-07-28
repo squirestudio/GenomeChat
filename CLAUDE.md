@@ -10,6 +10,10 @@ This repo is developed from more than one machine via `origin`. Claude Code sess
 
 Both apps are deployed: backend on Railway, frontend on Vercel. Recent work has centered on the freemium gate — anonymous users are limited client-side (3 queries) before a sign-in prompt, authenticated users are limited server-side by `FREE_QUERY_LIMIT` (currently 20). Stripe checkout and webhook entitlement granting are wired up.
 
+The most recent work audited NCBI coverage and closed the gaps: the app used 4 of the 39 E-utilities databases and no `elink`. It now also reads dbSNP, dbVar, GTR, MedGen and PMC, and matches an uploaded DNA file against the gene being discussed.
+
+`NCBI_API_KEY` **is set in Railway** but is not in the local `genomics_backend/.env`, so a dev container runs at 2.5 req/sec against production's 9.0. Worth adding locally before profiling anything or debugging a source that returns nothing — the symptom of the anonymous cap is an empty result, not an error.
+
 Environment variables are set in the Railway and Vercel dashboards, not in the repo. The backend needs at minimum `ANTHROPIC_API_KEY` and `DATABASE_URL`; OAuth, Stripe, and stored-API-key features each stay disabled (returning 501) until their vars are set — see [config.py](genomics_backend/config.py) for the full list.
 
 ## Deployment topology
@@ -131,7 +135,15 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **16 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, OMIM, PharmGKB, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **20 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, OMIM, PharmGKB, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+
+**Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, OMIM, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
+
+**Adding an NCBI source: use `elink`, not a text search.** `elink_ids(dbfrom, db, uid, client)` traverses from a Gene UID to the curated links in another database — 18,354 ClinVar records, 22,227 dbSNP entries, 447 GTR tests for BRCA1. A search for `"BRCA1"` matches records that merely mention it; the link is the asserted relationship. **An elink call that omits `db` returns PubMed links only**, which reads as a working call that happened to find nothing elsewhere.
+
+**Genome build is load-bearing, not a detail.** 23andMe and AncestryDNA report GRCh37; Ensembl's main REST endpoint serves GRCh38. BRCA1 sits at chr17:41,196,312 on one and chr17:43,044,292 on the other — 1.85 Mb apart, a different part of the chromosome entirely. `fetch_gene_locus_grch37()` exists as a separate function from `lookup_gene_ensembl()` so the two builds cannot be confused at a call site, and `variantsInLocus()` in the frontend refuses a locus whose `assembly` is not GRCh37 rather than silently intersecting against it.
+
+**A new section must be registered in five places**, and each omission fails quietly and differently: `OPTIONAL_SECTIONS` (offered at all), `SECTION_SOURCE` (attribution), `DICT_SECTIONS` (whether an empty result is `{}` or `[]`), the `simple` dispatch map in `fetch_gene_section`, and — in the frontend — both `EXPLORE_LABELS` and `ALL_SECTION_KEYS` in [response.js](frontend/src/response.js). `test_ncbi_sources.py` and `response.test.js` assert the registries agree.
 
 Every gather uses `return_exceptions=True` and every result passes through `safe()`/`safe2()` before landing in the returned dict. **This is the central design invariant: any upstream source may be down, rate-limited, or return a changed schema, and the response must still be well-formed.** The `sources` list at the bottom of the returned dict is built by checking which fetches actually produced data, so it reflects reality per-request. When adding a new source, follow the same shape — a `fetch_*` coroutine that swallows its own errors and returns `[]`/`{}`, added to the gather, with a key in the result dict and an entry in `sources`.
 
@@ -202,7 +214,7 @@ All config is [config.py](genomics_backend/config.py) `Settings` (pydantic-setti
 
 [frontend/src/App.jsx](frontend/src/App.jsx) is a single ~3,300-line file containing ~40 components and the entire app. There is no router, no state library, no component directory. Tailwind utility classes inline; `App.css`/`index.css` hold only a small amount of global styling.
 
-The structure that makes it navigable: **each key in the backend's pipeline dict has a matching display component** — `pathways` → `PathwayViewer`, `expression` → `ExpressionChart`, `interactions` → `InteractionNetwork`, `drugs` → `DrugPanel`, `gwas` → `GWASPanel`, `hpo`/`monarch` → `PhenotypePanel`, `pharmgkb` → `PharmGKBPanel`, `cancer_mutations` → `CancerMutationsPanel`, `clingen` → `ClinGenPanel`, `omim` → `OmimPanel`, `population_summary` → `PopulationFrequencyChart`, `publication_timeline` → `PublicationTimeline`, `variants` + `domains` → `LollipopMap`. `DataSection` dispatches to them. Adding a backend data source means adding a `fetch_*` in the pipeline and one panel component here.
+The structure that makes it navigable: **each key in the backend's pipeline dict has a matching display component** — `pathways` → `PathwayViewer`, `expression` → `ExpressionChart`, `interactions` → `InteractionNetwork`, `drugs` → `DrugPanel`, `gwas` → `GWASPanel`, `hpo`/`monarch` → `PhenotypePanel`, `pharmgkb` → `PharmGKBPanel`, `cancer_mutations` → `CancerMutationsPanel`, `clingen` → `ClinGenPanel`, `omim` → `OmimPanel`, `population_summary` → `PopulationFrequencyChart`, `publication_timeline` → `PublicationTimeline`, `variants` + `domains` → `LollipopMap`, `structural_variants` → `StructuralVariantsPanel`, `genetic_tests` → `GeneticTestsPanel`, `medgen` → `MedGenPanel`, `full_text` → `FullTextPanel`, `gene_locus_grch37` + uploaded DNA → `MyVariantsPanel`. `SectionPanel` dispatches by key; `DataSection` handles the variant table. Adding a backend data source means adding a `fetch_*` in the pipeline and one panel component here — and registering the key in the five places listed under "the genomics fan-out".
 
 Charts and the lollipop variant map are hand-rolled SVG — no charting library.
 
@@ -212,7 +224,13 @@ Charts and the lollipop variant map are hand-rolled SVG — no charting library.
 
 `parseDNAFile()` parses 23andMe, AncestryDNA, and VCF **entirely client-side**. Parsed variants live in React state and `sessionStorage` only, and are sent to `/chat` in the `personal_variants` field per-request. The backend passes them into the prompt and **never writes them to the database** — `main.py` stores `pipeline_result`, not `request.personal_variants`.
 
-This is the product's core privacy claim, stated in the UI consent modal and in comments across both codebases. Do not add persistence, logging, or DB storage of `personal_variants` anywhere in the request path.
+This is the product's core privacy claim, stated in the UI consent modal and in comments across both codebases. Do not add persistence, logging, or DB storage of `personal_variants` anywhere in the request path. `/dna/annotate` is held to the same rule — it forwards rsIDs to dbSNP and returns them, and deliberately keeps them out of its own error log.
+
+**Which variants get sent is a correctness question, not just a privacy one.** `selectRelevantVariants()` in [dna.js](frontend/src/dna.js) picks them by evidence of relevance: named in the question, then inside the gene being asked about, then the curated `NOTABLE_VARIANTS` panel, then whatever fills the 200-variant budget. It replaced `.slice(0, 200)`, which took the first 200 *in file order* — and these files are sorted by chromosome and position, so that was always the start of chromosome 1 and therefore almost never related to the question. The model was being handed a slice of someone's genome chosen by file order and asked to comment on their BRCA1.
+
+**Matching happens in the browser.** `variantsInLocus()` intersects the reader's variants against the gene's GRCh37 coordinates locally, so working out which of their variants are relevant sends nothing anywhere. Only the explicit "look up what these mean" action discloses rsIDs, and the panel says so before it is clicked.
+
+`computeDnaSummary()` lives in `dna.js` beside `NOTABLE_VARIANTS` rather than in `App.jsx`. It used to be in the component while the constant had moved, unexported, into the module — so it threw a `ReferenceError` for every reader with DNA loaded, and nothing in the app surfaced it. Keep logic next to the data it reads, and note that `npm run lint` catches exactly this class of break while the test suite does not.
 
 ### External runtime dependencies
 

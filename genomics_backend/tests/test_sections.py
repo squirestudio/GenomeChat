@@ -90,3 +90,35 @@ def test_a_disease_query_offers_its_top_genes_as_follow_ups(base_url):
     for p in pending:
         assert p["key"].startswith("ask:")
         assert p["ask"].endswith(" variants"), "follow-ups are questions, not fetches"
+
+
+# ── distinguishing "nothing there" from "could not ask" ──────────────────────
+
+def test_source_failures_are_recorded_per_request():
+    """A tolerated failure must still be reported, or an outage reads as a finding."""
+    from services.genomics_api_real import begin_source_tracking, record_source_failure
+
+    failures = begin_source_tracking()
+    record_source_failure("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?x=1", "HTTP 503")
+    record_source_failure("https://gtexportal.org/api/v2/expression", "timeout")
+    assert failures == {"NCBI", "GTEx"}
+
+
+def test_tracking_starts_clean_for_each_request():
+    from services.genomics_api_real import begin_source_tracking, record_source_failure
+    first = begin_source_tracking()
+    record_source_failure("https://rest.ensembl.org/lookup", "boom")
+    assert first == {"Ensembl"}
+    second = begin_source_tracking()
+    assert second == set(), "a new request must not inherit the last one's failures"
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://rest.uniprot.org/uniprotkb/search", "UniProt"),
+    ("https://string-db.org/api/json/get_string_ids", "STRING"),
+    ("https://api.pharmgkb.org/v1/data/gene", "PharmGKB"),
+    ("https://example.invalid/whatever", "upstream"),
+])
+def test_failures_are_attributed_to_the_right_source(url, expected):
+    from services.genomics_api_real import _source_for
+    assert _source_for(url) == expected

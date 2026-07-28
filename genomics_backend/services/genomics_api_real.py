@@ -1,5 +1,6 @@
 import httpx
 import asyncio
+import contextvars
 import logging
 import os
 import re
@@ -61,6 +62,61 @@ class _RateLimiter:
 _ncbi_limiter = _RateLimiter(_NCBI_RATE)
 
 
+# ─── Which sources actually failed ────────────────────────────────────────────
+# Every fetcher tolerates its own upstream failing and returns nothing, which is
+# right — one dead source must not take the answer down. But "returned nothing"
+# and "could not be reached" then look identical, and that is how ClinVar
+# reporting zero variants for BRCA1 went unnoticed: the rate limiter was
+# refusing the calls and the gene simply appeared to have no variants.
+#
+# The HTTP layer records failures here instead, so the pipeline can report them
+# without every fetcher needing to change. A ContextVar keeps it per-request:
+# concurrent requests do not see each other's failures.
+_failed_sources: contextvars.ContextVar[Optional[set]] = contextvars.ContextVar(
+    "failed_sources", default=None
+)
+
+SOURCE_BY_HOST = {
+    "eutils.ncbi.nlm.nih.gov": "NCBI",
+    "rest.ensembl.org": "Ensembl",
+    "gnomad.broadinstitute.org": "gnomAD",
+    "rest.uniprot.org": "UniProt",
+    "alphafold.ebi.ac.uk": "AlphaFold",
+    "reactome.org": "Reactome",
+    "gtexportal.org": "GTEx",
+    "string-db.org": "STRING",
+    "api.platform.opentargets.org": "OpenTargets",
+    "api.pharmgkb.org": "PharmGKB",
+    "api.gdc.cancer.gov": "NCI GDC",
+    "search.clinicalgenome.org": "ClinGen",
+    "www.ebi.ac.uk": "GWAS Catalog",
+    "hpo.jax.org": "HPO",
+    "api-v3.monarchinitiative.org": "Monarch",
+}
+
+
+def _source_for(url: str) -> str:
+    for host, name in SOURCE_BY_HOST.items():
+        if host in url:
+            return name
+    return "upstream"
+
+
+def begin_source_tracking() -> set:
+    """Start recording upstream failures for this request."""
+    failures: set = set()
+    _failed_sources.set(failures)
+    return failures
+
+
+def record_source_failure(url: str, reason: str) -> None:
+    failures = _failed_sources.get()
+    source = _source_for(url)
+    logger.error("Upstream %s failed: %s (%s)", source, reason, url.split("?")[0])
+    if failures is not None:
+        failures.add(source)
+
+
 async def _get(client: httpx.AsyncClient, url: str, params: dict = None) -> dict | list | None:
     is_ncbi = NCBI_HOST in url
     if is_ncbi and NCBI_API_KEY:
@@ -75,16 +131,18 @@ async def _get(client: httpx.AsyncClient, url: str, params: dict = None) -> dict
             elif response.status_code == 429:
                 await asyncio.sleep(2 ** attempt)
             elif response.status_code == 404:
-                return None
+                return None          # legitimately absent, not a failure
             else:
-                logger.warning(f"HTTP {response.status_code} for {url}")
+                record_source_failure(url, f"HTTP {response.status_code}")
                 return None
         except httpx.TimeoutException:
             logger.warning(f"Timeout on attempt {attempt + 1} for {url}")
             await asyncio.sleep(1)
         except Exception as e:
-            logger.error(f"Request error for {url}: {e}")
+            record_source_failure(url, f"{type(e).__name__}: {e}")
             return None
+    # Retries exhausted — almost always sustained 429s or timeouts.
+    record_source_failure(url, f"no response after {MAX_RETRIES} attempts")
     return None
 
 
@@ -1507,6 +1565,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
     staged=True returns only the core sections and advertises the rest in
     `pending_sections`, for the caller to request individually.
     """
+    failures = begin_source_tracking()
     ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
         lookup_gene_ensembl(gene_symbol),
         fetch_clinvar_variants(gene_symbol),
@@ -1582,6 +1641,9 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
 
     if staged:
         core["sources"] = core_sources
+        # Which upstreams could not be reached, so a caller can tell "this gene
+        # has no variants" from "ClinVar was down when we asked".
+        core["unavailable_sources"] = sorted(failures)
         # Sections already discovered to be empty for this gene are not offered
         # again — a card that costs a credit and returns nothing is worse than
         # no card at all.
@@ -1612,6 +1674,7 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
     merged.setdefault("hpo", {})
     merged.setdefault("monarch", {})
     merged["sources"] = core_sources + [s for s in extra_sources if s not in core_sources]
+    merged["unavailable_sources"] = sorted(failures)
     merged["pending_sections"] = []
     return merged
 
@@ -1629,6 +1692,7 @@ DISEASE_FOLLOWUP_GENES = 6
 
 
 async def run_disease_pipeline(disease_name: str, staged: bool = False) -> dict:
+    failures = begin_source_tracking()
     genes = await fetch_disease_genes(disease_name)
     gene_dicts = [g.dict() for g in genes]
 
@@ -1637,6 +1701,7 @@ async def run_disease_pipeline(disease_name: str, staged: bool = False) -> dict:
         "genes": gene_dicts,
         "gene_count": len(gene_dicts),
         "sources": ["NCBI", "PubMed"] if gene_dicts else [],
+        "unavailable_sources": sorted(failures),
         "pending_sections": [],
     }
 

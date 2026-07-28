@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, Boolean
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
+import os
 from datetime import datetime
 from config import get_settings
 
@@ -124,6 +125,42 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="audit_logs")
+
+
+# Stored answers are kept so chat history can replay without re-fetching. The
+# JSON payload grows with every source added, so this caps how far back that
+# convenience reaches. Rows older than this lose only their cached payload —
+# the question, target and sources stay, so history still lists them.
+QUERY_PAYLOAD_RETENTION_DAYS = int(os.environ.get("QUERY_PAYLOAD_RETENTION_DAYS", "90"))
+
+
+def prune_old_query_payloads() -> int:
+    """Drop the stored results of answers older than the retention window.
+
+    Deliberately not deleting the rows: a user's history is theirs, and the
+    lightweight columns cost almost nothing. It is the replay payload that
+    grows, and it is the least valuable part once an answer is months old and
+    the underlying databases have moved on anyway.
+    """
+    import logging as _logging
+    import sqlalchemy as _sa
+    log = _logging.getLogger(__name__)
+    try:
+        with engine.connect() as conn:
+            conn.execute(_sa.text("SET lock_timeout = '5s'"))
+            result = conn.execute(_sa.text(
+                "UPDATE queries SET results = NULL "
+                "WHERE results IS NOT NULL "
+                f"AND created_at < now() - interval '{QUERY_PAYLOAD_RETENTION_DAYS} days'"
+            ))
+            conn.commit()
+            if result.rowcount:
+                log.info("Pruned stored payloads from %s queries older than %s days",
+                         result.rowcount, QUERY_PAYLOAD_RETENTION_DAYS)
+            return result.rowcount or 0
+    except Exception as e:
+        log.warning("Payload pruning skipped (%s)", e)
+        return 0
 
 
 def create_tables():

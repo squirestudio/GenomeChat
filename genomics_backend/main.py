@@ -18,8 +18,8 @@ from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
-from services.limits import AnonymousAllowance, SlidingWindow, client_ip
-from database.models import create_tables_safe, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent
+from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
+from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
@@ -87,6 +87,12 @@ def _log_feature_status() -> None:
     # Not a feature toggle — a throughput ceiling. Anonymous NCBI access caps at
     # 3 req/sec, and one gene query issues enough calls for that to dominate
     # response time, so it is worth stating which regime we are in.
+    logger.info(
+        "Limits: %s",
+        "shared via Redis — safe to run more than one instance" if shared_backend_active()
+        else "per process — running a second instance would double every allowance "
+             "and exceed the NCBI rate cap; set REDIS_URL first",
+    )
     logger.info(
         "NCBI E-utilities: %s (%.1f req/sec)",
         "API key configured" if NCBI_API_KEY else "ANONYMOUS — set NCBI_API_KEY to raise the limit",
@@ -245,6 +251,7 @@ async def _startup_diagnostics() -> None:
     """
     try:
         _log_feature_status()
+        await asyncio.to_thread(prune_old_query_payloads)
         await asyncio.to_thread(_validate_stripe_wiring)
     except Exception as e:
         logger.warning(f"Startup diagnostics failed (ignored): {e}")
@@ -262,11 +269,21 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down.")
 
 
+# The interactive docs publish the whole route table to anyone who asks, which
+# is how the unmetered legacy endpoints were discoverable. Useful locally,
+# unnecessary in production — the only consumer there is our own frontend.
+_DOCS_ENABLED = not settings.backend_url or settings.backend_url.startswith(
+    ("http://localhost", "http://127.0.0.1")
+)
+
 app = FastAPI(
     title="MyDNA API",
     description="Natural language genomics research platform powered by Claude AI",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
 app.add_middleware(
@@ -285,8 +302,11 @@ app.add_middleware(
 EXPENSIVE_PATHS = ("/chat", "/chat/stream", "/gene/section")
 UNLIMITED_PATHS = ("/health", "/billing/webhook")
 
-_expensive_limiter = SlidingWindow(settings.rate_limit_expensive_per_min, 60.0)
-_default_limiter = SlidingWindow(settings.rate_limit_default_per_min, 60.0)
+# SharedWindow uses Redis when REDIS_URL is set and falls back to the local
+# window otherwise, so a second instance shares one budget instead of handing
+# out two.
+_expensive_limiter = SharedWindow(settings.rate_limit_expensive_per_min, 60.0, "rl:exp")
+_default_limiter = SharedWindow(settings.rate_limit_default_per_min, 60.0, "rl:def")
 anon_allowance = AnonymousAllowance(settings.anon_query_limit)
 
 

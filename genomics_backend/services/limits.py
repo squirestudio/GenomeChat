@@ -1,10 +1,17 @@
 """Per-client rate limiting and the anonymous query allowance.
 
-Both are in-process, which is deliberate for a single instance and a known
-limitation for more than one: a second container would grant each client its own
-allowance. Moving to Redis is the fix when that day comes, and the interfaces
-here are shaped to make that swap a substitution rather than a rewrite.
+State is in-process by default, which is correct for one container and wrong for
+two: each would grant every client its own full allowance, and — more seriously
+— each would run its own NCBI rate limiter, so together they would exceed the
+cap that NCBI enforces. That is what made ClinVar return nothing.
+
+Set REDIS_URL and the counters move to Redis, shared across instances. Nothing
+else changes. Scaling out is then a configuration change rather than a silent
+correctness change, which is the point: the failure mode of getting this wrong
+is invisible, so it should not depend on remembering.
 """
+import logging
+import os
 import time
 from collections import defaultdict, deque
 from typing import Optional
@@ -84,3 +91,67 @@ class AnonymousAllowance:
 
     def record(self, key: str) -> None:
         self._current(key).append(time.monotonic())
+
+
+# ─── Shared backing store ─────────────────────────────────────────────────────
+
+def _redis_client():
+    """A Redis client if REDIS_URL is set and reachable, otherwise None.
+
+    Checked once at import. A Redis that disappears later degrades to
+    per-process counting rather than failing requests — a limiter that takes
+    the site down when its store blinks is worse than one that briefly counts
+    per instance.
+    """
+    url = os.environ.get("REDIS_URL", "").strip()
+    if not url:
+        return None
+    try:
+        import redis  # optional dependency; absent unless someone installs it
+        client = redis.Redis.from_url(url, socket_timeout=2, socket_connect_timeout=2)
+        client.ping()
+        logging.getLogger(__name__).info("Limits: using Redis at %s", url.split("@")[-1])
+        return client
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "Limits: REDIS_URL set but unusable (%s) — counting per process", e)
+        return None
+
+
+_redis = _redis_client()
+
+
+def shared_backend_active() -> bool:
+    """True when counters are shared across instances."""
+    return _redis is not None
+
+
+class SharedWindow:
+    """A sliding window backed by Redis, for multi-instance deployments.
+
+    Falls back to the local window on any Redis error, so an outage in the
+    counter store degrades fairness rather than availability.
+    """
+
+    def __init__(self, limit: int, window_seconds: float, namespace: str):
+        self.limit = limit
+        self.window = window_seconds
+        self.namespace = namespace
+        self._local = SlidingWindow(limit, window_seconds)
+
+    def check(self, key: str) -> tuple[bool, float]:
+        if _redis is None:
+            return self._local.check(key)
+        try:
+            full_key = f"{self.namespace}:{key}"
+            count = _redis.incr(full_key)
+            if count == 1:
+                _redis.expire(full_key, int(self.window) + 1)
+            if count > self.limit:
+                return False, float(_redis.ttl(full_key) or self.window)
+            return True, 0.0
+        except Exception:
+            return self._local.check(key)
+
+    def prune(self, max_keys: int = 50_000) -> None:
+        self._local.prune(max_keys)   # Redis expires its own keys

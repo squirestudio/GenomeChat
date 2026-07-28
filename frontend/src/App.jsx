@@ -2769,6 +2769,20 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
           );
         })}
 
+        {(msg.data?.unavailable_sources || []).length > 0 && (
+          <div style={{ marginTop: 12, padding: "0.55rem 0.7rem", borderRadius: 8,
+                        background: "rgb(var(--c-warning) / 0.09)",
+                        border: "1px solid rgb(var(--c-warning) / 0.3)" }}>
+            <p style={{ fontSize: "0.72rem", color: "var(--warning)", margin: 0, fontWeight: 600 }}>
+              {msg.data.unavailable_sources.join(", ")} {msg.data.unavailable_sources.length === 1 ? "was" : "were"} unreachable
+            </p>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-faint)", margin: "3px 0 0", lineHeight: 1.5 }}>
+              Results below may be incomplete — this is a temporary problem at the source, not a finding
+              about this gene. Ask again in a few minutes.
+            </p>
+          </div>
+        )}
+
         {(msg.emptySections || []).length > 0 && (
           <p style={{ marginTop: 12, fontSize: "0.68rem", color: "var(--text-faintest)", lineHeight: 1.5 }}>
             No data for this gene in{" "}

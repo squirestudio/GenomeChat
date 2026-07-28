@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { parseDNAFile, saveDnaToSession, loadDnaFromSession } from "./dna";
+import { parseSSEChunk } from "./sse";
+import { getPlan } from "./plan";
+import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems } from "./response";
 
 // Registry so exportPDF can grab a live protein viewer snapshot (WebGL → PNG)
 const viewerRegistry = new Map(); // geneName -> $3Dmol viewer instance
@@ -967,25 +970,6 @@ async function openBillingPortal(onError) {
   window.location.href = url;
 }
 
-/** Single source of truth for how a user's plan is described across the UI. */
-function getPlan(user) {
-  if (!user) return { kind: "anon", label: "Not signed in", short: "Sign in", color: "var(--text-dim)" };
-  if (user.unlimited_access) return { kind: "unlocked", label: "Unlimited access (allowlisted)", short: "Unlimited", color: "var(--success)" };
-  if (user.byok_unlocked) return { kind: "unlocked", label: "Unlimited access", short: "Unlimited", color: "var(--success)" };
-  if (user.has_stored_key) return { kind: "byok", label: "Using your own API key", short: "Own key", color: "var(--success)" };
-  const credits = user.query_credits || 0;
-  if (credits > 0) return { kind: "credits", label: `${credits} purchased credits remaining`, short: `${credits} credits`, color: "var(--accent)", credits };
-  const used = user.total_queries || 0;
-  const limit = user.free_limit || 20;
-  const left = Math.max(0, limit - used);
-  return {
-    kind: "free",
-    label: `${used} of ${limit} free queries used`,
-    short: `${left} left`,
-    color: left === 0 ? "var(--danger)" : left <= 3 ? "var(--warning)" : "var(--text-dim)",
-    used, limit, left,
-  };
-}
 
 const SUGGESTIONS = [
   { label: "BRCA1 pathogenic variants" },
@@ -2463,35 +2447,6 @@ const SOURCE_COLORS = {
 
 // ─── Response composition ────────────────────────────────────────────────────
 
-/** Split the model's markdown on "## " headings so the answer can be
- *  interleaved with visuals rather than dumped as one block. */
-function splitProseSections(md) {
-  if (!md) return { lead: "", sections: [] };
-  const lines = md.split("\n");
-  const out = [];
-  let lead = [];
-  let cur = null;
-  for (const line of lines) {
-    const m = /^##\s+(.*)$/.exec(line);
-    if (m) {
-      if (cur) out.push(cur);
-      cur = { title: m[1].trim(), body: [] };
-    } else if (cur) {
-      cur.body.push(line);
-    } else {
-      lead.push(line);
-    }
-  }
-  if (cur) out.push(cur);
-  return {
-    lead: lead.join("\n").trim(),
-    sections: out.map(sx => ({ title: sx.title, body: sx.body.join("\n").trim() })),
-  };
-}
-
-const norm = t => (t || "").toLowerCase().replace(/[^a-z]/g, "");
-// Shown inline, in this order, before the reader chooses anything.
-const PROSE_PRIMARY = ["overview", "keyfindings"];
 
 /** One prose section the reader can open. */
 function ProseSection({ title, body, defaultOpen }) {
@@ -2543,52 +2498,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
   }
 }
 
-// Labels for sections, used when reporting one that came back empty.
-const EXPLORE_LABELS = {
-  pathways: "Biological pathways", expression: "Tissue expression",
-  interactions: "Protein interactions", drugs: "Drugs & clinical trials",
-  omim: "OMIM disease entries", pharmgkb: "Pharmacogenomics",
-  cancer_mutations: "Somatic cancer mutations", clingen: "ClinGen validity",
-  publication_timeline: "Publication trend", gwas: "GWAS associations",
-  phenotypes: "Phenotypes",
-};
 
-const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
-  "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline"];
-
-/** Everything the reader can open, in one list. Items already in hand cost
- *  nothing; the rest are fetched on demand and consume a credit. */
-function buildExploreItems(msg) {
-  const d = msg.data || {};
-  const items = [];
-
-  // Prose the model already wrote — free and instant.
-  const { sections } = splitProseSections(msg.content);
-  for (const sx of sections) {
-    if (PROSE_PRIMARY.includes(norm(sx.title))) continue;
-    items.push({ key: `prose:${sx.title}`, label: sx.title, source: "In this answer", instant: true });
-  }
-
-  // Data fetched with the core response — also free.
-  if ((d.variants || []).length) {
-    items.push({ key: "variants", label: `${d.variants.length} clinical variants`, source: "ClinVar", instant: true });
-  }
-  if (d.protein_info?.length && (d.variants || []).length) {
-    items.push({ key: "domainmap", label: "Variant domain map", source: "UniProt / ClinVar", instant: true });
-  }
-  if ((d.population_summary || []).length) {
-    items.push({ key: "popfreq", label: "Population frequencies", source: "gnomAD", instant: true });
-  }
-
-  // Not yet fetched.
-  for (const p of d.pending_sections || []) {
-    // Disease answers offer follow-up questions rather than datasets: the useful
-    // next step from a gene list is reading about one of the genes, which runs
-    // the whole gene pipeline through the path that already exists.
-    items.push({ key: p.key, label: p.label, source: p.source, instant: false, ask: p.ask });
-  }
-  return items;
-}
 
 function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, onAsk, sectionState }) {
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
@@ -2636,6 +2546,17 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             </>
           );
         })()}
+
+        {msg.expired && onAsk && (
+          <button onClick={() => onAsk(msg.retryQuery)}
+            style={{ marginTop: 10, padding: "0.45rem 0.8rem", borderRadius: 8,
+                     background: "rgb(var(--c-accent) / 0.12)",
+                     border: "1px solid rgb(var(--c-accent) / 0.35)",
+                     color: "var(--accent)", fontSize: "0.76rem", fontWeight: 600,
+                     cursor: "pointer" }}>
+            Ask again
+          </button>
+        )}
 
         {msg.streaming && (
           <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 14, background: "var(--accent)", verticalAlign: "text-bottom", marginLeft: 2, animation: "pulse-dot 1.1s infinite" }} />
@@ -3128,8 +3049,24 @@ export default function App() {
   };
 
   const loadHistory = (item) => {
-    if (!item.content && !item.data) return;
     const userMsg = { role: "user", content: item.query_text };
+
+    // Stored answers are dropped after the retention window, and history rows
+    // outlive them by design. Silently doing nothing looked like a broken link,
+    // so say what happened and offer the obvious next step.
+    if (!item.content && !item.data) {
+      setMessages([userMsg, {
+        role: "assistant",
+        content: "_This answer is no longer stored._ Older results are cleared to keep "
+               + "the database small — the question is kept, the full result isn't. "
+               + "Ask it again to get a fresh answer, which will also pick up anything "
+               + "the source databases have added since.",
+        expired: true,
+        retryQuery: item.query_text,
+      }]);
+      return;
+    }
+
     const assistantMsg = {
       role: "assistant",
       content: item.content || "",
@@ -3225,33 +3162,23 @@ export default function App() {
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let event = null;
 
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // SSE frames are separated by a blank line; keep any partial tail.
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() || "";
-        for (const frame of frames) {
-          for (const line of frame.split("\n")) {
-            if (line.startsWith("event: ")) event = line.slice(7).trim();
-            else if (line.startsWith("data: ")) {
-              let payload;
-              try { payload = JSON.parse(line.slice(6)); } catch { continue; }
-              if (event === "status") setStreamStage(payload.stage || null);
-              else if (event === "token") appendText(payload.text || "");
-              else if (event === "data") {
-                setStreamStage("explaining");
-                patch(payload);
-                setLoading(false);   // panels are up; the typing dots can stop
-              } else if (event === "done") {
-                patch({ streaming: false, query_id: payload.query_id, cached: !!payload.cached });
-              } else if (event === "error") {
-                appendText(`\n\n**Error:** ${payload.message || "stream failed"}`);
-              }
-            }
+        const { events, rest } = parseSSEChunk(buffer, decoder.decode(value, { stream: true }));
+        buffer = rest;
+        for (const { event, data: payload } of events) {
+          if (event === "status") setStreamStage(payload.stage || null);
+          else if (event === "token") appendText(payload.text || "");
+          else if (event === "data") {
+            setStreamStage("explaining");
+            patch(payload);
+            setLoading(false);   // panels are up; the typing dots can stop
+          } else if (event === "done") {
+            patch({ streaming: false, query_id: payload.query_id, cached: !!payload.cached });
+          } else if (event === "error") {
+            appendText(`\n\n**Error:** ${payload.message || "stream failed"}`);
           }
         }
       }

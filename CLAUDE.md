@@ -70,6 +70,30 @@ In production there is no bind mount, so the mounted and baked files are the sam
 
 Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` reads the left-most `X-Forwarded-For` entry. That is spoofable in general, which is why these are a fairness measure and a cost brake, never an authentication boundary. All of this state is per-process — see the note about scaling out under "Two independent allowlists".
 
+**Frontend tests live beside the code they cover and run on every push.**
+
+```bash
+cd frontend && npm test          # 48 checks, ~0.3s
+```
+
+They cover pure logic, not component rendering: DNA parsing, SSE framing, plan
+description, and which Explore-further items cost a credit. Component tests
+against a 3,800-line file of inline styles would break on every visual tweak
+while catching almost nothing, and that brittleness is how teams end up
+abandoning frontend testing altogether.
+
+The extraction order matters and is worth keeping: pull the logic out into a
+module, write the test, then move the component. Doing it the other way is how a
+refactor quietly breaks the DNA parser. `dna.js`, `sse.js`, `plan.js` and
+`response.js` came out that way; the rest of App.jsx can follow feature by
+feature.
+
+**Query payloads expire.** `QUERY_PAYLOAD_RETENTION_DAYS` (default 90) drops the
+stored result of old answers at startup, keeping the row. Set it well above the
+age of your data unless storage is actually a problem — a user opening an old
+chat and finding it empty is a worse trade than the kilobytes saved. History
+handles a dropped payload by saying so and offering to ask again.
+
 **Tests live in `genomics_backend/tests/` and run on every push.**
 
 ```bash

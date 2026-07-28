@@ -12,6 +12,10 @@ Both apps are deployed: backend on Railway, frontend on Vercel. Recent work has 
 
 The most recent work audited NCBI coverage and closed the gaps: the app used 4 of the 39 E-utilities databases and no `elink`. It now also reads dbSNP, dbVar, GTR, MedGen and PMC, and matches an uploaded DNA file against the gene being discussed.
 
+That audit then found **ten of the twenty sources silently returning nothing** — all now repaired; see "Upstream drift" below, which is the most important section in this file for anyone picking the project up. A BRCA1 query went from 6 populated datasets to 18.
+
+**In flight:** an interactive rebuild of the variant map. `frontend/src/lollipop.js` holds the finished geometry and encoding logic (lane packing, zoom clamping, consequence glyphs, GRCh37 overlay matching) with no component wired to it yet — `LollipopMap` in App.jsx is still the old static version. The ClinVar repair is what makes this worth doing: `clinical_significance` and `molecular_consequence_list` now carry real values, so the map can encode severity as colour and damage type as shape instead of drawing every variant identically grey.
+
 `NCBI_API_KEY` **is set in Railway** but is not in the local `genomics_backend/.env`, so a dev container runs at 2.5 req/sec against production's 9.0. Worth adding locally before profiling anything or debugging a source that returns nothing — the symptom of the anonymous cap is an empty result, not an error.
 
 Environment variables are set in the Railway and Vercel dashboards, not in the repo. The backend needs at minimum `ANTHROPIC_API_KEY` and `DATABASE_URL`; OAuth, Stripe, and stored-API-key features each stay disabled (returning 501) until their vars are set — see [config.py](genomics_backend/config.py) for the full list.
@@ -138,6 +142,23 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 `run_gene_pipeline()` is the core of the backend. It queries **20 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, OMIM, PharmGKB, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, OMIM, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
+
+**Upstream drift is the dominant failure mode, and it is silent.** In July 2026 an audit found **ten of the twenty sources returning nothing** while reporting success — the defensive `except: return []` in every fetcher turns a moved endpoint into "this gene has no pathways". Nothing errored, nothing alerted, and the answers just got thinner. What had happened, and what to check first when a panel goes quiet:
+
+| Source | Drift | Shape of the failure |
+|---|---|---|
+| ClinVar | `clinical_significance` split into germline/somatic/oncogenicity classifications | Old key still present but `{}` or `null` — an `isinstance(x, dict)` check took the legacy branch and every variant read "Unknown" |
+| ClinGen | No JSON API; `search.clinicalgenome.org/kb` is a web app | 200 with 176 KB of HTML, fed to `.json()`. Use the CSV at `/kb/gene-validity/download`, cached |
+| HPO | API retired | `hpo.jax.org/api/hpo` → 404 HTML. Now `ontology.jax.org/api` |
+| PharmGKB | Became **ClinPGx** | `api.pharmgkb.org` no longer resolves *at all* — DNS failure, so it raised before any status code |
+| Monarch | Keyed on HGNC, not NCBI Gene | `NCBIGene:672` → `total: 0` with HTTP 200. Resolve via its own `/search` |
+| Open Targets | `knownDrugs` → `drugAndClinicalCandidates` | GraphQL rejects the *whole* query over one unknown field, then answers 200 with an `errors` array. **Always check `data["errors"]`** |
+| GDC | `/ssms` has no `case.project.project_id` facet | 200, empty aggregation, and `warnings.facets` explaining why — a key nothing read. Use `/ssm_occurrences` |
+| GWAS Catalog | No gene-keyed association endpoint | `associations/search/findByGene` 404s. Traverse gene → SNP → associations |
+| GTEx | Needs a version-pinned GENCODE id | `ENSG00000012048.20`, not a symbol and not a bare Ensembl id. Resolve via `/reference/gene`; the suffix moves between releases |
+| OMIM | `mimtype` gone | Kind is now the `oid` prefix symbol (`*` gene, `#` phenotype) |
+
+Three lessons worth generalising. **A 200 is not success** — check for an empty aggregation, an `errors` array, a `warnings` key, and a `content-type` that isn't JSON. **An empty result and a broken query are indistinguishable without a control**: `tests/test_upstream_contracts.py` asserts against answers that are not in reasonable doubt (BRCA1 is in the HR-repair pathways, CYP2C19 governs clopidogrel), because a test that merely asserts "returned a list" passes forever while the data is gone. And **an empty answer can be the right one** — BRCA1 genuinely has no drugs, because a tumour suppressor's loss of function is not a drug target; that is why the Open Targets test uses EGFR.
 
 **Adding an NCBI source: use `elink`, not a text search.** `elink_ids(dbfrom, db, uid, client)` traverses from a Gene UID to the curated links in another database — 18,354 ClinVar records, 22,227 dbSNP entries, 447 GTR tests for BRCA1. A search for `"BRCA1"` matches records that merely mention it; the link is the asserted relationship. **An elink call that omits `db` returns PubMed links only**, which reads as a working call that happened to find nothing elsewhere.
 

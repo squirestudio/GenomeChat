@@ -1,0 +1,205 @@
+"""Sources that had drifted, and the shape of the drift.
+
+Ten of the twenty upstream sources were returning nothing while reporting
+success. None of them raised: an endpoint moved, a field was renamed, a
+namespace changed, and each fetcher dutifully turned that into an empty list —
+which is indistinguishable from a gene genuinely having no pathways, no drugs
+or no phenotypes.
+
+These tests are marked `external` because they check the live contracts, which
+is the only place that class of drift is visible. They pick genes whose answers
+are not in reasonable doubt: BRCA1 is in Reactome's homologous-recombination
+pathways, CYP2C19 governs clopidogrel, CFTR causes cystic fibrosis. A failure
+here means an upstream changed again, not that the biology did.
+"""
+import asyncio
+
+import pytest
+
+from services.genomics_api_real import (
+    OPENTARGETS_STAGE_RANK,
+    OMIM_PREFIX_KIND,
+    _parse_clingen_csv,
+    fetch_cancer_mutations,
+    fetch_clingen_validity,
+    fetch_gtex_expression,
+    fetch_gwas_associations,
+    fetch_hpo_terms,
+    fetch_monarch_associations,
+    fetch_omim_data,
+    fetch_open_targets_drugs,
+    fetch_pharmgkb_data,
+    fetch_reactome_pathways,
+)
+
+
+# ── Pure parsing ─────────────────────────────────────────────────────────────
+
+
+def test_clingen_csv_is_located_by_header_not_by_line_number():
+    """The dump carries a title preamble and rules of '+++++'. Skipping a fixed
+    number of lines would shift every column the day the preamble grows."""
+    csv_text = "\n".join([
+        '"CLINGEN GENE DISEASE VALIDITY CURATIONS","","",""',
+        '"FILE CREATED: 2026-07-28","","",""',
+        '"+++++","+++++","+++++","+++++"',
+        '"GENE SYMBOL","DISEASE LABEL","DISEASE ID (MONDO)","CLASSIFICATION"',
+        '"+++++","+++++","+++++","+++++"',
+        '"BRCA1","BRCA1-related cancer predisposition","MONDO:0700268","Definitive"',
+        '"CFTR","cystic fibrosis","MONDO:0009061","Definitive"',
+    ])
+    table = _parse_clingen_csv(csv_text)
+    assert set(table) == {"BRCA1", "CFTR"}
+    assert table["BRCA1"][0]["classification"] == "Definitive"
+    assert table["BRCA1"][0]["mondo_id"] == "MONDO:0700268"
+
+
+def test_clingen_csv_survives_an_extra_preamble_line():
+    base = [
+        '"CLINGEN GENE DISEASE VALIDITY CURATIONS","","",""',
+        '"AN EXTRA LINE NOBODY WARNED US ABOUT","","",""',
+        '"WEBPAGE: https://example.org","","",""',
+        '"GENE SYMBOL","DISEASE LABEL","DISEASE ID (MONDO)","CLASSIFICATION"',
+        '"BRCA1","x","MONDO:1","Definitive"',
+    ]
+    assert "BRCA1" in _parse_clingen_csv("\n".join(base))
+
+
+def test_clingen_csv_that_is_not_a_csv_yields_nothing():
+    """A 176 KB HTML error page must parse to nothing, not to junk rows."""
+    assert _parse_clingen_csv("<!DOCTYPE html><html><body>Not found</body></html>") == {}
+
+
+def test_omim_entry_kind_comes_from_the_oid_prefix():
+    """`mimtype` disappeared from the esummary; the prefix symbol carries it."""
+    assert OMIM_PREFIX_KIND["*"] == "gene"     # gene of known sequence
+    assert OMIM_PREFIX_KIND["+"] == "gene"     # gene and phenotype
+    assert OMIM_PREFIX_KIND["#"] == "phenotype"
+    assert OMIM_PREFIX_KIND["^"] == "removed"
+
+
+def test_opentargets_stage_is_ranked_from_an_enum_not_a_number():
+    """Clinical stage stopped being an integer phase. Approval must outrank
+    every trial phase, or approved drugs sort below candidates."""
+    assert OPENTARGETS_STAGE_RANK["APPROVAL"] > OPENTARGETS_STAGE_RANK["PHASE_3"]
+    assert OPENTARGETS_STAGE_RANK["PHASE_3"] > OPENTARGETS_STAGE_RANK["PHASE_1"]
+    assert OPENTARGETS_STAGE_RANK["PRECLINICAL"] < OPENTARGETS_STAGE_RANK["EARLY_PHASE_1"]
+
+
+# ── Live contracts ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.external
+def test_reactome_finds_the_repair_pathways_brca1_is_famous_for():
+    pathways = asyncio.run(fetch_reactome_pathways("BRCA1"))
+    assert pathways
+    names = " ".join(p["name"] for p in pathways).lower()
+    assert "homologous recombination" in names or "hdr" in names
+
+
+@pytest.mark.external
+def test_gtex_needs_a_version_pinned_gencode_id():
+    """GTEx keys expression on `ENSG…​.20`, not on a symbol and not on a bare
+    Ensembl id — passing the symbol earned a 422 on every call."""
+    tissues = asyncio.run(fetch_gtex_expression("BRCA1"))
+    assert tissues
+    assert all(t["median_tpm"] >= 0 for t in tissues)
+    assert all("_" not in t["tissue"] for t in tissues), "tissue ids should be readable"
+
+
+@pytest.mark.external
+def test_clingen_returns_expert_curations_rather_than_a_web_page():
+    """`search.clinicalgenome.org/kb` answers 200 with HTML, which the old code
+    handed to `.json()` — so every gene reported no curations at all."""
+    curations = asyncio.run(fetch_clingen_validity("BRCA1"))
+    assert curations
+    assert any(c["classification"] == "Definitive" for c in curations)
+    assert any(c["mondo_id"] for c in curations)
+
+
+@pytest.mark.external
+def test_clingen_distinguishes_between_genes():
+    """A cached table shared by every request must not answer with one gene's
+    curations for another."""
+    cftr = asyncio.run(fetch_clingen_validity("CFTR"))
+    assert any("cystic fibrosis" in c["disease"].lower() for c in cftr)
+    assert asyncio.run(fetch_clingen_validity("NOTAREALGENE123")) == []
+
+
+@pytest.mark.external
+def test_hpo_reads_from_the_service_that_replaced_the_retired_one():
+    data = asyncio.run(fetch_hpo_terms("BRCA1"))
+    assert data["phenotype_total"] > 50
+    assert data["disease_associations"]
+    # MONDO is what lets this disease be tied to the same one elsewhere.
+    assert any(d["mondo_id"] for d in data["disease_associations"])
+
+
+@pytest.mark.external
+def test_monarch_is_keyed_on_hgnc_not_ncbi_gene():
+    """An NCBI Gene id returns `total: 0` with HTTP 200 — a namespace mismatch
+    that reads exactly like a gene with no associations."""
+    data = asyncio.run(fetch_monarch_associations("BRCA1"))
+    assert data["monarch_id"].startswith("HGNC:")
+    assert data["diseases"]
+    assert any(d["causal"] for d in data["diseases"]), "BRCA1 causally causes disease"
+
+
+@pytest.mark.external
+def test_omim_returns_the_gene_and_its_phenotypes():
+    """Searching OMIM for a symbol finds only the gene entry; the phenotypes
+    come from the link, and they are the part worth reading."""
+    data = asyncio.run(fetch_omim_data("BRCA1"))
+    assert data["gene_entry"]["mim_number"] == "113705"
+    assert len(data["phenotypes"]) >= 3
+    assert any("BREAST" in p["title"].upper() for p in data["phenotypes"])
+
+
+@pytest.mark.external
+def test_gwas_traverses_gene_to_snp_to_association():
+    """There is no gene-keyed association endpoint; the old one 404s."""
+    hits = asyncio.run(fetch_gwas_associations("APOE"))
+    assert hits
+    assert all(h["rsid"].startswith("rs") for h in hits)
+    assert all(h["trait"] for h in hits)
+    # Strongest first, and one row per trait rather than one per study.
+    assert len({h["trait"] for h in hits}) == len(hits)
+
+
+@pytest.mark.external
+def test_gdc_counts_occurrences_because_ssms_has_no_project_facet():
+    """`/ssms` answered 200 while reporting `unrecognized values` in a
+    `warnings` key nothing read."""
+    data = asyncio.run(fetch_cancer_mutations("BRCA1"))
+    assert data["cancer_types"]
+    assert data["total_mutations"] > 0
+    assert data["project_count"] >= len(data["cancer_types"])
+
+
+@pytest.mark.external
+def test_opentargets_survives_the_knowndrugs_rename():
+    """GraphQL rejects the whole query over one unknown field, so a rename
+    returned an errors array and no data — read as 'no drugs target this gene'."""
+    drugs = asyncio.run(fetch_open_targets_drugs("ENSG00000146648"))  # EGFR
+    assert drugs
+    assert any(d["is_approved"] for d in drugs)
+    assert drugs[0]["is_approved"], "approved drugs sort first"
+
+
+@pytest.mark.external
+def test_a_tumour_suppressor_having_no_drugs_is_a_real_answer():
+    """BRCA1 is not a drug target — a loss of function cannot be inhibited.
+    This must stay distinguishable from the schema being broken, which is why
+    the test above uses a gene that does have drugs."""
+    assert asyncio.run(fetch_open_targets_drugs("ENSG00000012048")) == []
+
+
+@pytest.mark.external
+def test_pharmgkb_moved_to_clinpgx():
+    """`api.pharmgkb.org` no longer resolves at all — a DNS failure, so calls
+    raised before ever reaching a status code."""
+    data = asyncio.run(fetch_pharmgkb_data("CYP2C19"))
+    drugs = {d["name"].lower() for d in data["related_drugs"]}
+    assert "clopidogrel" in drugs, "the canonical CYP2C19 interaction"
+    assert any(d["level"] == "1A" for d in data["related_drugs"])
+    assert data["annotation_total"] > 10

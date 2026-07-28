@@ -1565,11 +1565,16 @@ function DrugPanel({ drugs }) {
           return (
             <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.5rem 0.6rem", background: "rgb(var(--c-surface) / 0.3)", borderRadius: 8, border: "1px solid rgb(var(--c-border) / 0.25)" }}>
               <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: pc.bg, color: pc.color, border: `1px solid ${pc.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
-                {PHASE_LABEL[Math.min(phase, 4)] || `Phase ${phase}`}
+                {/* The backend names the stage: its vocabulary is an enum, and
+                    a phase 4 trial is a post-approval study rather than an
+                    approval, which this scale cannot express on its own. */}
+                {drug.phase_label || PHASE_LABEL[Math.min(phase, 4)] || `Phase ${phase}`}
               </span>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600 }}>{drug.name}</p>
                 {drug.mechanism && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drug.mechanism}</p>}
+                {/* Open Targets no longer returns a per-drug indication; the
+                    field is kept because older cached answers still carry it. */}
                 {drug.indication && <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 1 }}>{drug.indication}</p>}
               </div>
               {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
@@ -2302,15 +2307,18 @@ function PharmGKBPanel({ pgkb }) {
           relatedDrugs.length === 0
             ? <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", padding: "0.5rem 0" }}>No related drugs found.</p>
             : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {/* ClinPGx has no stable per-drug page to link to, and an
+                    anchor with no href looks clickable while doing nothing.
+                    The evidence level is the more useful thing to show anyway:
+                    level 1A is guideline-backed, level 4 is a case report. */}
                 {relatedDrugs.map((d, i) => (
-                  <a key={i} href={d.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                    <span style={{ display: "inline-block", fontSize: "0.72rem", padding: "0.25rem 0.65rem", borderRadius: 100, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.2)", color: "var(--accent)", cursor: "pointer" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-accent) / 0.2)"}
-                      onMouseLeave={e => e.currentTarget.style.background = "rgb(var(--c-accent) / 0.1)"}
-                    >
-                      {d.name}
-                    </span>
-                  </a>
+                  <span key={i} title={d.level_label || undefined}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "0.72rem", padding: "0.25rem 0.65rem", borderRadius: 100, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.2)", color: "var(--accent)" }}>
+                    {d.name}
+                    {d.level && (
+                      <span style={{ fontSize: "0.6rem", fontWeight: 700, opacity: 0.75 }}>{d.level}</span>
+                    )}
+                  </span>
                 ))}
               </div>
         )}

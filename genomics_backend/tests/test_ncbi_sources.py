@@ -220,3 +220,62 @@ def test_annotate_reports_what_it_could_not_resolve(base_url):
     body = r.json()
     assert body["requested"] == 2
     assert body["resolved"] == 1
+
+
+# ── ClinVar's split classification schema ────────────────────────────────────
+
+
+def test_empty_dict_is_treated_as_absent():
+    """The whole ClinVar regression in one assertion.
+
+    `item.get("clinical_significance", {})` returns None when the key exists
+    with a null value, and `{}` when it exists empty — neither of which the
+    default covers. Code branching on `isinstance(x, dict)` then takes the
+    legacy path and never reaches the field that replaced it.
+    """
+    from services.genomics_api_real import _as_dict
+    assert _as_dict(None) == {}
+    assert _as_dict({}) == {}
+    assert _as_dict("Pathogenic") == {}
+    assert _as_dict({"description": "Pathogenic"})["description"] == "Pathogenic"
+
+
+@pytest.mark.external
+def test_pathogenic_variants_are_reported_as_pathogenic():
+    """The search asks ClinVar for pathogenic variants, so every result being
+    "Unknown" means the classification was not read, not that it is unknown."""
+    from services.genomics_api_real import fetch_clinvar_variants
+    variants = asyncio.run(fetch_clinvar_variants("BRCA1"))
+    assert variants
+    assert not any(v.clinical_significance == "Unknown" for v in variants)
+    assert any(v.clinical_significance == "Pathogenic" for v in variants)
+
+
+@pytest.mark.external
+def test_variants_carry_a_real_molecular_consequence():
+    """`consequence` used to hold the transcript HGVS, which is an identifier
+    rather than a consequence and cannot be grouped, filtered or plotted."""
+    from services.genomics_api_real import fetch_clinvar_variants
+    variants = asyncio.run(fetch_clinvar_variants("CFTR"))
+    kinds = {v.consequence for v in variants if v.consequence}
+    assert kinds, "no consequences at all"
+    assert not any("NM_" in k for k in kinds), f"HGVS leaked into consequence: {kinds}"
+    # The vocabulary is a small controlled set, so this holds for any gene.
+    assert kinds <= {
+        "missense variant", "nonsense", "frameshift variant", "synonymous variant",
+        "splice donor variant", "splice acceptor variant", "intron variant",
+        "inframe deletion", "inframe insertion", "inframe indel", "initiator codon variant",
+        "5 prime UTR variant", "3 prime UTR variant", "non-coding transcript variant",
+        "stop lost", "genic downstream transcript variant", "genic upstream transcript variant",
+        "no sequence alteration",
+    }, f"unrecognised consequence vocabulary: {kinds}"
+
+
+@pytest.mark.external
+def test_variants_name_the_condition_they_relate_to():
+    """trait_set moved inside the classification object when ClinVar split it."""
+    from services.genomics_api_real import fetch_clinvar_variants
+    variants = asyncio.run(fetch_clinvar_variants("CFTR"))
+    named = [v.condition for v in variants if v.condition and v.condition != "Unknown"]
+    assert named, "every condition came back Unknown"
+    assert any("ystic fibrosis" in c for c in named)

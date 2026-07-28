@@ -1,9 +1,12 @@
 import httpx
 import asyncio
 import contextvars
+import csv
+import io
 import logging
 import os
 import re
+import time
 from typing import Optional
 from models import VariantResult, GeneResult
 
@@ -24,11 +27,12 @@ REACTOME_BASE = "https://reactome.org/ContentService"
 GTEX_BASE = "https://gtexportal.org/api/v2"
 STRING_BASE = "https://string-db.org/api"
 OPENTARGETS_BASE = "https://api.platform.opentargets.org/api/v4/graphql"
-PHARMGKB_BASE = "https://api.pharmgkb.org/v1"
+PHARMGKB_BASE = "https://api.clinpgx.org/v1"   # api.pharmgkb.org no longer resolves
 GDC_BASE = "https://api.gdc.cancer.gov"
 CLINGEN_BASE = "https://search.clinicalgenome.org/kb"
 GWAS_BASE = "https://www.ebi.ac.uk/gwas/rest/api"
-HPO_BASE = "https://hpo.jax.org/api/hpo"
+HPO_BASE = "https://hpo.jax.org/api/hpo"          # retired — serves 404 HTML
+HPO_ANNOTATION_BASE = "https://ontology.jax.org/api"
 MONARCH_BASE = "https://api-v3.monarchinitiative.org/v3/api"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -98,6 +102,7 @@ SOURCE_BY_HOST = {
     "search.clinicalgenome.org": "ClinGen",
     "www.ebi.ac.uk": "GWAS Catalog",
     "hpo.jax.org": "HPO",
+    "ontology.jax.org": "HPO",
     "api-v3.monarchinitiative.org": "Monarch",
 }
 
@@ -171,6 +176,18 @@ async def lookup_gene_ensembl(gene_symbol: str) -> Optional[dict]:
     return None
 
 
+def _as_dict(value) -> dict:
+    """A dict, or an empty one — so `.get()` chains can't trip on None.
+
+    Upstream records routinely carry a key whose value is `null` or `{}` rather
+    than omitting it, and `item.get(key, {})` returns None in the first case
+    because the key does exist. That difference is what made ClinVar's
+    superseded `clinical_significance` field silently win over the field that
+    replaced it.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> list[VariantResult]:
     variants = []
     async with httpx.AsyncClient() as client:
@@ -212,26 +229,48 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
             if not item:
                 continue
 
-            # ClinVar API returns significance in multiple possible locations
-            clinsig = item.get("clinical_significance", {})
-            if isinstance(clinsig, dict):
-                significance = clinsig.get("description") or clinsig.get("review_status") or "Unknown"
-            elif isinstance(clinsig, str) and clinsig:
-                significance = clinsig
-            else:
-                # Try germline_classification (newer ClinVar API format)
-                germline = item.get("germline_classification", {})
-                if isinstance(germline, dict):
-                    significance = germline.get("description") or "Unknown"
-                else:
-                    significance = str(germline) if germline else "Unknown"
+            # ClinVar split its single `clinical_significance` field into
+            # separate germline / somatic / oncogenicity classifications. The
+            # old key is still present but empty, which is the trap: it arrives
+            # as `{}` or `null` depending on the record, so a check shaped like
+            # `if isinstance(x, dict)` takes the legacy branch, finds no
+            # description, and reports "Unknown" — for every variant, including
+            # the pathogenic BRCA1 ones the search explicitly asked for. Read
+            # the current field first and treat any empty value as absent.
+            germline = _as_dict(item.get("germline_classification"))
+            legacy = _as_dict(item.get("clinical_significance"))
+            oncogenicity = _as_dict(item.get("oncogenicity_classification"))
+
+            significance = (
+                germline.get("description")
+                or legacy.get("description")
+                or oncogenicity.get("description")
+                or (item.get("clinical_significance") if isinstance(item.get("clinical_significance"), str) else None)
+                or "Unknown"
+            )
 
             title = item.get("title", "")
-            condition = item.get("trait_set", [{}])
-            if isinstance(condition, list) and condition:
-                condition_name = condition[0].get("trait_name") or condition[0].get("trait_xref", [{}])[0].get("db_name", "Unknown") if condition[0].get("trait_xref") else "Unknown"
-            else:
-                condition_name = item.get("condition_set", {}).get("trait_set", [{}])[0].get("trait_name", "Unknown") if isinstance(item.get("condition_set"), dict) else "Unknown"
+
+            # The conditions moved with the classification, into its trait_set.
+            traits = germline.get("trait_set") or legacy.get("trait_set") or item.get("trait_set") or []
+            condition_names = [
+                t.get("trait_name") for t in traits
+                if isinstance(t, dict) and t.get("trait_name")
+            ]
+            condition_name = condition_names[0] if condition_names else "Unknown"
+
+            # The real molecular consequence, rather than the transcript HGVS
+            # that used to be put in this field. This is the axis a reader
+            # actually reasons about — a nonsense variant truncates the protein,
+            # a missense swaps one residue — so it drives shape and colour in
+            # the variant map.
+            consequences = [
+                c for c in (item.get("molecular_consequence_list") or []) if c
+            ]
+            # "intron variant" rides along on almost every record and says
+            # nothing about impact; prefer any consequence that does.
+            primary = next((c for c in consequences if c != "intron variant"), None)
+            consequence = primary or (consequences[0] if consequences else None)
 
             # Extract HGVS protein change and position from title
             # Title format: "NM_000059.4(BRCA2):c.5946delT (p.Ser1982ArgfsTer22)"
@@ -244,12 +283,9 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
                 if pos_match:
                     protein_position = int(pos_match.group(1))
 
-            # Review status
-            clinsig_obj = item.get("clinical_significance", {})
-            review_status = clinsig_obj.get("review_status") if isinstance(clinsig_obj, dict) else None
-            if not review_status:
-                germline_obj = item.get("germline_classification", {})
-                review_status = germline_obj.get("review_status") if isinstance(germline_obj, dict) else None
+            # How much evidence stands behind the classification — the
+            # difference between one submitter's opinion and an expert panel.
+            review_status = germline.get("review_status") or legacy.get("review_status") or None
 
             # Extract rsID from variation_xrefs (db_source == "dbSNP", db_id is numeric)
             rsid = None
@@ -269,7 +305,7 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
                 rsid=rsid,
                 clinical_significance=significance,
                 condition=condition_name,
-                consequence=title.split(" ")[0] if title else None,
+                consequence=consequence,
                 hgvs=hgvs,
                 protein_position=protein_position,
                 review_status=review_status,
@@ -656,37 +692,27 @@ async def fetch_disease_genes(disease_name: str) -> list[GeneResult]:
         return sorted(genes, key=lambda g: g.publication_count or 0, reverse=True)
 
 
-async def fetch_reactome_pathways(gene_symbol: str) -> list[dict]:
-    """Fetch biological pathways for a gene from Reactome."""
+async def fetch_reactome_pathways(gene_symbol: str, uniprot_accession: Optional[str] = None) -> list[dict]:
+    """Biological pathways containing this gene's protein, from Reactome.
+
+    Goes through Reactome's UniProt mapping rather than its search index. The
+    previous route searched for a Protein entity and then asked
+    `/data/pathways/low/entity/{stId}/allForms`, a path that now 404s — so this
+    returned an empty pathway list for every gene, which is indistinguishable
+    from a gene genuinely being in no pathways.
+    """
     async with httpx.AsyncClient() as client:
-        # Map gene symbol to Reactome identifier
-        search_url = f"{REACTOME_BASE}/search/query"
-        search_data = await _get(client, search_url, {
-            "query": gene_symbol,
-            "species": "Homo sapiens",
-            "types": "Protein",
-            "cluster": "true",
-        })
-        if not search_data:
-            return []
-
-        # Extract UniProt accession from results
-        accession = None
-        results = search_data.get("results", [])
-        for group in results:
-            for entry in group.get("entries", []):
-                if entry.get("species") == "Homo sapiens":
-                    accession = entry.get("stId") or entry.get("id")
-                    break
-            if accession:
-                break
-
+        accession = uniprot_accession
+        if not accession:
+            info = await fetch_uniprot_info(gene_symbol)
+            accession = (info or {}).get("accession")
         if not accession:
             return []
 
-        # Get pathways for this entity
-        pathway_url = f"{REACTOME_BASE}/data/pathways/low/entity/{accession}/allForms"
-        pathways_raw = await _get(client, pathway_url, {})
+        pathways_raw = await _get(
+            client, f"{REACTOME_BASE}/data/mapping/UniProt/{accession}/pathways",
+            {"species": "9606"},
+        )
         if not pathways_raw or not isinstance(pathways_raw, list):
             return []
 
@@ -710,12 +736,29 @@ async def fetch_reactome_pathways(gene_symbol: str) -> list[dict]:
 
 
 async def fetch_gtex_expression(gene_symbol: str) -> list[dict]:
-    """Fetch tissue expression data from GTEx."""
+    """Median expression per tissue, from GTEx.
+
+    Two steps, both required. GTEx keys expression on a *version-pinned* GENCODE
+    id (`ENSG00000012048.20`), not on a gene symbol and not on a bare Ensembl
+    id, so the symbol must be resolved first — the previous single call passed
+    `geneSymbol` with an empty `gencodeId` and earned an HTTP 422 every time.
+    The version suffix is why it is looked up rather than derived from the
+    Ensembl id we already hold: it changes between GENCODE releases.
+    """
     async with httpx.AsyncClient() as client:
-        data = await _get(client, f"{GTEX_BASE}/expression/geneExpression", {
-            "tissueSiteDetailId": "all",
-            "gencodeId": "",
-            "geneSymbol": gene_symbol,
+        ref = await _get(client, f"{GTEX_BASE}/reference/gene", {"geneId": gene_symbol})
+        entries = (ref or {}).get("data") or []
+        gencode_id = next(
+            (e.get("gencodeId") for e in entries
+             if e.get("gencodeId") and str(e.get("geneSymbol", "")).upper() == gene_symbol.upper()),
+            None,
+        ) or next((e.get("gencodeId") for e in entries if e.get("gencodeId")), None)
+        if not gencode_id:
+            return []
+
+        # v10 exists but returns nothing for these ids; v8 is the populated set.
+        data = await _get(client, f"{GTEX_BASE}/expression/medianGeneExpression", {
+            "gencodeId": gencode_id,
             "datasetId": "gtex_v8",
         })
         if not data:
@@ -724,7 +767,9 @@ async def fetch_gtex_expression(gene_symbol: str) -> list[dict]:
         expressions = data.get("data", []) if isinstance(data, dict) else []
         results = []
         for item in expressions:
-            tissue = item.get("tissueSiteDetail") or item.get("tissueSiteDetailId", "")
+            # medianGeneExpression reports the tissue as an id
+            # ("Adipose_Subcutaneous"); make it readable.
+            tissue = item.get("tissueSiteDetail") or str(item.get("tissueSiteDetailId", "")).replace("_", " ")
             median = item.get("median")
             if tissue and median is not None:
                 results.append({
@@ -781,29 +826,54 @@ async def fetch_string_interactions(gene_symbol: str, species: int = 9606, limit
         return sorted(results, key=lambda x: x["interaction_score"], reverse=True)
 
 
+# Open Targets renamed `knownDrugs` to `drugAndClinicalCandidates` and dropped
+# the per-row `phase`, `status`, `mechanismOfAction` and `disease` fields along
+# with `Drug.isApproved`. A GraphQL server rejects the whole query when one
+# field is unknown, so the old query returned an errors array and no data — and
+# the code read the absent `data.target.knownDrugs` as "no drugs target this
+# gene". Clinical stage now arrives as an enum string rather than a number.
+OPENTARGETS_STAGE_RANK = {
+    "APPROVAL": 5, "PHASE_4": 4, "PHASE_3": 3, "PHASE_2": 2, "PHASE_1": 1,
+    "EARLY_PHASE_1": 0, "PRECLINICAL": -1,
+}
+
+# What to call each stage, decided here rather than in the frontend. The UI's
+# own scale tops out at "Approved", so a phase 4 trial — which is a
+# post-approval study, not an approval — would otherwise be labelled as one.
+OPENTARGETS_STAGE_LABEL = {
+    "APPROVAL": "Approved", "PHASE_4": "Phase IV", "PHASE_3": "Phase III",
+    "PHASE_2": "Phase II", "PHASE_1": "Phase I", "EARLY_PHASE_1": "Early Phase I",
+    "PRECLINICAL": "Preclinical",
+}
+# Severity band for colour, on the 0–4 scale the UI already uses.
+OPENTARGETS_STAGE_BAND = {
+    "APPROVAL": 4, "PHASE_4": 4, "PHASE_3": 3, "PHASE_2": 2, "PHASE_1": 1,
+    "EARLY_PHASE_1": 1, "PRECLINICAL": 0,
+}
+
+
 async def fetch_open_targets_drugs(ensembl_id: str) -> list[dict]:
-    """Fetch approved and investigational drugs targeting a gene via Open Targets."""
+    """Approved and investigational drugs targeting a gene, via Open Targets.
+
+    An empty list is a real answer for most genes: a tumour suppressor like
+    BRCA1 has none, because a loss of function is not a drug target.
+    """
     if not ensembl_id:
         return []
     query = """
-    query KnownDrugs($ensemblId: String!) {
+    query DrugCandidates($ensemblId: String!) {
       target(ensemblId: $ensemblId) {
-        knownDrugs {
+        drugAndClinicalCandidates {
           count
           rows {
+            maxClinicalStage
             drug {
               id
               name
               drugType
-              maximumClinicalTrialPhase
-              isApproved
+              maximumClinicalStage
+              mechanismsOfAction { rows { mechanismOfAction } }
             }
-            mechanismOfAction
-            disease {
-              name
-            }
-            phase
-            status
           }
         }
       }
@@ -818,28 +888,46 @@ async def fetch_open_targets_drugs(ensembl_id: str) -> list[dict]:
                 timeout=TIMEOUT,
             )
             if response.status_code != 200:
+                record_source_failure(OPENTARGETS_BASE, f"HTTP {response.status_code}")
                 return []
             data = response.json()
-            rows = (data.get("data", {}).get("target", {}) or {}).get("knownDrugs", {}).get("rows") or []
+            # GraphQL answers 200 with an errors array; without this a schema
+            # change is indistinguishable from a gene having no drugs.
+            if data.get("errors"):
+                record_source_failure(OPENTARGETS_BASE, str(data["errors"][:1]))
+                return []
+
+            target = (data.get("data") or {}).get("target") or {}
+            rows = (target.get("drugAndClinicalCandidates") or {}).get("rows") or []
 
             seen = set()
             drugs = []
             for row in rows:
                 drug = row.get("drug") or {}
-                name = drug.get("name", "").strip()
+                name = (drug.get("name") or "").strip()
                 if not name or name in seen:
                     continue
                 seen.add(name)
+                stage = row.get("maxClinicalStage") or drug.get("maximumClinicalStage")
+                mechanisms = [
+                    m.get("mechanismOfAction")
+                    for m in ((drug.get("mechanismsOfAction") or {}).get("rows") or [])
+                    if m.get("mechanismOfAction")
+                ]
                 drugs.append({
                     "name": name,
-                    "drug_type": drug.get("drugType", ""),
-                    "phase": row.get("phase") or drug.get("maximumClinicalTrialPhase"),
-                    "is_approved": drug.get("isApproved", False),
-                    "mechanism": row.get("mechanismOfAction", ""),
-                    "indication": (row.get("disease") or {}).get("name", ""),
-                    "status": row.get("status", ""),
+                    "drug_type": drug.get("drugType") or "",
+                    "stage": stage,
+                    "phase": OPENTARGETS_STAGE_BAND.get(stage, 0),
+                    "phase_label": OPENTARGETS_STAGE_LABEL.get(stage, "Unknown stage"),
+                    "is_approved": stage == "APPROVAL",
+                    "mechanism": mechanisms[0] if mechanisms else "",
+                    "source": "Open Targets",
                 })
-            return sorted(drugs, key=lambda d: (not d["is_approved"], -(d["phase"] or 0)))
+            return sorted(
+                drugs,
+                key=lambda d: -OPENTARGETS_STAGE_RANK.get(d["stage"], -99),
+            )[:25]
     except Exception as e:
         logger.warning(f"Open Targets drug query failed for {ensembl_id}: {e}")
         return []
@@ -918,8 +1006,27 @@ async def fetch_gnomad_population_summary(gene_symbol: str) -> list[dict]:
         return []
 
 
+# OMIM encodes an entry's kind as a prefix symbol on its `oid` ("*113705").
+# The numeric `mimtype` field this code used to read no longer appears in the
+# esummary at all, so every entry fell through to an "unknown type" branch and
+# BRCA1 — which has a gene entry and four phenotypes — reported neither.
+OMIM_PREFIX_KIND = {
+    "*": "gene",        # gene of known sequence
+    "+": "gene",        # gene of known sequence and phenotype
+    "#": "phenotype",   # phenotype, molecular basis known
+    "%": "phenotype",   # phenotype or locus, molecular basis unknown
+    "^": "removed",     # moved or removed
+}
+
+
 async def fetch_omim_data(gene_symbol: str) -> dict:
-    """Fetch OMIM gene entry and associated disease phenotypes via NCBI E-utilities."""
+    """OMIM gene entry and the disease phenotypes linked to it.
+
+    Reached by elink from the NCBI Gene UID rather than by searching OMIM for
+    the symbol: the search returns only the gene entry itself, while the link
+    returns the gene together with the phenotypes curators have tied to it,
+    which is the part a reader wants.
+    """
     INHERITANCE_MAP = {
         "AUTOSOMAL DOMINANT": "AD",
         "AUTOSOMAL RECESSIVE": "AR",
@@ -931,7 +1038,7 @@ async def fetch_omim_data(gene_symbol: str) -> dict:
         "DIGENIC": "DG",
     }
 
-    def detect_inheritance(title: str) -> str | None:
+    def detect_inheritance(title: str) -> Optional[str]:
         t = title.upper()
         for phrase, code in INHERITANCE_MAP.items():
             if phrase in t:
@@ -940,65 +1047,57 @@ async def fetch_omim_data(gene_symbol: str) -> dict:
 
     try:
         async with httpx.AsyncClient() as client:
-            # Search OMIM for this gene symbol
-            search_data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
-                "db": "omim",
-                "term": f'"{gene_symbol}"[Gene/Locus Symbol]',
-                "retmax": 20,
-                "retmode": "json",
-            })
-            ids = (search_data or {}).get("esearchresult", {}).get("idlist", [])
+            gene_id = await resolve_ncbi_gene_id(gene_symbol, client)
+            ids: list[str] = []
+            if gene_id:
+                ids = await elink_ids("gene", "omim", gene_id, client, limit=25)
 
             if not ids:
-                search_data = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
-                    "db": "omim",
-                    "term": f"{gene_symbol}[All Fields]",
-                    "retmax": 10,
-                    "retmode": "json",
+                # Fall back to a direct search, which at least finds the gene
+                # entry for a symbol NCBI Gene does not resolve.
+                search = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+                    "db": "omim", "term": f'"{gene_symbol}"[Gene/Locus Symbol]',
+                    "retmax": 20, "retmode": "json",
                 })
-                ids = (search_data or {}).get("esearchresult", {}).get("idlist", [])[:10]
+                ids = (search or {}).get("esearchresult", {}).get("idlist", [])
 
             if not ids:
                 return {}
 
-            summary_data = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
-                "db": "omim",
-                "id": ",".join(ids[:15]),
-                "retmode": "json",
+            summary = await _get(client, f"{NCBI_BASE}/esummary.fcgi", {
+                "db": "omim", "id": ",".join(ids[:25]), "retmode": "json",
             })
-            if not summary_data:
-                return {}
-
-            result = summary_data.get("result", {})
-            uids = result.get("uids", [])
+            result = (summary or {}).get("result", {})
 
             gene_entry = None
             phenotypes = []
 
-            for uid in uids:
-                entry = result.get(str(uid), {})
-                title = entry.get("title", "")
+            for uid in result.get("uids", []):
+                entry = result.get(str(uid)) or {}
+                title = (entry.get("title") or "").strip()
                 if not title:
                     continue
-                mim = str(entry.get("uid", uid))
-                # mimtype: "1"=gene(*), "2"=gene+phenotype(+), "3"=phenotype(#), "4"=phenotype(%), "5"=removed
-                mimtype = str(entry.get("mimtype", ""))
+                oid = str(entry.get("oid") or "")
+                prefix = oid[0] if oid and not oid[0].isdigit() else ""
+                kind = OMIM_PREFIX_KIND.get(prefix, "phenotype")
+                if kind == "removed":
+                    continue
 
+                mim = oid.lstrip("*+#%^") or str(uid)
                 item = {
                     "mim_number": mim,
-                    "title": title.strip(),
+                    "title": title,
                     "url": f"https://omim.org/entry/{mim}",
                     "inheritance": detect_inheritance(title),
                 }
 
-                if mimtype in ("1", "2") and not gene_entry:
+                if kind == "gene" and gene_entry is None:
                     gene_entry = item
-                elif mimtype in ("3", "4"):
+                elif kind == "phenotype":
                     phenotypes.append(item)
-                elif mimtype not in ("5",):
-                    # Unknown type — include as phenotype if title looks like a disease
-                    if gene_symbol.upper() not in title.upper()[:20]:
-                        phenotypes.append(item)
+
+            if not gene_entry and not phenotypes:
+                return {}
 
             return {
                 "gene_entry": gene_entry,
@@ -1011,7 +1110,15 @@ async def fetch_omim_data(gene_symbol: str) -> dict:
 
 
 async def fetch_pharmgkb_data(gene_symbol: str) -> dict:
-    """Fetch pharmacogenomics data from PharmGKB — drug-gene relationships and clinical annotations."""
+    """Pharmacogenomics: which drugs this gene's variants affect, and how well
+    established each link is.
+
+    PharmGKB became ClinPGx and `api.pharmgkb.org` no longer resolves at all —
+    a DNS failure, so every call raised before reaching a status code. The API
+    shape survived the move; the host and a couple of parameter names did not.
+    Drugs now come from the clinical annotations rather than from the gene
+    record, which no longer carries `relatedChemicals`.
+    """
     LEVEL_LABELS = {
         "1A": "Highest evidence (guideline-supported)",
         "1B": "High evidence",
@@ -1020,67 +1127,81 @@ async def fetch_pharmgkb_data(gene_symbol: str) -> dict:
         "3": "Limited evidence",
         "4": "Case reports only",
     }
+    LEVEL_ORDER = ["1A", "1B", "2A", "2B", "3", "4"]
+
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            # Fetch gene entry
-            gene_resp = await client.get(
-                f"{PHARMGKB_BASE}/data/gene",
-                params={"symbol": gene_symbol, "view": "max"},
-                headers={"Accept": "application/json"},
-            )
-            if gene_resp.status_code != 200:
-                return {}
-            gene_json = gene_resp.json()
-            gene_list = gene_json.get("data", [])
-            if not gene_list:
-                return {}
-            gene = gene_list[0] if isinstance(gene_list, list) else gene_list
+            gene_data = await _get(client, f"{PHARMGKB_BASE}/data/gene",
+                                   {"symbol": gene_symbol, "view": "max"})
+            gene_list = (gene_data or {}).get("data") or []
+            gene = (gene_list[0] if isinstance(gene_list, list) else gene_list) or {}
             gene_id = gene.get("id", "")
 
-            # Related drugs from gene entry
-            related_drugs = []
-            for d in (gene.get("relatedChemicals") or gene.get("relatedDrugs") or [])[:20]:
-                name = d.get("name", "").strip()
-                if name:
-                    related_drugs.append({
-                        "name": name,
-                        "id": d.get("id", ""),
-                        "url": f"https://www.pharmgkb.org/chemical/{d.get('id', '')}",
-                    })
+            # `view=max` is required — the annotations carry no evidence level
+            # or drug list without it, and `view=base` is rejected outright.
+            ann_data = await _get(client, f"{PHARMGKB_BASE}/data/clinicalAnnotation",
+                                  {"location.genes.symbol": gene_symbol, "view": "max"})
+            annotations_raw = (ann_data or {}).get("data") or []
 
-            # Clinical annotations for this gene
-            ann_resp = await client.get(
-                f"{PHARMGKB_BASE}/data/clinicalAnnotation",
-                params={"gene.symbol": gene_symbol, "view": "base", "pageSize": 15},
-                headers={"Accept": "application/json"},
-            )
             annotations = []
-            if ann_resp.status_code == 200:
-                ann_json = ann_resp.json()
-                for ann in (ann_json.get("data") or [])[:15]:
-                    drug_names = [c.get("name", "") for c in (ann.get("relatedChemicals") or ann.get("chemicals") or [])]
-                    level = str(ann.get("level") or ann.get("evidenceLevel") or "")
-                    variant_name = (ann.get("variant") or {}).get("name", "") or (ann.get("genotype") or "")
-                    annotations.append({
-                        "level": level,
-                        "level_label": LEVEL_LABELS.get(level, f"Level {level}"),
-                        "drugs": [n for n in drug_names if n],
-                        "phenotype": ann.get("phenotypeCategory") or ann.get("phenotype") or "",
-                        "variant": variant_name,
-                        "url": f"https://www.pharmgkb.org/clinicalAnnotation/{ann.get('id', '')}",
-                    })
+            drug_names: dict[str, str] = {}
+            for ann in annotations_raw:
+                level = str(((ann.get("levelOfEvidence") or {}).get("term") or "")).strip()
+                chemicals = [
+                    c.get("name") for c in (ann.get("relatedChemicals") or []) if c.get("name")
+                ]
+                def strength(lvl):
+                    """Lower is stronger; anything unrated sorts last."""
+                    return LEVEL_ORDER.index(lvl) if lvl in LEVEL_ORDER else 99
+
+                for name in chemicals:
+                    # A drug can appear in several annotations; keep the
+                    # strongest evidence any of them carries.
+                    current = drug_names.get(name)
+                    if current is None or strength(level) < strength(current):
+                        drug_names[name] = level
+
+                accession = ann.get("accessionId") or ann.get("id")
+                annotations.append({
+                    "level": level,
+                    "level_label": LEVEL_LABELS.get(level, f"Level {level}" if level else "Unrated"),
+                    "drugs": chemicals[:6],
+                    "phenotypes": [
+                        p.get("phenotype") for p in (ann.get("allelePhenotypes") or [])
+                        if p.get("phenotype")
+                    ][:3],
+                    "url": f"https://www.clinpgx.org/clinicalAnnotation/{accession}" if accession else None,
+                })
+
+            def level_key(item):
+                lvl = item.get("level") or ""
+                return LEVEL_ORDER.index(lvl) if lvl in LEVEL_ORDER else 99
+
+            annotations.sort(key=level_key)
+
+            related_drugs = [
+                {"name": name, "level": lvl,
+                 "level_label": LEVEL_LABELS.get(lvl, f"Level {lvl}" if lvl else "Unrated")}
+                for name, lvl in sorted(
+                    drug_names.items(),
+                    key=lambda kv: (LEVEL_ORDER.index(kv[1]) if kv[1] in LEVEL_ORDER else 99, kv[0]),
+                )
+            ][:20]
 
             if not related_drugs and not annotations:
                 return {}
 
             return {
-                "gene_id": gene_id,
+                "gene_symbol": gene_symbol,
                 "related_drugs": related_drugs,
-                "clinical_annotations": annotations,
-                "url": f"https://www.pharmgkb.org/gene/{gene_id}" if gene_id else f"https://www.pharmgkb.org/search?query={gene_symbol}",
+                "clinical_annotations": annotations[:15],
+                "annotation_total": len(annotations),
+                "url": f"https://www.clinpgx.org/gene/{gene_id}" if gene_id
+                       else f"https://www.clinpgx.org/search?query={gene_symbol}",
+                "source": "ClinPGx (formerly PharmGKB)",
             }
     except Exception as e:
-        logger.warning(f"PharmGKB fetch failed for {gene_symbol}: {e}")
+        logger.warning(f"PharmGKB/ClinPGx fetch failed for {gene_symbol}: {e}")
         return {}
 
 
@@ -1097,68 +1218,90 @@ TCGA_NAMES = {
     "TCGA-ACC": "Adrenocortical Carcinoma", "TCGA-PCPG": "Pheochromocytoma",
     "TCGA-KICH": "Kidney Chromophobe", "TCGA-THYM": "Thymoma", "TCGA-CHOL": "Cholangiocarcinoma",
     "TCGA-ESCA": "Esophageal Cancer", "TCGA-UCS": "Uterine Carcinosarcoma",
+    # GDC now carries non-TCGA programmes too; these are the ones that surface
+    # most often, so a reader is not left decoding a bare project code.
+    "CPTAC-3": "CPTAC-3 (multi-cancer proteogenomics)",
+    "ALCHEMIST-ALCH": "ALCHEMIST (early-stage lung)",
+    "MMRF-COMMPASS": "Multiple Myeloma (MMRF)",
+    "TARGET-ALL-P2": "Paediatric Acute Lymphoblastic Leukaemia",
+    "BEATAML1.0-COHORT": "Acute Myeloid Leukaemia (Beat AML)",
 }
 
 
 async def fetch_cancer_mutations(gene_symbol: str) -> dict:
-    """Fetch somatic cancer mutation data from NCI GDC (TCGA)."""
-    import json as _json
+    """Somatic mutations in this gene across cancer projects, from NCI GDC.
+
+    Counts come from `/ssm_occurrences` rather than `/ssms`: an occurrence is
+    one mutation seen in one case, which is what makes a per-project tally
+    meaningful. `/ssms` does not expose `case.project.project_id` as a facet at
+    all — it answered 200 while reporting `unrecognized values` in a `warnings`
+    key nothing read, so the panel was empty for every gene while the request
+    looked successful.
+    """
     gene_filter = {
         "op": "=",
-        "content": {"field": "consequence.transcript.gene.symbol", "value": gene_symbol},
+        "content": {"field": "ssm.consequence.transcript.gene.symbol", "value": gene_symbol},
     }
+
+    async def facet(name: str) -> list[dict]:
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                resp = await client.post(
+                    f"{GDC_BASE}/ssm_occurrences",
+                    json={"filters": gene_filter, "facets": name, "size": 0},
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    record_source_failure(f"{GDC_BASE}/ssm_occurrences", f"HTTP {resp.status_code}")
+                    return []
+                payload = resp.json()
+                # GDC reports a rejected facet here rather than as an error.
+                warning = (payload.get("warnings") or {}).get("facets")
+                if warning:
+                    record_source_failure(f"{GDC_BASE}/ssm_occurrences", f"facet rejected: {warning}")
+                    return []
+                aggs = (payload.get("data") or {}).get("aggregations") or {}
+                return (aggs.get(name) or {}).get("buckets") or []
+        except Exception as e:
+            record_source_failure(f"{GDC_BASE}/ssm_occurrences", str(e))
+            return []
+
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            # Cancer type distribution
-            r1 = await client.post(
-                f"{GDC_BASE}/ssms",
-                json={"filters": gene_filter, "facets": "case.project.project_id", "size": 0},
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-            )
-            # Consequence type distribution
-            r2 = await client.post(
-                f"{GDC_BASE}/ssms",
-                json={"filters": gene_filter, "facets": "consequence.transcript.consequence_type", "size": 0},
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-            )
+        project_buckets, consequence_buckets = await asyncio.gather(
+            facet("case.project.project_id"),
+            facet("ssm.consequence.transcript.consequence_type"),
+        )
 
-            if r1.status_code != 200:
-                return {}
-            d1 = r1.json()
-
-            def get_buckets(data, field):
-                aggs = (data.get("data") or {}).get("aggregations") or {}
-                return (aggs.get(field) or {}).get("buckets") or []
-
-            proj_buckets = get_buckets(d1, "case.project.project_id")
-            cancer_types = []
-            for b in sorted(proj_buckets, key=lambda x: x.get("doc_count", 0), reverse=True)[:15]:
-                pid = b.get("key", "")
-                cancer_types.append({
-                    "project_id": pid,
-                    "cancer_type": TCGA_NAMES.get(pid, pid),
-                    "mutation_count": b.get("doc_count", 0),
-                })
-
-            consequence_types = []
-            if r2.status_code == 200:
-                d2 = r2.json()
-                for b in sorted(
-                    get_buckets(d2, "consequence.transcript.consequence_type"),
-                    key=lambda x: x.get("doc_count", 0), reverse=True
-                )[:8]:
-                    label = b.get("key", "").replace("_variant", "").replace("_", " ").title()
-                    consequence_types.append({"type": label, "count": b.get("doc_count", 0)})
-
-            if not cancer_types:
-                return {}
-
-            return {
-                "cancer_types": cancer_types,
-                "consequence_types": consequence_types,
-                "total_mutations": sum(c["mutation_count"] for c in cancer_types),
-                "source": "NCI GDC / TCGA",
+        cancer_types = [
+            {
+                "project_id": b.get("key", ""),
+                "cancer_type": TCGA_NAMES.get(b.get("key", ""), b.get("key", "")),
+                "mutation_count": b.get("doc_count", 0),
             }
+            for b in sorted(project_buckets, key=lambda x: x.get("doc_count", 0), reverse=True)[:15]
+            if b.get("key")
+        ]
+
+        consequence_types = [
+            {
+                "type": str(b.get("key", "")).replace("_variant", "").replace("_", " ").title(),
+                "count": b.get("doc_count", 0),
+            }
+            for b in sorted(consequence_buckets, key=lambda x: x.get("doc_count", 0), reverse=True)[:8]
+            if b.get("key")
+        ]
+
+        if not cancer_types:
+            return {}
+
+        return {
+            "cancer_types": cancer_types,
+            "consequence_types": consequence_types,
+            # The tally across every project, not just the fifteen shown.
+            "total_mutations": sum(b.get("doc_count", 0) for b in project_buckets),
+            "project_count": len(project_buckets),
+            "source": "NCI GDC / TCGA",
+        }
     except Exception as e:
         logger.warning(f"GDC cancer mutation fetch failed for {gene_symbol}: {e}")
         return {}
@@ -1167,146 +1310,209 @@ async def fetch_cancer_mutations(gene_symbol: str) -> dict:
 CLINGEN_VALIDITY_ORDER = ["Definitive", "Strong", "Moderate", "Limited", "Disputed", "Refuted", "No Reported Evidence"]
 
 
+# ClinGen publishes no per-gene JSON API. `search.clinicalgenome.org/kb` is a
+# web application: it answered every request with 200 and 176 KB of HTML, which
+# the old code fed to `resp.json()` — so every gene raised a JSON decode error
+# and reported no curations at all, including genes with Definitive ones.
+#
+# The machine-readable route is a CSV of the entire corpus (~1.1 MB). Fetching
+# that per query would be absurd, so it is loaded once and indexed by symbol.
+CLINGEN_CSV_URL = "https://search.clinicalgenome.org/kb/gene-validity/download"
+CLINGEN_TTL_SECONDS = 24 * 3600
+
+_clingen_table: dict[str, list[dict]] = {}
+_clingen_loaded_at = 0.0
+_clingen_lock = asyncio.Lock()
+
+
+def _parse_clingen_csv(text: str) -> dict[str, list[dict]]:
+    """Index the ClinGen dump by gene symbol.
+
+    The file carries a title preamble and rows of `+++++` used as visual rules,
+    so rows are located by finding the header rather than by skipping a fixed
+    count — a preamble that grows by a line would otherwise silently shift
+    every field by one column.
+    """
+    rows = list(csv.reader(io.StringIO(text)))
+    header_idx = next(
+        (i for i, r in enumerate(rows) if r and r[0].strip().upper() == "GENE SYMBOL"),
+        None,
+    )
+    if header_idx is None:
+        return {}
+    header = [c.strip().upper() for c in rows[header_idx]]
+
+    def col(name):
+        try:
+            return header.index(name)
+        except ValueError:
+            return None
+
+    idx = {k: col(v) for k, v in {
+        "gene": "GENE SYMBOL", "disease": "DISEASE LABEL", "mondo": "DISEASE ID (MONDO)",
+        "moi": "MOI", "classification": "CLASSIFICATION", "report": "ONLINE REPORT",
+        "date": "CLASSIFICATION DATE", "gcep": "GCEP",
+    }.items()}
+    if idx["gene"] is None or idx["classification"] is None:
+        return {}
+
+    def get(row, key):
+        i = idx.get(key)
+        return row[i].strip() if i is not None and i < len(row) else ""
+
+    table: dict[str, list[dict]] = {}
+    for row in rows[header_idx + 1:]:
+        if not row or not row[0].strip() or set(row[0].strip()) == {"+"}:
+            continue
+        symbol = get(row, "gene").upper()
+        classification = get(row, "classification")
+        if not symbol or not classification:
+            continue
+        table.setdefault(symbol, []).append({
+            "disease": get(row, "disease") or "Unknown",
+            # MONDO ties this disease to the same one in HPO, Monarch and OMIM.
+            "mondo_id": get(row, "mondo") or None,
+            "classification": classification,
+            "moi": get(row, "moi"),
+            "gcep": get(row, "gcep"),
+            "classified_on": get(row, "date") or None,
+            "url": get(row, "report") or "https://search.clinicalgenome.org/kb/gene-validity",
+        })
+    return table
+
+
+async def _ensure_clingen_table() -> dict[str, list[dict]]:
+    global _clingen_table, _clingen_loaded_at
+    now = time.time()
+    if _clingen_table and now - _clingen_loaded_at < CLINGEN_TTL_SECONDS:
+        return _clingen_table
+    async with _clingen_lock:
+        # Re-check: another request may have loaded it while we waited.
+        if _clingen_table and time.time() - _clingen_loaded_at < CLINGEN_TTL_SECONDS:
+            return _clingen_table
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                resp = await client.get(CLINGEN_CSV_URL, follow_redirects=True)
+                resp.raise_for_status()
+                parsed = _parse_clingen_csv(resp.text)
+            if parsed:
+                _clingen_table = parsed
+                _clingen_loaded_at = time.time()
+                logger.info("ClinGen validity table loaded: %d genes", len(parsed))
+            else:
+                record_source_failure(CLINGEN_CSV_URL, "table parsed to nothing")
+        except Exception as e:
+            record_source_failure(CLINGEN_CSV_URL, str(e))
+            logger.warning(f"ClinGen table load failed: {e}")
+    return _clingen_table
+
+
 async def fetch_clingen_validity(gene_symbol: str) -> list[dict]:
-    """Fetch ClinGen gene-disease validity classifications."""
+    """Expert-panel gene-disease validity classifications for one gene."""
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(
-                f"{CLINGEN_BASE}/gene-validity",
-                params={"geneLabel": gene_symbol, "format": "json"},
-                headers={"Accept": "application/json"},
-            )
-            if resp.status_code != 200:
-                return []
-            data = resp.json()
+        table = await _ensure_clingen_table()
+        results = list(table.get(gene_symbol.upper(), []))
 
-            # ClinGen returns JSON-LD with @graph array
-            entries = data.get("@graph") or data.get("gene_validity_list") or []
-            if isinstance(data, list):
-                entries = data
+        def sort_key(r):
+            try:
+                return CLINGEN_VALIDITY_ORDER.index(r["classification"])
+            except ValueError:
+                return 99
 
-            results = []
-            for entry in entries:
-                classification = (entry.get("classification") or {})
-                if isinstance(classification, dict):
-                    class_label = classification.get("label") or classification.get("name") or str(classification)
-                else:
-                    class_label = str(classification)
-
-                disease = entry.get("disease") or entry.get("condition") or {}
-                disease_name = (disease.get("label") or disease.get("name") or "Unknown") if isinstance(disease, dict) else str(disease)
-
-                moi = entry.get("moi") or entry.get("modeOfInheritance") or {}
-                moi_label = (moi.get("label") or moi.get("name") or "") if isinstance(moi, dict) else str(moi)
-
-                gcep = entry.get("affiliation") or entry.get("gcep") or {}
-                gcep_name = (gcep.get("label") or gcep.get("name") or "") if isinstance(gcep, dict) else str(gcep)
-
-                curation_id = entry.get("@id") or entry.get("id") or ""
-                url = f"https://search.clinicalgenome.org/kb/gene-validity/{curation_id.split('/')[-1]}" if curation_id else "https://clinicalgenome.org"
-
-                results.append({
-                    "disease": disease_name,
-                    "classification": class_label,
-                    "moi": moi_label,
-                    "gcep": gcep_name,
-                    "url": url,
-                })
-
-            # Sort by classification strength
-            def sort_key(r):
-                try:
-                    return CLINGEN_VALIDITY_ORDER.index(r["classification"])
-                except ValueError:
-                    return 99
-
-            return sorted(results, key=sort_key)[:15]
+        return sorted(results, key=sort_key)[:15]
     except Exception as e:
         logger.warning(f"ClinGen validity fetch failed for {gene_symbol}: {e}")
         return []
 
 
+# The GWAS Catalog has no gene-keyed association endpoint — `associations/
+# search/findByGene` 404s, which the old code read as "this gene has no trait
+# associations". Associations hang off SNPs, so the route is gene -> SNPs ->
+# associations. Capped because that second step is one request per SNP.
+GWAS_MAX_SNPS = 15
+
+
+async def _gwas_associations_for_snp(client: httpx.AsyncClient, rs_id: str) -> list[dict]:
+    data = await _get(client, f"{GWAS_BASE}/singleNucleotidePolymorphisms/{rs_id}/associations",
+                      {"projection": "associationBySnp"})
+    out = []
+    for a in ((data or {}).get("_embedded") or {}).get("associations", []) or []:
+        traits = [t.get("trait") for t in (a.get("efoTraits") or []) if t.get("trait")]
+        if not traits:
+            continue
+
+        p_value = None
+        mantissa, exponent = a.get("pvalueMantissa"), a.get("pvalueExponent")
+        if mantissa is not None and exponent is not None:
+            try:
+                p_value = float(mantissa) * (10 ** int(exponent))
+            except (TypeError, ValueError):
+                p_value = None
+
+        risk_allele, risk_frequency = None, None
+        for locus in a.get("loci") or []:
+            for allele in locus.get("strongestRiskAlleles") or []:
+                risk_allele = allele.get("riskAlleleName")
+                risk_frequency = allele.get("riskFrequency")
+                break
+            if risk_allele:
+                break
+
+        for trait in traits:
+            out.append({
+                "trait": trait,
+                "rsid": rs_id,
+                "p_value": p_value,
+                # Odds ratio and beta are different measures and must not be
+                # merged into one number: an OR of 1.2 and a beta of 1.2 mean
+                # entirely different things.
+                "odds_ratio": a.get("orPerCopyNum"),
+                "beta": a.get("betaNum"),
+                "beta_unit": a.get("betaUnit"),
+                "beta_direction": a.get("betaDirection"),
+                "risk_allele": risk_allele,
+                "risk_frequency": risk_frequency,
+                "url": f"https://www.ebi.ac.uk/gwas/variants/{rs_id}",
+                "source": "GWAS Catalog",
+            })
+    return out
+
+
 async def fetch_gwas_associations(gene_symbol: str) -> list[dict]:
-    """Fetch GWAS Catalog trait associations for a gene."""
-    results = []
+    """Genome-wide association study hits for variants mapped to this gene."""
     try:
         async with httpx.AsyncClient() as client:
-            # Search associations by gene name
-            url = f"{GWAS_BASE}/associations/search/findByGene"
-            params = {"geneName": gene_symbol, "size": 50}
-            headers = {"Accept": "application/json"}
-            for attempt in range(MAX_RETRIES):
-                try:
-                    resp = await client.get(url, params=params, headers=headers, timeout=TIMEOUT)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        break
-                    elif resp.status_code == 429:
-                        await asyncio.sleep(2 ** attempt)
-                    else:
-                        return results
-                except httpx.TimeoutException:
-                    await asyncio.sleep(1)
-            else:
-                return results
+            snp_data = await _get(client, f"{GWAS_BASE}/singleNucleotidePolymorphisms/search/findByGene",
+                                  {"geneName": gene_symbol, "size": 50})
+            snps = ((snp_data or {}).get("_embedded") or {}).get("singleNucleotidePolymorphisms", []) or []
+            rs_ids = [s.get("rsId") for s in snps if s.get("rsId")][:GWAS_MAX_SNPS]
+            if not rs_ids:
+                return []
 
-            assocs = (data.get("_embedded") or {}).get("associations", [])
-            seen_traits = set()
-            for a in assocs:
-                # Pull trait(s)
-                traits = a.get("efoTraits") or a.get("traitNames") or []
-                if isinstance(traits, list):
-                    trait_names = [t.get("trait") or t.get("shortForm") or str(t) for t in traits if isinstance(t, dict)]
-                else:
-                    trait_names = []
+            batches = await asyncio.gather(
+                *[_gwas_associations_for_snp(client, rs) for rs in rs_ids],
+                return_exceptions=True,
+            )
 
-                if not trait_names:
+            results = []
+            for batch in batches:
+                if isinstance(batch, Exception):
                     continue
+                results.extend(batch)
 
-                pval_mantissa = a.get("pvalueMantissa")
-                pval_exponent = a.get("pvalueExponent")
-                p_value = None
-                if pval_mantissa is not None and pval_exponent is not None:
-                    try:
-                        p_value = float(pval_mantissa) * (10 ** int(pval_exponent))
-                    except Exception:
-                        pass
+            # One trait can be reported by many studies; keep the strongest
+            # result per trait so the panel reads as a list of findings rather
+            # than a list of papers.
+            best: dict[str, dict] = {}
+            for r in results:
+                current = best.get(r["trait"])
+                if current is None or (r["p_value"] is not None and
+                                       (current["p_value"] is None or r["p_value"] < current["p_value"])):
+                    best[r["trait"]] = r
 
-                or_beta = a.get("orPerCopyNum") or a.get("betaNum")
-                risk_allele = ""
-                loci = a.get("loci") or []
-                for locus in loci:
-                    for ra in (locus.get("strongestRiskAlleles") or []):
-                        risk_allele = ra.get("riskAlleleName", "")
-                        break
-                    if risk_allele:
-                        break
-
-                study = (a.get("study") or {})
-                pmid = study.get("publicationInfo", {}).get("pubmedId") if isinstance(study.get("publicationInfo"), dict) else None
-                study_accession = study.get("accessionId", "")
-
-                for trait in trait_names:
-                    key = (trait, risk_allele)
-                    if key in seen_traits:
-                        continue
-                    seen_traits.add(key)
-                    results.append({
-                        "trait": trait,
-                        "p_value": p_value,
-                        "p_value_str": f"{pval_mantissa}×10⁻{abs(int(pval_exponent))}" if pval_mantissa and pval_exponent else "N/A",
-                        "or_beta": float(or_beta) if or_beta else None,
-                        "risk_allele": risk_allele,
-                        "pmid": pmid,
-                        "study_accession": study_accession,
-                        "url": f"https://www.ebi.ac.uk/gwas/studies/{study_accession}" if study_accession else "https://www.ebi.ac.uk/gwas/",
-                    })
-
-            # Sort by p-value ascending (most significant first)
-            results.sort(key=lambda x: x["p_value"] if x["p_value"] is not None else 1.0)
-            return results[:25]
+            return sorted(best.values(), key=lambda r: (r["p_value"] is None, r["p_value"] or 0))[:20]
     except Exception as e:
-        logger.warning(f"GWAS Catalog fetch failed for {gene_symbol}: {e}")
+        logger.warning(f"GWAS fetch failed for {gene_symbol}: {e}")
         return []
 
 
@@ -1327,37 +1533,43 @@ async def fetch_hpo_terms(gene_symbol: str, ncbi_gene_id: Optional[str] = None) 
             if not gene_id:
                 return {}
 
-            url = f"{HPO_BASE}/gene/{gene_id}"
-            headers = {"Accept": "application/json"}
-            resp = await client.get(url, headers=headers, timeout=TIMEOUT)
-            if resp.status_code != 200:
+            # HPO retired the hpo.jax.org/api/hpo API — it now serves a 404 HTML
+            # page, which the old code read as "this gene has no phenotypes".
+            # The replacement is the ontology service, keyed by CURIE.
+            data = await _get(client, f"{HPO_ANNOTATION_BASE}/network/annotation/NCBIGene:{gene_id}")
+            if not isinstance(data, dict):
                 return {}
 
-            data = resp.json()
-
-            # Collect terms with categories
-            terms = []
-            for t in (data.get("termAssoc") or []):
-                terms.append({
-                    "id": t.get("ontologyId", ""),
+            terms = [
+                {
+                    "id": t.get("id", ""),
                     "name": t.get("name", ""),
-                    "definition": t.get("definition", ""),
-                    "url": f"https://hpo.jax.org/browse/term/{t.get('ontologyId', '')}",
-                })
+                    "definition": t.get("definition") or "",
+                    "url": f"https://hpo.jax.org/browse/term/{t.get('id', '')}",
+                }
+                for t in (data.get("phenotypes") or []) if t.get("id")
+            ]
 
-            # Collect disease associations
-            diseases = []
-            for d in (data.get("diseaseAssoc") or []):
-                diseases.append({
-                    "id": d.get("diseaseId", ""),
-                    "name": d.get("diseaseName", ""),
-                    "db": d.get("diseaseId", "").split(":")[0] if ":" in d.get("diseaseId", "") else "",
-                })
+            diseases = [
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", ""),
+                    "db": d.get("id", "").split(":")[0] if ":" in (d.get("id") or "") else "",
+                    # MONDO is the identifier that lets a disease here be tied
+                    # to the same disease in MedGen, Monarch and OMIM.
+                    "mondo_id": d.get("mondoId"),
+                }
+                for d in (data.get("diseases") or []) if d.get("id")
+            ]
+
+            if not terms and not diseases:
+                return {}
 
             return {
                 "gene_symbol": gene_symbol,
                 "ncbi_gene_id": gene_id,
                 "phenotype_terms": terms[:40],
+                "phenotype_total": len(terms),
                 "disease_associations": diseases[:20],
             }
     except Exception as e:
@@ -1365,92 +1577,97 @@ async def fetch_hpo_terms(gene_symbol: str, ncbi_gene_id: Optional[str] = None) 
         return {}
 
 
+# Monarch keys human genes on HGNC. An NCBI Gene id — which is what the rest of
+# this module resolves — returns `total: 0` with HTTP 200, so the old code read
+# a namespace mismatch as "this gene has no associations". BRCA1 has 5,629.
+MONARCH_DISEASE_CATEGORIES = (
+    "biolink:CausalGeneToDiseaseAssociation",
+    "biolink:CorrelatedGeneToDiseaseAssociation",
+)
+MONARCH_PHENOTYPE_CATEGORY = "biolink:GeneToPhenotypicFeatureAssociation"
+
+
+async def _monarch_hgnc_id(client: httpx.AsyncClient, gene_symbol: str) -> Optional[str]:
+    """Resolve a gene symbol to the HGNC CURIE Monarch indexes on."""
+    data = await _get(client, f"{MONARCH_BASE}/search",
+                      {"q": gene_symbol, "category": "biolink:Gene", "limit": 10})
+    items = (data or {}).get("items") or []
+    exact = [
+        i for i in items
+        if str(i.get("name", "")).upper() == gene_symbol.upper()
+        and str(i.get("id", "")).startswith("HGNC:")
+    ]
+    if exact:
+        return exact[0]["id"]
+    return next((i["id"] for i in items if str(i.get("id", "")).startswith("HGNC:")), None)
+
+
+async def _monarch_items(client: httpx.AsyncClient, hgnc_id: str, category: str, limit: int) -> list[dict]:
+    data = await _get(client, f"{MONARCH_BASE}/association",
+                      {"entity": hgnc_id, "category": category, "limit": limit})
+    return (data or {}).get("items") or []
+
+
 async def fetch_monarch_associations(gene_symbol: str, ncbi_gene_id: Optional[str] = None) -> dict:
-    """Fetch Monarch Initiative disease + phenotype associations for a gene."""
+    """Diseases and phenotypes linked to a gene, from the Monarch Initiative."""
     try:
         async with httpx.AsyncClient() as client:
-            # Resolve NCBI gene ID if needed
-            gene_id = ncbi_gene_id
-            if not gene_id:
-                search_url = f"{NCBI_BASE}/esearch.fcgi"
-                params = {"db": "gene", "term": f"{gene_symbol}[gene] AND Homo sapiens[orgn]",
-                          "retmode": "json", "retmax": 1}
-                data = await _get(client, search_url, params)
-                ids = (data or {}).get("esearchresult", {}).get("idlist", [])
-                gene_id = ids[0] if ids else None
-
-            if not gene_id:
+            hgnc_id = await _monarch_hgnc_id(client, gene_symbol)
+            if not hgnc_id:
                 return {}
 
-            monarch_id = f"NCBIGene:{gene_id}"
-            headers = {"Accept": "application/json"}
+            batches = await asyncio.gather(
+                *[_monarch_items(client, hgnc_id, c, 25) for c in MONARCH_DISEASE_CATEGORIES],
+                _monarch_items(client, hgnc_id, MONARCH_PHENOTYPE_CATEGORY, 40),
+                return_exceptions=True,
+            )
+            *disease_batches, phenotype_batch = [
+                b if not isinstance(b, Exception) else [] for b in batches
+            ]
 
-            # Fetch disease associations
-            disease_url = f"{MONARCH_BASE}/association"
-            disease_params = {
-                "subject": monarch_id,
-                "category": "biolink:GeneToDiseaseAssociation",
-                "limit": 20,
-                "offset": 0,
-            }
-            disease_resp = await client.get(disease_url, params=disease_params, headers=headers, timeout=TIMEOUT)
-            diseases = []
-            if disease_resp.status_code == 200:
-                d_data = disease_resp.json()
-                for item in (d_data.get("items") or []):
-                    obj = item.get("object") or {}
-                    pred = item.get("predicate") or ""
-                    diseases.append({
-                        "id": obj.get("id", ""),
-                        "name": obj.get("label") or obj.get("name", ""),
-                        "predicate": pred.replace("biolink:", "").replace("_", " "),
-                        "url": f"https://monarchinitiative.org/disease/{obj.get('id', '')}" if obj.get("id") else "",
-                    })
+            def entry(item, causal=None):
+                out = {
+                    "id": item.get("object"),
+                    "name": item.get("object_label") or item.get("object"),
+                    "url": f"https://monarchinitiative.org/{item.get('object')}",
+                }
+                if causal is not None:
+                    # Whether the gene causes the disease or is merely
+                    # associated with it is the whole difference between the
+                    # two categories, and must not be flattened away.
+                    out["causal"] = causal
+                return out
 
-            # Fetch phenotype associations
-            pheno_params = {
-                "subject": monarch_id,
-                "category": "biolink:GeneToPhenotypicFeatureAssociation",
-                "limit": 30,
-                "offset": 0,
-            }
-            pheno_resp = await client.get(disease_url, params=pheno_params, headers=headers, timeout=TIMEOUT)
-            phenotypes = []
-            if pheno_resp.status_code == 200:
-                p_data = pheno_resp.json()
-                for item in (p_data.get("items") or []):
-                    obj = item.get("object") or {}
-                    phenotypes.append({
-                        "id": obj.get("id", ""),
-                        "name": obj.get("label") or obj.get("name", ""),
-                        "url": f"https://monarchinitiative.org/phenotype/{obj.get('id', '')}" if obj.get("id") else "",
-                    })
+            diseases, seen = [], set()
+            for batch, category in zip(disease_batches, MONARCH_DISEASE_CATEGORIES):
+                for item in batch:
+                    if not item.get("object") or item["object"] in seen:
+                        continue
+                    seen.add(item["object"])
+                    diseases.append(entry(item, causal="Causal" in category))
+
+            phenotypes, seen_p = [], set()
+            for item in phenotype_batch:
+                if not item.get("object") or item["object"] in seen_p:
+                    continue
+                seen_p.add(item["object"])
+                phenotypes.append(entry(item))
+
+            if not diseases and not phenotypes:
+                return {}
 
             return {
                 "gene_symbol": gene_symbol,
-                "monarch_id": monarch_id,
-                "diseases": diseases,
-                "phenotypes": phenotypes,
+                "monarch_id": hgnc_id,
+                # Causal associations first — they are the ones that answer
+                # "does this gene cause a disease".
+                "diseases": sorted(diseases, key=lambda d: not d.get("causal"))[:20],
+                "phenotypes": phenotypes[:30],
+                "source": "Monarch",
             }
     except Exception as e:
         logger.warning(f"Monarch fetch failed for {gene_symbol}: {e}")
         return {}
-
-
-# ─── Staged loading ───────────────────────────────────────────────────────────
-# The full pipeline touches 17 upstreams and, paced against NCBI's rate limit,
-# takes several seconds before the reader sees anything. Splitting it lets the
-# first response carry the gene identity, protein and clinical variants — what
-# a question is nearly always actually about — while the rest is fetched only
-# when the reader asks for it.
-CORE_SECTIONS = ("gene_info", "protein_info", "variants", "publication_count",
-                 "population_summary", "alphafold", "domains")
-
-# Each optional section: label for the UI, and the keys it populates.
-# ─── NCBI cross-database traversal ────────────────────────────────────────────
-# Most NCBI databases key off the numeric Gene ID rather than the symbol, and
-# resolving it by search costs a call each time. Two fetchers already did that
-# lookup inline; everything added below shares this one instead.
 
 
 async def resolve_ncbi_gene_id(gene_symbol: str, client: httpx.AsyncClient = None) -> Optional[str]:

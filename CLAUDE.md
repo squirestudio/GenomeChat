@@ -241,6 +241,19 @@ The structure that makes it navigable: **each key in the backend's pipeline dict
 
 Charts and the lollipop variant map are hand-rolled SVG — no charting library.
 
+### Colour tokens — measure, do not eyeball
+
+Every text colour is a token in [index.css](frontend/src/index.css), defined twice: `:root[data-theme="light"]` and `:root[data-theme="dark"]`. **Compute the contrast ratio before changing one**, against the *card* background (`#1e293b` dark, `#ffffff`/`#f1f5f9` light) rather than the page — cards are the harder ground and most text sits on them. Body text wants 4.5:1; genuinely incidental labels can sit at 3:1.
+
+Two failures found this way, both invisible to inspection because the values *look* plausible in a palette:
+
+- **A token shared verbatim between themes.** `--text-faintest` was `#1e293b` in dark — the exact card colour, **1.00:1**. `--violet-soft` is still `#7c3aed` in both, which is 2.39:1 on a violet-tinted badge in dark. A value that appears identically in both blocks is the tell: it was almost certainly only ever checked against one of them.
+- **A border colour used as a text colour.** `--border-solid` was doing this in nine places, at 1.00:1 dark and 1.18:1 light, so disabled buttons had no readable label. Disabled controls are exempt from contrast minimums, which is not the same as being allowed to vanish. `--text-disabled` now exists for that role; keep `--border-solid` for borders.
+
+`--text-faintest` and `--text-dimmer` are the two most-used text colours in the app (76 and 70 uses), so a mistake in either is felt everywhere.
+
+Note the coupling before lightening any token for dark mode: **PDF export renders on a white page whatever the active theme**, and `cssVar()` resolves tokens at export time. A value tuned for a dark card can therefore come out unreadable in the PDF. Where the two conflict, change the one call site rather than the token.
+
 `API` is `import.meta.env.VITE_API_URL || "http://localhost:8000"`; set `VITE_API_URL` in Vercel.
 
 ### Personal DNA data — the privacy invariant

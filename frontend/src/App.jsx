@@ -2209,7 +2209,12 @@ function PhenotypePanel({ hpo, monarch }) {
 
         {activeTab === "hpo_disease" && hpoDiseases.map((d, i) => (
           <div key={i} style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgb(var(--c-violet) / 0.1)", color: "var(--violet-soft)", border: "1px solid rgb(var(--c-violet) / 0.2)", flexShrink: 0, fontFamily: "monospace" }}>{d.db}</span>
+            {/* --violet, not --violet-soft: the latter is the same dark literal
+                in both themes and sat at 2.39:1 on this violet-tinted badge in
+                dark mode. It is left alone rather than lightened because the
+                PDF export resolves it against a white page whatever the
+                current theme, so a lighter value would break that instead. */}
+            <span style={{ fontSize: "0.6rem", padding: "0.15em 0.4em", borderRadius: 4, background: "rgb(var(--c-violet) / 0.1)", color: "var(--violet)", border: "1px solid rgb(var(--c-violet) / 0.2)", flexShrink: 0, fontFamily: "monospace" }}>{d.db}</span>
             <p style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{d.name}</p>
           </div>
         ))}

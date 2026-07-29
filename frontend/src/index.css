@@ -73,12 +73,14 @@
   --warning-soft: #d97706;
 
   --border-solid: #e2e8f0;
-  /* Disabled control labels. Exists because a border colour was being used as
-     a text colour in nine places — a category error that CLAUDE.md already
-     records as a past bug. Deliberately identical to --border-solid here so
-     light mode renders exactly as before; light has the same latent problem
-     (1.23:1 on white) and is worth revisiting separately. */
-  --text-disabled: #e2e8f0;
+  /* Disabled control labels. Exists because a border colour (--border-solid)
+     was being used as a text colour in nine places — a category error that
+     CLAUDE.md already records as a past bug. At #e2e8f0 that put disabled
+     labels at 1.18:1 against the page: not muted, unreadable, so you could
+     not tell what a disabled button said. Muted enough to read as
+     unavailable, dark enough to read at all, and still clearly lighter than
+     --text-dimmer (3.99:1) so the disabled state remains obvious. */
+  --text-disabled: #808fa2;   /* 3.15:1 page, 3.30:1 card, 3.01:1 inset */
   --shadow-strength: 0.1;
 }
 

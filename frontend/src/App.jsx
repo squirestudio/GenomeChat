@@ -121,7 +121,7 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "0.3rem 0.75rem", borderRadius: 100, background: isActive ? meta.bg : "rgb(var(--c-deep) / 0.5)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.35)"}`, cursor: "pointer", transition: "all 0.15s" }}
             >
               <span style={{ fontSize: "0.7rem", fontWeight: 600, color: isActive ? meta.color : "var(--text-dimmer)" }}>{meta.label}</span>
-              <span style={{ fontSize: "0.62rem", padding: "0.05em 0.4em", borderRadius: 4, background: isActive ? meta.bg : "rgb(var(--c-surface) / 0.5)", color: isActive ? meta.color : "var(--border-solid)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.3)"}` }}>{count}</span>
+              <span style={{ fontSize: "0.62rem", padding: "0.05em 0.4em", borderRadius: 4, background: isActive ? meta.bg : "rgb(var(--c-surface) / 0.5)", color: isActive ? meta.color : "var(--text-disabled)", border: `1px solid ${isActive ? meta.border : "rgb(var(--c-border) / 0.3)"}` }}>{count}</span>
             </button>
           );
         })}
@@ -544,7 +544,7 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
                   style={{ flex: 1, fontSize: "0.72rem", background: "rgb(var(--c-deep) / 0.7)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 6, padding: "0.35rem 0.6rem", color: "var(--text-muted)", outline: "none" }}
                 />
                 <button onClick={saveServerKey} disabled={!keyDraft.trim() || keySaving}
-                  style={{ fontSize: "0.68rem", color: keyDraft.trim() ? "var(--accent)" : "var(--border-solid)", background: "none", border: `1px solid ${keyDraft.trim() ? "rgb(var(--c-accent) / 0.4)" : "rgb(var(--c-border) / 0.3)"}`, borderRadius: 6, padding: "0.35rem 0.65rem", cursor: keyDraft.trim() ? "pointer" : "default" }}>
+                  style={{ fontSize: "0.68rem", color: keyDraft.trim() ? "var(--accent)" : "var(--text-disabled)", background: "none", border: `1px solid ${keyDraft.trim() ? "rgb(var(--c-accent) / 0.4)" : "rgb(var(--c-border) / 0.3)"}`, borderRadius: 6, padding: "0.35rem 0.65rem", cursor: keyDraft.trim() ? "pointer" : "default" }}>
                   {keySaving ? "…" : "Save"}
                 </button>
               </div>
@@ -877,7 +877,7 @@ function ConsentModal({ onAccept, onClose }) {
         <button
           disabled={!agreed || parsing}
           onClick={() => fileRef.current?.click()}
-          style={{ width: "100%", padding: "0.625rem", borderRadius: 10, background: agreed && !parsing ? "var(--accent-deep)" : "rgb(var(--c-border) / 0.4)", border: "none", color: agreed && !parsing ? "white" : "var(--border-solid)", fontSize: "0.8rem", fontWeight: 600, cursor: agreed && !parsing ? "pointer" : "not-allowed", transition: "background 0.15s" }}
+          style={{ width: "100%", padding: "0.625rem", borderRadius: 10, background: agreed && !parsing ? "var(--accent-deep)" : "rgb(var(--c-border) / 0.4)", border: "none", color: agreed && !parsing ? "white" : "var(--text-disabled)", fontSize: "0.8rem", fontWeight: 600, cursor: agreed && !parsing ? "pointer" : "not-allowed", transition: "background 0.15s" }}
         >
           {parsing ? "Parsing file…" : "Choose File"}
         </button>
@@ -1172,7 +1172,13 @@ function GeneCard({ gene }) {
 }
 
 function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
+  const [expanded, setExpanded] = useState(false);
   if (!geneInfo) return null;
+  // UniProt function summaries run to a paragraph and carry the citations, so
+  // clamping them silently — as this did — removed the substance and left the
+  // reader with a sentence ending in an ellipsis and no way to continue.
+  const summary = proteinInfo?.function || "";
+  const clampable = summary.length > 190;
   return (
     <div style={{ background: "rgb(var(--c-accent) / 0.4)", border: "1px solid rgb(var(--c-accent) / 0.25)", borderRadius: 10, padding: "0.75rem", marginBottom: "1rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -1186,7 +1192,23 @@ function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
           {pubCount > 0 && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 3 }}>{pubCount.toLocaleString()} publications</p>}
         </div>
       </div>
-      {proteinInfo?.function && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 8, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{proteinInfo.function}</p>}
+      {summary && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{
+            fontSize: "0.72rem", color: "var(--text-dimmer)", lineHeight: 1.55,
+            ...(clampable && !expanded
+              ? { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }
+              : {}),
+          }}>{summary}</p>
+          {clampable && (
+            <button onClick={() => setExpanded(v => !v)}
+              style={{ background: "none", border: "none", padding: "3px 0 0", cursor: "pointer",
+                       fontSize: "0.68rem", fontWeight: 600, color: "var(--accent)" }}>
+              {expanded ? "Show less" : "Read more"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2062,7 +2084,7 @@ function PublicationTimeline({ timeline }) {
             return (
               <div key={year} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}
                 title={`${year}: ${count.toLocaleString()} publications`}>
-                <span style={{ fontSize: "0.58rem", color: count > 0 ? "var(--warning)" : "var(--border-solid)", lineHeight: 1 }}>
+                <span style={{ fontSize: "0.58rem", color: count > 0 ? "var(--warning)" : "var(--text-disabled)", lineHeight: 1 }}>
                   {count > 0 ? (count >= 1000 ? `${(count/1000).toFixed(1)}k` : count) : ""}
                 </span>
                 <div style={{ width: "100%", height: barH, background: `rgba(251,191,36,${opacity})`, borderRadius: "3px 3px 0 0", transition: "height 0.3s" }} />
@@ -2259,7 +2281,7 @@ function PharmGKBPanel({ pgkb }) {
       color: tab === id ? "var(--accent)" : "var(--text-dimmer)",
       borderBottom: tab === id ? "2px solid var(--accent-strong)" : "2px solid transparent",
     }}>
-      {label} {count > 0 && <span style={{ fontSize: "0.62rem", color: tab === id ? "var(--accent)" : "var(--border-solid)" }}>({count})</span>}
+      {label} {count > 0 && <span style={{ fontSize: "0.62rem", color: tab === id ? "var(--accent)" : "var(--text-disabled)" }}>({count})</span>}
     </button>
   );
 
@@ -4201,7 +4223,7 @@ export default function App() {
               {/* Desktop-only actions */}
               <div className="gc-header-actions-desktop" style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {messages.length > 0 && (
-                  <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "var(--border-solid)" : "var(--text-dim)", background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
+                  <button className="gc-export-btn" onClick={exportReport} disabled={exporting} style={{ fontSize: "0.72rem", color: exporting ? "var(--text-disabled)" : "var(--text-dim)", background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 8, padding: "0.35rem 0.65rem", cursor: exporting ? "wait" : "pointer", transition: "color 0.15s" }}>
                     {exporting ? "Building PDF…" : "Export PDF"}
                   </button>
                 )}

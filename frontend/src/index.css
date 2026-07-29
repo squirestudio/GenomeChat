@@ -73,6 +73,12 @@
   --warning-soft: #d97706;
 
   --border-solid: #e2e8f0;
+  /* Disabled control labels. Exists because a border colour was being used as
+     a text colour in nine places — a category error that CLAUDE.md already
+     records as a past bug. Deliberately identical to --border-solid here so
+     light mode renders exactly as before; light has the same latent problem
+     (1.23:1 on white) and is worth revisiting separately. */
+  --text-disabled: #e2e8f0;
   --shadow-strength: 0.1;
 }
 
@@ -99,9 +105,24 @@
   --text-secondary: #e2e8f0;
   --text-muted: #cbd5e1;
   --text-faint: #94a3b8;
-  --text-dim: #64748b;
-  --text-dimmer: #475569;
-  --text-faintest: #1e293b;   /* unchanged from the original dark look */
+  /* The bottom of this ramp was measured, not eyeballed, against the card
+     background #1e293b — the harder of the two grounds these sit on:
+       --text-dim      #64748b  3.07:1  below the 4.5:1 body-text floor
+       --text-dimmer   #475569  1.93:1  effectively invisible
+       --text-faintest #1e293b  1.00:1  the *same colour as the card*
+     The last one was inherited unquestioned and had never been checked. It
+     carried real content — publication counts, chromosome, source lists —
+     so this was not a subtle deficiency.
+
+     Replacements keep the slate hue of the ramp above and clear 4.5:1 for
+     anything carrying content, 3.4:1 for genuinely incidental labels. Values
+     are close together because dark mode simply has less room below
+     --text-faint once legibility is non-negotiable; hierarchy below this point
+     is better carried by size and weight than by fading toward the
+     background. Light mode is untouched. */
+  --text-dim: #8b9cb2;        /* 5.22:1 on card, 6.37:1 on page */
+  --text-dimmer: #8092ab;     /* 4.61:1 on card, 5.63:1 on page */
+  --text-faintest: #667c9a;   /* 3.42:1 on card, 4.18:1 on page */
 
   --accent: #38bdf8;
   --accent-strong: #0ea5e9;
@@ -119,6 +140,10 @@
   --warning-soft: #fde68a;
 
   --border-solid: #1e293b;
+  /* Muted enough to read as unavailable, legible enough that the label can
+     still be read. --border-solid was serving this role at 1.00:1 against a
+     card, so disabled buttons had no visible text at all. */
+  --text-disabled: #5d718c;   /* 2.93:1 on card, 3.58:1 on page */
   --shadow-strength: 0.4;
 }
 

@@ -4089,7 +4089,17 @@ export default function App() {
         .gc-empty-pad { padding: 2rem; }
         .gc-msg-pad { padding: 1.5rem 1.5rem 1rem; }
         .gc-input-pad { padding: 0.875rem 1.5rem 1.25rem; }
-        .gc-empty-hero { width: auto; height: 96px; margin-bottom: 18px; }
+        /* Centred, but never at the cost of clipping the top. Plain centring
+           overflows equally in both directions, and a scroll container cannot
+           scroll above its own start — so with the DNA banner taking a strip of
+           height, the logo's top disappeared under it with no way to reach it.
+           The safe keyword falls back to flex-start exactly when that would
+           happen; the plain declaration above it is the fallback for browsers
+           that do not parse the second one.
+           (No backticks in this comment: the whole style block is a JS
+           template literal, and one would end the string.) */
+        .gc-empty-inner { justify-content: center; justify-content: safe center; }
+        .gc-empty-hero { width: auto; height: 192px; margin-bottom: 18px; }
         .gc-empty-title { font-size: 1.25rem; margin: 0 0 8px; }
         .gc-empty-subtitle { font-size: 0.875rem; margin-bottom: 28px; }
         .gc-suggestion-item { display: flex; }
@@ -4117,7 +4127,7 @@ export default function App() {
           .gc-input-pad { padding: 0.625rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom)); }
           /* Mobile empty state: top-aligned so content isn't clipped */
           .gc-empty-inner { justify-content: flex-start !important; padding-top: 1.25rem; }
-          .gc-empty-hero { height: 64px !important; width: auto !important; margin-bottom: 10px !important; }
+          .gc-empty-hero { height: 128px !important; width: auto !important; margin-bottom: 10px !important; }
           .gc-empty-title { font-size: 1rem !important; margin: 0 0 4px !important; }
           .gc-empty-subtitle { font-size: 0.78rem !important; margin-bottom: 16px !important; }
           /* Hide suggestions beyond the 3rd on mobile */
@@ -4297,7 +4307,11 @@ export default function App() {
           {/* Messages */}
           <div className={messages.length > 0 ? "gc-msg-pad" : ""} style={{ flex: 1, overflowY: "auto" }}>
             {messages.length === 0 ? (
-              <div className="gc-empty-pad gc-empty-inner" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
+              // justify-content is deliberately absent from this inline style:
+              // it lives in .gc-empty-inner, and an inline value would beat the
+              // safe-centring rule that keeps the top of the logo reachable
+              // while the DNA banner is showing.
+              <div className="gc-empty-pad gc-empty-inner" style={{ display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
                 <img src="/logo-stacked.png" alt="MyDNA" className="gc-empty-hero" style={{ objectFit: "contain", display: "block" }} />
                 <h2 className="gc-empty-title" style={{ fontWeight: 700, color: "var(--text)", textAlign: "center" }}>
                   {dnaData ? "Your DNA — where would you like to start?" : "What would you like to research?"}

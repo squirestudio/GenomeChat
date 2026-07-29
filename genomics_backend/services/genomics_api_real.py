@@ -188,25 +188,68 @@ def _as_dict(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+# How many variants to take from each significance band.
+#
+# Asking ClinVar only for pathogenic variants — which this did — returns a set
+# that is 100% Pathogenic for every gene, so the variant map's colour channel
+# carries no information and a reader cannot tell a gene whose damage clusters
+# in one domain from one where it is scattered. Dropping the filter entirely
+# fails the other way: RYR1 unfiltered is 33/40 uncertain-significance, which is
+# noise. A lollipop plot earns its keep by showing pathogenic variants *against*
+# benign ones, so the bands are sampled deliberately.
+#
+# Pathogenic still dominates because it is what a reader came for, and the
+# ordering below keeps it first in the table.
+CLINVAR_BANDS = (
+    ("pathogenic", "clinsig_pathogenic[Properties] OR clinsig_likely_pathogenic[Properties]", 20),
+    ("uncertain", "clinsig_vus[Properties]", 10),
+    ("benign", "clinsig_benign[Properties] OR clinsig_likely_benign[Properties]", 10),
+)
+
+
+# Clinical severity order, mirrored by SIGNIFICANCE in frontend/src/lollipop.js.
+CLINVAR_SEVERITY = {
+    "Pathogenic": 0,
+    "Likely pathogenic": 1,
+    "Conflicting classifications of pathogenicity": 2,
+    "Uncertain significance": 3,
+    "Likely benign": 4,
+    "Benign": 5,
+}
+
+
+async def _clinvar_band_ids(client: httpx.AsyncClient, gene_symbol: str,
+                            expression: str, limit: int) -> list[str]:
+    data = await _get(client, f"{CLINVAR_BASE}/esearch.fcgi", {
+        "db": "clinvar",
+        "term": f"{gene_symbol}[gene] AND ({expression})",
+        "retmax": limit,
+        "retmode": "json",
+    })
+    return (data or {}).get("esearchresult", {}).get("idlist", []) or []
+
+
 async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> list[VariantResult]:
     variants = []
     async with httpx.AsyncClient() as client:
-        search_url = f"{CLINVAR_BASE}/esearch.fcgi"
-        search_params = {
-            "db": "clinvar",
-            "term": f"{gene_symbol}[gene] AND clinsig_pathogenic[Properties]",
-            "retmax": max_results,
-            "retmode": "json",
-        }
-        search_data = await _get(client, search_url, search_params)
-        if not search_data:
-            return variants
+        # Sequential rather than gathered: these are NCBI calls sharing one
+        # rate limiter, and firing them together only queues them anyway.
+        ids = []
+        for _, expression, limit in CLINVAR_BANDS:
+            ids.extend(await _clinvar_band_ids(client, gene_symbol, expression, limit))
 
-        ids = search_data.get("esearchresult", {}).get("idlist", [])
+        # Deduplicate while preserving band order — a variant classified in two
+        # bands belongs to the more severe one, which came first.
+        seen = set()
+        ids = [i for i in ids if not (i in seen or seen.add(i))]
+
         if not ids:
-            search_params["term"] = f"{gene_symbol}[gene]"
-            search_data = await _get(client, search_url, search_params)
-            ids = search_data.get("esearchresult", {}).get("idlist", []) if search_data else []
+            # A gene with no classified variants at all still deserves its map.
+            data = await _get(client, f"{CLINVAR_BASE}/esearch.fcgi", {
+                "db": "clinvar", "term": f"{gene_symbol}[gene]",
+                "retmax": max_results, "retmode": "json",
+            })
+            ids = (data or {}).get("esearchresult", {}).get("idlist", []) or []
 
         if not ids:
             return variants
@@ -214,7 +257,7 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
         fetch_url = f"{CLINVAR_BASE}/esummary.fcgi"
         fetch_params = {
             "db": "clinvar",
-            "id": ",".join(ids[:20]),
+            "id": ",".join(ids[:max_results]),
             "retmode": "json",
         }
         fetch_data = await _get(client, fetch_url, fetch_params)
@@ -338,6 +381,13 @@ async def fetch_clinvar_variants(gene_symbol: str, max_results: int = 50) -> lis
                 source="ClinVar"
             ))
 
+    # Most severe first, then by position along the protein. The variant table
+    # renders in this order, so a reader still meets the pathogenic variants
+    # before the benign ones now that both are fetched.
+    variants.sort(key=lambda v: (
+        CLINVAR_SEVERITY.get((v.clinical_significance or "").split("/")[0].strip(), 99),
+        v.protein_position if v.protein_position is not None else 10**9,
+    ))
     return variants
 
 

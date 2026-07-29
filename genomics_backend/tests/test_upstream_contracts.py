@@ -222,3 +222,36 @@ def test_variants_carry_grch37_coordinates_for_matching_uploaded_dna():
     # BRCA1 on GRCh37 spans 41,196,312–41,277,500. A GRCh38 coordinate would
     # land near 43,044,295 and fall outside this range entirely.
     assert all(41_196_312 <= v.position_grch37 <= 41_277_500 for v in placed)
+
+
+@pytest.mark.external
+def test_variants_span_the_significance_range_not_just_pathogenic():
+    """A lollipop plot earns its keep by showing pathogenic variants against
+    benign ones — where damage clusters is only legible in contrast.
+
+    Asking ClinVar for `clinsig_pathogenic` alone returned a set that was 100%
+    Pathogenic for every gene, so the map's colour channel carried no
+    information at all. Dropping the filter fails the other way: RYR1
+    unfiltered is 33/40 uncertain-significance, which is noise.
+    """
+    from services.genomics_api_real import fetch_clinvar_variants
+    variants = asyncio.run(fetch_clinvar_variants("RYR1"))
+    bands = {v.clinical_significance for v in variants}
+    assert len(bands) >= 3, f"only one kind of call present: {bands}"
+    assert any("athogenic" in b for b in bands)
+    assert any("enign" in b or "ncertain" in b for b in bands)
+
+
+@pytest.mark.external
+def test_pathogenic_variants_still_come_first():
+    """Fetching benign variants must not bury the ones a reader came for: the
+    variant table renders in this order."""
+    from services.genomics_api_real import fetch_clinvar_variants
+    variants = asyncio.run(fetch_clinvar_variants("BRCA1"))
+    assert variants[0].clinical_significance.startswith("Pathogenic")
+    # Benign calls must all sit after every pathogenic one.
+    first_benign = next((i for i, v in enumerate(variants)
+                         if "enign" in (v.clinical_significance or "")), len(variants))
+    last_pathogenic = max((i for i, v in enumerate(variants)
+                           if (v.clinical_significance or "").startswith("Pathogenic")), default=-1)
+    assert last_pathogenic < first_benign

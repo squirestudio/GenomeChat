@@ -72,8 +72,16 @@ function resolveTheme(theme) {
  *  Needed for canvas/WebGL libraries (3Dmol, html2canvas) that parse colour
  *  strings themselves and have no idea what var() means. */
 function cssVar(name, fallback) {
+  return cssVarFrom(document.documentElement, name, fallback);
+}
+
+/** As cssVar, but resolved against a specific element.
+ *  Needed wherever a subtree deliberately runs on a different palette than the
+ *  document — PDF export forces light, and reading from documentElement there
+ *  returns the on-screen theme's value instead. */
+function cssVarFrom(el, name, fallback) {
   try {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const v = getComputedStyle(el).getPropertyValue(name).trim();
     return v || fallback;
   } catch { return fallback; }
 }
@@ -3875,7 +3883,14 @@ export default function App() {
     const date = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
     // ── protein snapshot ──────────────────────────────────────────────────────
+    // 3Dmol holds its own WebGL clear colour, which CSS cannot reach, so a
+    // viewer running in dark mode bakes a dark background into the PNG no
+    // matter what the surrounding report does. Each viewer is repainted white
+    // for the capture and restored afterwards, so the on-screen view is
+    // unchanged once the export finishes.
     const proteinImgs = {};
+    const onScreenViewerBg = cssVar("--bg-panel", "#ffffff");
+    const captured = [];
     for (const { reply } of pairs) {
       if (!reply?.target) continue;
       const gene = reply.target.split(" vs ")[0];
@@ -3883,11 +3898,19 @@ export default function App() {
       if (viewer) {
         try {
           viewer.spin(false);
+          viewer.setBackgroundColor("#ffffff");
           viewer.render();
+          captured.push(viewer);
           await new Promise(r => setTimeout(r, 120));
           proteinImgs[gene] = viewer.pngURI();
-        } catch {}
+        } catch { /* viewer disposed or WebGL context lost */ }
       }
+    }
+    for (const viewer of captured) {
+      try {
+        viewer.setBackgroundColor(onScreenViewerBg);
+        viewer.render();
+      } catch { /* nothing to restore to */ }
     }
 
     // ── build HTML report ─────────────────────────────────────────────────────
@@ -4054,6 +4077,10 @@ export default function App() {
     // ── render hidden div → html2canvas → jsPDF ───────────────────────────────
     const wrapper = document.createElement("div");
     wrapper.style.cssText = "position:fixed;left:-9999px;top:0;z-index:-1";
+    // A report is a printed artefact: light whatever the reader has on screen.
+    // Custom properties inherit, so marking the wrapper hands light values to
+    // every var() inside it — see the third selector in index.css.
+    wrapper.setAttribute("data-theme", "light");
     wrapper.innerHTML = reportHtml;
     document.body.appendChild(wrapper);
 
@@ -4063,7 +4090,9 @@ export default function App() {
         scale: 2,
         useCORS: true,
         allowTaint: false,
-        backgroundColor: cssVar("--bg", "#ffffff"),
+        // Read from the wrapper, not the document root: cssVar() resolves
+        // against documentElement and would hand back the dark background.
+        backgroundColor: cssVarFrom(wrapper, "--bg", "#ffffff"),
         logging: false,
         imageTimeout: 8000,
       });

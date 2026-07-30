@@ -18,8 +18,15 @@
  * Google logo encode meaning, and must look identical in both themes.
  * ─────────────────────────────────────────────────────────────────────────── */
 
+/* The third selector lets any subtree opt into the light palette regardless of
+ * the theme on the root — custom properties inherit, so a wrapper marked
+ * data-theme="light" hands light values to everything inside it. PDF export
+ * relies on this: a report is a printed artefact and should be light whatever
+ * the reader has on screen. Without it, `var()` inside the report resolved
+ * against the root and the whole document came out dark. */
 :root,
-:root[data-theme="light"] {
+:root[data-theme="light"],
+[data-theme="light"] {
   color-scheme: light;
 
   /* surfaces */
@@ -216,7 +223,10 @@ body {
   border-radius: 3px;
   color: var(--accent-soft);
 }
-:root[data-theme="light"] .prose-genomics code {
+/* Unscoped from :root for the same reason as the token block above: a light
+ * subtree (PDF export) must get the light treatment too. Specificity still
+ * beats the base .prose-genomics code rule. */
+[data-theme="light"] .prose-genomics code {
   background: var(--bg-inset);
   color: var(--accent-strong);
 }

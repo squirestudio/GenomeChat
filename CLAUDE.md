@@ -252,7 +252,13 @@ Two failures found this way, both invisible to inspection because the values *lo
 
 `--text-faintest` and `--text-dimmer` are the two most-used text colours in the app (76 and 70 uses), so a mistake in either is felt everywhere.
 
-Note the coupling before lightening any token for dark mode: **PDF export renders on a white page whatever the active theme**, and `cssVar()` resolves tokens at export time. A value tuned for a dark card can therefore come out unreadable in the PDF. Where the two conflict, change the one call site rather than the token.
+**PDF export is forced light, and that is deliberate.** A report is a printed artefact, so it should not follow the screen theme. Three separate things carried the theme into it, and all three had to be handled — a wrapper that only fixed one would still have produced a mostly-dark report:
+
+1. `var()` colours in the report HTML resolved against the root. The wrapper now carries `data-theme="light"`, which works because the token block's third selector (`[data-theme="light"]`, no `:root`) lets any subtree opt in and custom properties inherit.
+2. `html2canvas`'s `backgroundColor` was read with `cssVar()`, which resolves against `documentElement`. Use `cssVarFrom(wrapper, …)` for anything inside a subtree on a different palette.
+3. **3Dmol holds its own WebGL clear colour, which CSS cannot reach at all.** A viewer running dark bakes a dark background into the PNG regardless of the surrounding document. Each viewer is repainted white for the capture and restored afterwards.
+
+The hardcoded badge colours in the report HTML were always light-appropriate (dark text on light tints), so they needed no change — it was only the tokens that flipped. Any new theme-scoped rule that needs to reach the report must be written without `:root`, as `.prose-genomics code` now is.
 
 `API` is `import.meta.env.VITE_API_URL || "http://localhost:8000"`; set `VITE_API_URL` in Vercel.
 

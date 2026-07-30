@@ -29,6 +29,32 @@ function incrementAnonQueryCount() {
   try { localStorage.setItem(ANON_QUERY_KEY, String(getAnonQueryCount() + 1)); } catch {}
 }
 
+// ─── "Glad you're here" nudge ─────────────────────────────────────────────────
+// A lifetime tally kept separately from the counters above, which are billing
+// state: the anonymous count resets on sign-in and the server-side total resets
+// against nothing at all. Neither answers "has this person used MyDNA enough to
+// be curious about it", which is the only question this nudge asks.
+//
+// Deliberately not shown on arrival. The instruction was to let people jump
+// straight in, so this waits until someone has found the tool useful and then
+// invites them to read about it once.
+const QUERY_TALLY_KEY = "mydna_query_tally";
+const ABOUT_NUDGE_KEY = "mydna_about_nudge_dismissed";
+const ABOUT_NUDGE_AFTER = 5;
+
+function getQueryTally() {
+  try { return parseInt(localStorage.getItem(QUERY_TALLY_KEY) || "0", 10) || 0; } catch { return 0; }
+}
+function incrementQueryTally() {
+  try { localStorage.setItem(QUERY_TALLY_KEY, String(getQueryTally() + 1)); } catch { /* private mode; the nudge simply never fires */ }
+}
+function aboutNudgeDismissed() {
+  try { return localStorage.getItem(ABOUT_NUDGE_KEY) === "1"; } catch { return true; }
+}
+function dismissAboutNudge() {
+  try { localStorage.setItem(ABOUT_NUDGE_KEY, "1"); } catch { /* cannot persist; it will reappear next session */ }
+}
+
 // ─── Settings (persisted to localStorage) ────────────────────────────────────
 const SETTINGS_KEY = "genomechat_settings";
 
@@ -1175,6 +1201,36 @@ function GeneCard({ gene }) {
           {gene.publication_count > 0 && <p style={{ fontSize: "0.7rem", color: "var(--text-dimmer)", marginTop: 3 }}>{gene.publication_count.toLocaleString()} pubs</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A one-time, dismissible invitation to read about the project.
+ *
+ *  Appears above the input rather than as a dialog: nothing is blocked, and
+ *  ignoring it costs the reader nothing. Once dismissed it does not return. */
+function AboutNudge({ onOpen, onDismiss }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10, marginBottom: 8,
+      padding: "0.55rem 0.75rem", borderRadius: 10,
+      background: "rgb(var(--c-accent) / 0.08)",
+      border: "1px solid rgb(var(--c-accent) / 0.25)",
+    }}>
+      <span style={{ fontSize: "0.8rem", flexShrink: 0 }}>🧬</span>
+      <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5, margin: 0, flex: 1, minWidth: 0 }}>
+        Glad you&rsquo;re here. MyDNA is an independent project with a reason for
+        existing —{" "}
+        <button onClick={onOpen}
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                   font: "inherit", color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>
+          read why
+        </button>.
+      </p>
+      <button onClick={onDismiss} title="Dismiss"
+        style={{ background: "none", border: "none", cursor: "pointer",
+                 color: "var(--text-dim)", fontSize: "0.9rem", lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+      >×</button>
     </div>
   );
 }
@@ -3396,7 +3452,7 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-export default function App() {
+export default function App({ onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -3415,6 +3471,12 @@ export default function App() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showSignInGate, setShowSignInGate] = useState(false);
   const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
+  // Evaluated once per mount rather than watched: the tally only advances on
+  // send, and a card that appeared mid-sentence would be exactly the
+  // interruption this is designed not to be.
+  const [showAboutNudge, setShowAboutNudge] = useState(
+    () => getQueryTally() >= ABOUT_NUDGE_AFTER && !aboutNudgeDismissed(),
+  );
 
   useEffect(() => { applyFontSize(settings.fontSize); }, [settings.fontSize]);
   useEffect(() => {
@@ -3716,6 +3778,7 @@ export default function App() {
       }
       incrementAnonQueryCount();
     }
+    incrementQueryTally();
 
     const userMsg = { role: "user", content: msg };
     setMessages(prev => [...prev, userMsg]);
@@ -4461,6 +4524,12 @@ export default function App() {
           {/* Input */}
           <div className="gc-input-pad" style={{ flexShrink: 0, borderTop: "1px solid rgb(var(--c-surface) / 0.5)", background: "rgb(var(--c-deep) / 0.3)" }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
+              {showAboutNudge && (
+                <AboutNudge
+                  onOpen={() => { dismissAboutNudge(); setShowAboutNudge(false); if (onNavigate) onNavigate("/about"); }}
+                  onDismiss={() => { dismissAboutNudge(); setShowAboutNudge(false); }}
+                />
+              )}
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgb(var(--c-surface) / 0.55)", border: "1px solid rgb(var(--c-border) / 0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
                 <textarea
                   ref={inputRef}
@@ -4484,6 +4553,15 @@ export default function App() {
               </div>
               <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 8 }}>
                 Ensembl · ClinVar · gnomAD · UniProt · PubMed · Claude AI
+              </p>
+              {/* Easy to reach, out of the way. Privacy and FAQ join this row
+                  once they exist rather than being invented here. */}
+              <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 4 }}>
+                <a href="/about"
+                  onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate("/about"); } }}
+                  style={{ color: "var(--text-dim)", textDecoration: "none" }}>
+                  About
+                </a>
               </p>
             </div>
           </div>

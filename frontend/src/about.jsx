@@ -1,0 +1,198 @@
+/**
+ * The About page, at /about.
+ *
+ * Lives in its own module rather than in App.jsx because it is the one part of
+ * the app that is prose first — the copy is the deliverable, and it should be
+ * editable without scrolling past forty components to reach it.
+ *
+ * Editorial rules this page is written to, agreed with the founder:
+ *   - Third person. MyDNA is the subject, not the person who built it.
+ *   - No panic, no worry, no hype. This is a calm page about a frightening
+ *     subject, and dramatising it would be a betrayal of the reader.
+ *   - Nothing claimed that the product does not do. The trust argument is
+ *     traceability, so overstating anything here undermines the whole thesis.
+ *   - The founder's mother is described specifically but not named.
+ */
+
+const SOURCES = [
+  "ClinVar", "Ensembl", "gnomAD", "UniProt", "AlphaFold", "dbSNP", "dbVar",
+  "OMIM", "ClinGen", "MedGen", "GTR", "HPO", "Monarch", "Reactome", "GTEx",
+  "STRING", "Open Targets", "GWAS Catalog", "ClinPGx", "NCI GDC", "PubMed", "PMC",
+];
+
+function Section({ title, children }) {
+  return (
+    <section style={{ marginTop: "2.25rem" }}>
+      <h2 style={{
+        fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.09em",
+        textTransform: "uppercase", color: "var(--accent)", margin: "0 0 0.6rem",
+      }}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function P({ children }) {
+  return (
+    <p style={{
+      fontSize: "0.95rem", lineHeight: 1.7, color: "var(--text-muted)",
+      margin: "0 0 0.9rem",
+    }}>{children}</p>
+  );
+}
+
+export default function AboutPage({ onBack }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)", overflowY: "auto" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "2.5rem 1.5rem 4rem" }}>
+
+        <button onClick={onBack}
+          style={{
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            fontSize: "0.78rem", color: "var(--accent)", marginBottom: "2rem",
+          }}>← Back to MyDNA</button>
+
+        <img src="/logo-stacked.png" alt="MyDNA" width="140"
+          style={{ display: "block", height: "auto", marginBottom: "1.5rem" }} />
+
+        <h1 style={{
+          fontSize: "1.6rem", fontWeight: 700, color: "var(--text)",
+          lineHeight: 1.3, margin: "0 0 1rem", textWrap: "balance",
+        }}>
+          Your genetics, in language you can follow — with the sources shown.
+        </h1>
+
+        <P>
+          MyDNA is an independent project. It reads genetic data you already
+          have, answers questions about it in plain language, and shows where
+          every answer came from.
+        </P>
+
+        <Section title="Why it exists">
+          <P>
+            In 2024, the founder&rsquo;s mother died forty days after her
+            diagnosis — a rare leukaemia defined by three genetic mutations.
+            Close family and friends live with genetic conditions of their own.
+          </P>
+          <P>
+            MyDNA is an expression of a hope: that AI can shorten the distance
+            between what medicine already knows and what a person is able to
+            find out about themselves. That it can lower costs, reach past
+            silos, and reconnect people to their own data in a form they can
+            actually read.
+          </P>
+        </Section>
+
+        <Section title="The problem is not a shortage of data">
+          <P>
+            There is an enormous amount of genetic research in public
+            databases, and almost none of it is written for the person it
+            describes. The difficulty is structure — findings split across
+            institutions that use different identifiers, held behind
+            interfaces built for specialists, with real relationships between
+            them left unconnected because nothing joins the databases
+            together.
+          </P>
+          <P>
+            That is not a hypothesis. While MyDNA was being built, ten of its
+            twenty sources were found to be returning nothing at all while
+            reporting success — an endpoint moved, a field renamed, an
+            identifier namespace changed. Nothing had broken loudly. The
+            answers had simply become thinner, and no one was in a position to
+            notice.
+          </P>
+        </Section>
+
+        <Section title="What it actually does">
+          <P>
+            Every answer is assembled from live queries to public research
+            databases, not from a model&rsquo;s memory. Each response names the
+            sources it reached and says which ones it could not, so &ldquo;no
+            data&rdquo; stays distinguishable from &ldquo;could not ask&rdquo;.
+            Findings link back to the record they came from, so anything here
+            can be checked against the original.
+          </P>
+          <P>
+            MyDNA holds no genetic research of its own. It is, in the
+            founder&rsquo;s words, just a better shell — the science belongs to
+            the institutions that produced it, and the job here is to make it
+            legible.
+          </P>
+          <P>
+            The realistic alternative most people reach for is searching their
+            symptoms and reading whatever comes back, unsourced and
+            uncredited. This is meant to be the version you can verify. It is
+            worth saying plainly that the model can still be wrong, which is
+            exactly why every claim is traceable.
+          </P>
+        </Section>
+
+        <Section title="What it is not">
+          <P>
+            <strong style={{ color: "var(--text-secondary)" }}>
+              MyDNA is not medical advice and does not diagnose anything.
+            </strong>{" "}
+            Speak to your clinician about your personal situation. Where a
+            clinical genetic test exists for a gene, MyDNA will tell you it
+            exists — that is information, not a recommendation.
+          </P>
+          <P>
+            MyDNA also does not test your DNA. It reads a file you already have
+            from a consumer testing service, and it works without one.
+          </P>
+        </Section>
+
+        <Section title="Who it is for">
+          <P>
+            For now: people trying to understand a diagnosis, and people
+            holding a raw data file with no way to ask it anything. Researchers
+            and students come next, once the visualisations are better than
+            what the source databases offer on their own. Anything clinical is
+            further out and will be said out loud when it arrives.
+          </P>
+        </Section>
+
+        <Section title="Why it costs anything">
+          <P>
+            Subscriptions cover hosting and the AI tokens each answer consumes.
+            MyDNA does not sell data, and the reason it can afford not to is
+            that the people using it pay for it instead.
+          </P>
+          <P>
+            Free, donation-funded and open source is the direction. How to get
+            there is not solved yet. The first task was finding out whether the
+            tool could work, become useful, and be beautiful.
+          </P>
+        </Section>
+
+        <Section title="Where the answers come from">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {SOURCES.map(s => (
+              <span key={s} style={{
+                fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 100,
+                background: "rgb(var(--c-surface) / 0.6)",
+                border: "1px solid rgb(var(--c-border) / 0.35)",
+                color: "var(--text-dim)",
+              }}>{s}</span>
+            ))}
+          </div>
+          <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.6, marginTop: "0.9rem" }}>
+            Public research databases maintained by NCBI, EMBL-EBI, the Broad
+            Institute, UniProt, the Monarch Initiative and others. Explanations
+            are written by Claude, from the data those sources return.
+          </p>
+        </Section>
+
+        <div style={{
+          marginTop: "2.5rem", paddingTop: "1.25rem",
+          borderTop: "1px solid rgb(var(--c-border) / 0.3)",
+        }}>
+          <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.6, margin: 0 }}>
+            For research and educational purposes only. Not a substitute for
+            professional medical advice, diagnosis, or genetic counselling.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

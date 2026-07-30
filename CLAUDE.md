@@ -8,6 +8,8 @@ This repo is developed from more than one machine via `origin`. Claude Code sess
 
 ## Current state
 
+**Deferred, agreed:** an **FAQ page** built the same way as `/about` — a real URL plus a footer link. It is where the expectation-setting questions belong, so the About page can stay a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own). Also outstanding before either ships fully: a real **privacy policy** to link from the footer, and a contact address, both of which the About page currently leaves a slot for rather than inventing.
+
 Both apps are deployed: backend on Railway, frontend on Vercel. Recent work has centered on the freemium gate — anonymous users are limited client-side (3 queries) before a sign-in prompt, authenticated users are limited server-side by `FREE_QUERY_LIMIT` (currently 20). Stripe checkout and webhook entitlement granting are wired up.
 
 The most recent work audited NCBI coverage and closed the gaps: the app used 4 of the 39 E-utilities databases and no `elink`. It now also reads dbSNP, dbVar, GTR, MedGen and PMC, and matches an uploaded DNA file against the gene being discussed.

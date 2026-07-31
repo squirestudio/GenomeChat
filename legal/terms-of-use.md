@@ -97,7 +97,7 @@ the sources it depends on.
 The scientific content comes from third parties, each with its own terms and
 citation requirements — including NCBI (ClinVar, dbSNP, dbVar, MedGen, GTR,
 PubMed, PMC, GDC), EMBL-EBI (Ensembl, GWAS Catalog), the Broad Institute
-(gnomAD), UniProt, AlphaFold, OMIM, ClinGen, HPO, the Monarch Initiative,
+(gnomAD), UniProt, AlphaFold, ClinGen, HPO, the Monarch Initiative,
 Reactome, GTEx, STRING, Open Targets and ClinPGx.
 
 MyDNA claims no ownership of that content and displays it with attribution. Your

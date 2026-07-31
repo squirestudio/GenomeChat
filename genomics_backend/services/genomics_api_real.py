@@ -2122,12 +2122,12 @@ async def fetch_pmc_articles(gene_symbol: str, limit: int = 10) -> dict:
         return {}
 
 
+# OMIM is deliberately absent — see DISCONNECTED_SECTIONS below.
 OPTIONAL_SECTIONS = {
     "pathways":             "Biological pathways",
     "expression":           "Tissue expression",
     "interactions":         "Protein interactions",
     "drugs":                "Drugs & clinical trials",
-    "omim":                 "OMIM disease entries",
     "pharmgkb":             "Pharmacogenomics",
     "cancer_mutations":     "Somatic cancer mutations",
     "clingen":              "ClinGen gene-disease validity",
@@ -2147,6 +2147,25 @@ DICT_SECTIONS = {
     "omim", "pharmgkb", "cancer_mutations",
     "structural_variants", "genetic_tests", "medgen", "full_text",
 }
+
+# Sources fetched by this module but not offered to readers.
+#
+# `omim` is disconnected over commercial licensing, not quality: OMIM is free
+# for academic and research use, and a paid product plausibly needs a licence
+# from Johns Hopkins. See legal/data-source-licensing.md.
+#
+# Measured before removing it, so the cost is known rather than assumed: across
+# BRCA1, CFTR, LDLR, HFE, TP53 and RYR1, OMIM named three disease terms that
+# ClinGen, Monarch, HPO and MedGen did not already cover between them, and
+# populated an inheritance mode for 2 of 30 phenotypes where ClinGen supplied
+# one for every gene. What is actually lost is MIM numbers as identifiers.
+#
+# `fetch_omim_data` and its tests are kept intact. Re-enabling means restoring
+# two things, both in this file: the key in OPTIONAL_SECTIONS and the entry in
+# the `simple` dispatch map inside fetch_gene_section. The frontend is left
+# untouched on purpose — its panel and section key still exist so that answers
+# already stored in the database, which contain OMIM data, keep replaying.
+DISCONNECTED_SECTIONS = {"omim"}
 
 
 def _safe(val):
@@ -2187,7 +2206,9 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "pathways": fetch_reactome_pathways,
         "expression": fetch_gtex_expression,
         "interactions": fetch_string_interactions,
-        "omim": fetch_omim_data,
+        # "omim": fetch_omim_data — withheld here as well as from
+        # OPTIONAL_SECTIONS, so /gene/section cannot reach it by being asked
+        # directly. Restoring this line and the registry key re-enables it.
         "pharmgkb": fetch_pharmgkb_data,
         "cancer_mutations": fetch_cancer_mutations,
         "clingen": fetch_clingen_validity,
@@ -2224,7 +2245,7 @@ def section_has_data(payload: dict) -> bool:
 SECTION_SOURCE = {
     "structure": "AlphaFold", "pathways": "Reactome", "expression": "GTEx",
     "interactions": "STRING", "drugs": "OpenTargets", "omim": "OMIM",
-    "pharmgkb": "PharmGKB", "cancer_mutations": "COSMIC/GDC", "clingen": "ClinGen",
+    "pharmgkb": "ClinPGx", "cancer_mutations": "COSMIC/GDC", "clingen": "ClinGen",
     "publication_timeline": "PubMed", "gwas": "GWAS Catalog", "phenotypes": "HPO",
     "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
     "full_text": "PMC",

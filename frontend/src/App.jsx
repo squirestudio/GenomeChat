@@ -4132,7 +4132,7 @@ export default function App({ onNavigate }) {
         ${body}
         <!-- Footer -->
         <div style="margin-top:32px;border-top:1px solid var(--text-secondary);padding-top:16px">
-          <p style="font-size:11px;color:var(--text-muted);text-align:center">MyDNA · Data from Ensembl, ClinVar, gnomAD, UniProt, Open Targets, GWAS Catalog, HPO, Monarch, PharmGKB, OMIM, ClinGen, COSMIC/GDC · Powered by Claude AI</p>
+          <p style="font-size:11px;color:var(--text-muted);text-align:center">MyDNA · Data from Ensembl, ClinVar, gnomAD, UniProt, Open Targets, GWAS Catalog, HPO, Monarch, ClinPGx, ClinGen, COSMIC/GDC · Powered by Claude AI</p>
           <p style="font-size:10px;color:var(--text-secondary);text-align:center;margin-top:4px">For research purposes only. Not a substitute for clinical genetic counseling.</p>
         </div>
       </div>`;

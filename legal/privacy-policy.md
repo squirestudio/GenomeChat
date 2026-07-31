@@ -137,7 +137,7 @@ We use these processors. Each receives only what it needs.
 | **Vercel** | Requests for the site itself | Frontend hosting |
 
 **Public research databases.** To answer a question we query public databases
-including ClinVar, Ensembl, gnomAD, UniProt, OMIM, dbSNP, dbVar, HPO, Monarch,
+including ClinVar, Ensembl, gnomAD, UniProt, dbSNP, dbVar, HPO, Monarch,
 Reactome, GTEx, STRING, Open Targets, the GWAS Catalog, ClinGen, MedGen, GTR,
 ClinPGx, NCI GDC, PubMed and PMC. These receive the **gene or condition** being
 asked about. They do not receive your identity, your account, or your file. The

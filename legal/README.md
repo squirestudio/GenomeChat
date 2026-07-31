@@ -65,25 +65,27 @@ a timestamped record against the account only (`consented_at`), with no variant
 data, and nothing at all for anonymous users. Worth a decision rather than a
 default.
 
-## Licensing risk on the data sources — flagging this properly
+## Licensing on the data sources
 
-MyDNA is a **paid product** built on databases with varying terms. Most are
-permissive for any use. Two deserve a look before revenue scales:
+Now tracked in `data-source-licensing.md`, which records the terms for all
+twenty sources and the reasoning behind each call.
 
-- **OMIM** is free for academic and research use; **commercial use requires a
-  licence** from Johns Hopkins. A subscription product arguably crosses that
-  line. OMIM is currently one of the deferred sections.
-- **ClinPGx / PharmGKB** carries CC-BY-SA terms on parts of its data, with
-  restrictions on commercial redistribution. Share-alike on a commercial product
-  needs thought.
+**OMIM was disconnected on 2026-07-30** rather than licensed. It is free for
+academic and research use and **commercial use requires a licence** from Johns
+Hopkins, which a paid subscription plausibly needs. The cost of removing it was
+measured first: across six genes it contributed three disease names that
+ClinGen, Monarch, HPO and MedGen did not already cover, and populated an
+inheritance mode for 2 of 30 phenotypes where ClinGen managed every gene. What
+was genuinely lost is MIM numbers as identifiers. The fetcher and its tests are
+intact, so a licence would make it a two-line restoration.
 
-The rest — NCBI resources, Ensembl, gnomAD, UniProt, Reactome, GTEx, STRING,
-Open Targets, GWAS Catalog, HPO, Monarch, ClinGen — are broadly fine for this
-kind of use with attribution, which the app already does.
+**ClinPGx (formerly PharmGKB)** carries CC-BY-SA terms on parts of its data,
+with restrictions on commercial redistribution. It remains connected, on the
+reading that displaying attributed annotations differs from redistributing a
+dataset — but confirm before pharmacogenomics becomes a headline feature.
 
-This is not a reason to stop. It is a reason to know, before it is a surprise.
-The cheapest mitigations are attribution (done), and either securing an OMIM
-licence or dropping OMIM if the answer is unfavourable.
+Everything else is clear for commercial use with attribution, which the product
+gives in the footer, on `/about`, and in each answer's source list.
 
 ## Decisions needed in the drafts
 

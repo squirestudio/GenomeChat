@@ -16,7 +16,7 @@
 
 const SOURCES = [
   "ClinVar", "Ensembl", "gnomAD", "UniProt", "AlphaFold", "dbSNP", "dbVar",
-  "OMIM", "ClinGen", "MedGen", "GTR", "HPO", "Monarch", "Reactome", "GTEx",
+  "ClinGen", "MedGen", "GTR", "HPO", "Monarch", "Reactome", "GTEx",
   "STRING", "Open Targets", "GWAS Catalog", "ClinPGx", "NCI GDC", "PubMed", "PMC",
 ];
 

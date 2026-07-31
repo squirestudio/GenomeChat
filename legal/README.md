@@ -23,7 +23,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 | Query retention | 90 days for stored answers |
 | Anonymous queries | **No longer stored.** Signed-out visitors leave no row at all |
 | Consent | **Recorded** as a bare timestamp on the account (`dna_consent_at`). DNA upload now **requires sign-in**, so every processing event has a consent record behind it |
-| Railway DPA | Reviewed clause by clause. Conventional; signing recommended. See below |
+| Railway DPA | **Signed 30 July 2026** — DocuSign envelope `63268108-745A-4CB1-A5EE-40D110BFE605`, sealed 31 July 02:24 UTC. One completeness gap, below |
 | Export & erasure | **Built and self-serve** — Settings → Your Data. `GET /user/export`, `DELETE /user/account`, 12 tests |
 | OMIM | Disconnected rather than licensed — see `data-source-licensing.md` |
 
@@ -65,15 +65,34 @@ processor. Two of the four are already settled — **verified, not assumed**:
   2021 SCCs (Module Two), governed by Irish law, with the UK IDTA in Schedule 5
   for UK transfers.
 
-**Railway is the only one requiring action.** Its DPA is *not* automatic —
-section 14: "This DPA will become legally binding upon Company's execution in
-the signature block below", via a DocuSign form on the page itself.
+**Railway — signed 30 July 2026.** Executed by both parties: Benjamin Kenneth
+Brown (Founder/Owner) and Christian Ohrgaard (Head of Operations, Railway).
+DocuSign envelope `63268108-745A-4CB1-A5EE-40D110BFE605`, digitally sealed
+31 July 2026 02:24 UTC. Transfers rely on the Data Privacy Framework or the
+EU/UK SCCs. Keep the PDF with the company records; it is not in this repo.
 
-> **Action: go to railway.com/legal/dpa and complete the DocuSign form.**
-
-Transfers then rely on the Data Privacy Framework or the EU/UK SCCs. Railway
-holds the database, so this is the processor handling the most personal data of
-the four — worth doing before publishing the policy, not after.
+> **Outstanding: the customer entity is never named in the document.**
+>
+> "Red Wolf Agency" appears nowhere in it, and **Exhibit B — which is Annex I
+> of the Standard Contractual Clauses — has the data exporter's Name, Address
+> and Contact information left blank.** The SCCs require both parties to be
+> identified; the importer side is complete, the exporter side is not.
+>
+> The DPA still binds, because section 1 defines Customer as "the Customer
+> entity that is a party to the Agreement" — it inherits whoever holds the
+> Railway account. **So the fix depends on one fact: whose name is the Railway
+> account in?**
+>
+> - **Red Wolf Agency** — then the DPA binds Red Wolf Agency, matching the
+>   controller named in the privacy policy. Ask Railway to re-issue with
+>   Exhibit B completed for tidiness, but nothing is actually wrong.
+> - **Benjamin Brown personally** — then the DPA's controller is an individual
+>   while the privacy policy names Red Wolf Agency. That inconsistency is worth
+>   resolving before publishing: either move the Railway account to the
+>   company, or name the individual as controller in the policy.
+>
+> Not urgent, and not a reason to hold anything up. It is the sort of thing
+> nobody looks at until a regulator does, and then looks at closely.
 
 ### Railway DPA — what a read of it turned up
 

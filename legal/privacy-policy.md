@@ -193,8 +193,11 @@ hold with them, and each provides a transfer mechanism:
 - **Stripe** — EU–US Data Privacy Framework, plus Standard Contractual Clauses
   (Modules 1 and 2 of Commission Decision (EU) 2021/914), plus the UK
   International Data Transfer Addendum.
-- **Railway** and **Vercel** — standard data processing agreements. *(Mechanism
-  to be named here once confirmed.)*
+- **Railway** — Data Processing Addendum, executed separately. Transfers rely
+  on the Data Privacy Framework or the EU/UK Standard Contractual Clauses.
+- **Vercel** — Data Processing Addendum, binding on entering their agreement.
+  Transfers rely on the 2021 Standard Contractual Clauses (Module Two), with
+  the UK International Data Transfer Addendum for UK transfers.
 
 ## 7. How long we keep things
 

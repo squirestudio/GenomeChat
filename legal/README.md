@@ -59,9 +59,20 @@ processor. Two of the four are already settled — **verified, not assumed**:
   2, and the UK International Data Transfer Addendum. Section 6 of the policy
   now names all three.
 
-Still to confirm: **Railway** and **Vercel**. Both publish standard DPAs; check
-whether they are incorporated automatically or need accepting, and note which
-transfer mechanism each names so section 6 can state it.
+- **Vercel** — *nothing to do.* The addendum "shall become legally binding upon
+  Customer entering into the Agreement", so it already binds. Transfers use the
+  2021 SCCs (Module Two), governed by Irish law, with the UK IDTA in Schedule 5
+  for UK transfers.
+
+**Railway is the only one requiring action.** Its DPA is *not* automatic —
+section 14: "This DPA will become legally binding upon Company's execution in
+the signature block below", via a DocuSign form on the page itself.
+
+> **Action: go to railway.com/legal/dpa and complete the DocuSign form.**
+
+Transfers then rely on the Data Privacy Framework or the EU/UK SCCs. Railway
+holds the database, so this is the processor handling the most personal data of
+the four — worth doing before publishing the policy, not after.
 
 ## Licensing on the data sources
 

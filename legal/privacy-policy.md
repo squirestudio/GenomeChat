@@ -136,11 +136,11 @@ You can withdraw consent at any time by clearing your DNA session — the × on
 the DNA banner — which removes the data from your browser. Withdrawal does not
 affect processing already carried out.
 
-**We do not use your genetic data, or anything else you send, to train any
-model.** Your question and the relevant variants are sent to Anthropic to
-generate the answer, and Anthropic's API terms govern their handling of it. We
-do not control Anthropic's practices and do not make promises on their behalf;
-their terms are published at anthropic.com.
+**Nothing you send is used to train any model.** MyDNA does not do so, and
+Anthropic's Commercial Terms — which govern our API access — state plainly:
+*"Anthropic may not train models on Customer Content from Services."* We are
+relying on their published terms rather than making a promise on their behalf,
+and those terms are at anthropic.com/legal/commercial-terms.
 
 ## 4. What we do not collect
 
@@ -183,9 +183,18 @@ that happens we will notify you unless prohibited from doing so.
 
 MyDNA and all processors above are in or route through the **United States**. If
 you are in the UK, EU or Switzerland, your data is transferred outside your
-jurisdiction. We rely on the processors' Standard Contractual Clauses and, where
-applicable, their Data Privacy Framework certifications. *(Open item — the
-specific mechanism per processor should be confirmed and named here.)*
+jurisdiction.
+
+Each processor's data processing terms are incorporated into the agreement we
+hold with them, and each provides a transfer mechanism:
+
+- **Anthropic** — the Anthropic Data Processing Addendum is incorporated by
+  reference into their Commercial Terms.
+- **Stripe** — EU–US Data Privacy Framework, plus Standard Contractual Clauses
+  (Modules 1 and 2 of Commission Decision (EU) 2021/914), plus the UK
+  International Data Transfer Addendum.
+- **Railway** and **Vercel** — standard data processing agreements. *(Mechanism
+  to be named here once confirmed.)*
 
 ## 7. How long we keep things
 

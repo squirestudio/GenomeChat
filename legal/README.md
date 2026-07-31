@@ -46,19 +46,22 @@ The policy currently carries a visible `[DECISION PENDING]` marker at section 1.
 It should not be published with that marker still in it.
 
 **2. Data processing agreements.** GDPR Article 28 requires one with every
-processor. All four publish standard DPAs you accept online rather than
-negotiate:
+processor. Two of the four are already settled — **verified, not assumed**:
 
-| Processor | Where |
-|---|---|
-| **Anthropic** | Console → Settings → Compliance; also confirm the API data-retention terms while there |
-| **Stripe** | Dashboard → Settings → Compliance and privacy → DPA |
-| **Railway** | Account → Legal, or request via support |
-| **Vercel** | Dashboard → Settings → Legal → DPA |
+- **Anthropic** — *nothing to do.* The DPA "is incorporated into these Terms by
+  reference" in the Commercial Terms. There is no console page to find, which
+  is why looking for one turned up nothing. Those same terms also state
+  **"Anthropic may not train models on Customer Content from Services"**, which
+  applies to API access generally rather than being an enterprise benefit — so
+  the policy now cites it directly.
+- **Stripe** — *nothing to sign.* The DPA "is subject to and forms part of the
+  Agreement". It relies on the EU–US Data Privacy Framework, SCCs Modules 1 and
+  2, and the UK International Data Transfer Addendum. Section 6 of the policy
+  now names all three.
 
-Accept all four, keep the confirmations, then name the transfer mechanism
-(SCCs and/or Data Privacy Framework) in section 6 of the policy so it states a
-fact instead of gesturing at one.
+Still to confirm: **Railway** and **Vercel**. Both publish standard DPAs; check
+whether they are incorporated automatically or need accepting, and note which
+transfer mechanism each names so section 6 can state it.
 
 ## Licensing on the data sources
 

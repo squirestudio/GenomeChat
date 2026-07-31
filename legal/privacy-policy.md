@@ -26,9 +26,10 @@ Details below, including the parts that are less flattering.
 
 ## 1. Who is responsible
 
-MyDNA ("we", "us") is operated by **Red Wolf Agency**, 1844 Jose Way, Murfreesboro, TN 37130,
-United States. For questions about this policy or to exercise any right described
-here, contact **info@redwolfagency.co**.
+MyDNA ("we", "us") is operated by **Red Wolf Agency, a sole proprietorship of
+Benjamin Kenneth Brown**, [MAILING ADDRESS], Tennessee, United States. For
+questions about this policy or to exercise any right described here, contact
+**info@redwolfagency.co**.
 
 We have not appointed a Data Protection Officer. Our processing does not meet
 the Article 37 thresholds that require one — we are a single-person operation

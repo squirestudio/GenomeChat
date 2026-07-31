@@ -14,7 +14,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 | Item | Decision |
 |---|---|
-| Controller | **Red Wolf Agency**, 1844 Jose Way, Murfreesboro, TN 37130, United States |
+| Controller | **Red Wolf Agency, a sole proprietorship of Benjamin Kenneth Brown**, Tennessee. See "Entity" below — the mailing address is deliberately unset |
 | Contact | **info@redwolfagency.co** |
 | Governing law | Tennessee |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
@@ -26,6 +26,39 @@ Where a claim could not be verified, the document says so rather than guessing.
 | Railway DPA | **Signed 30 July 2026** — DocuSign envelope `63268108-745A-4CB1-A5EE-40D110BFE605`, sealed 31 July 02:24 UTC. One completeness gap, below |
 | Export & erasure | **Built and self-serve** — Settings → Your Data. `GET /user/export`, `DELETE /user/account`, 12 tests |
 | OMIM | Disconnected rather than licensed — see `data-source-licensing.md` |
+
+## Entity — the position as of 31 July 2026
+
+Squire Studios is a DBA. Red Wolf Agency is a sole proprietorship. **Neither is
+a separate legal entity**, so both resolve to Benjamin Kenneth Brown, and there
+is no inconsistency between accounts to reconcile — there was never a second
+party to be inconsistent with. The Railway DPA was signed by the correct legal
+person regardless of which account name it sits under.
+
+The consequence is that **there is currently no liability shield**. A claim
+arising from MyDNA is a claim against personal assets. That is an ordinary
+position for a side project and a slightly poor one for a paid service handling
+genetic data and publishing health-adjacent information. The disclaimers in the
+terms allocate risk well; they cannot absorb it.
+
+Recommended, in order:
+
+1. **A PO box or registered agent.** A sole proprietorship's address is a home
+   address, and the privacy policy publishes it permanently to an audience
+   explicitly invited to read it. The address is left as `[MAILING ADDRESS]`
+   rather than filled with a home address. **Both documents are unpublishable
+   until it is set.**
+2. **A Tennessee LLC**, before the legal pages go live — publishing terms is the
+   point at which the operation is visibly a business.
+3. **A separate bank account** for it, or a single-member LLC can be pierced for
+   commingling and the protection is illusory.
+4. **Then** move Stripe and Railway, and re-execute the Railway DPA with
+   Exhibit B completed.
+5. Tech E&O insurance is worth pricing alongside the LLC; for a solo operator it
+   is often the more practical protection, and they complement each other.
+
+Renaming the GitHub organisation, the email addresses or anything in the code
+changes no legal fact and is not worth doing.
 
 ## Blockers — still outstanding
 

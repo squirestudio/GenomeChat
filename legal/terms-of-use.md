@@ -9,8 +9,9 @@
 
 ## 1. Agreement
 
-These terms are between you and **Red Wolf Agency** ("MyDNA", "we"). By
-using mydna.chat you accept them. If you do not, please do not use the service.
+These terms are between you and **Red Wolf Agency, a sole proprietorship of
+Benjamin Kenneth Brown** ("MyDNA", "we"). By using mydna.chat you accept
+them. If you do not, please do not use the service.
 
 ## 2. What MyDNA is
 

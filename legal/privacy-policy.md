@@ -1,9 +1,9 @@
 # Privacy Policy
 
-**DRAFT — not yet reviewed by a lawyer. See `legal/README.md` for the open items that must be resolved before this is published.**
+**Draft pending legal review. See `legal/README.md` for what remains open.**
 
-**Last updated:** [DATE]
-**Effective:** [DATE]
+**Last updated:** 30 July 2026
+**Effective:** 30 July 2026
 
 ---
 
@@ -17,20 +17,28 @@ Your uploaded DNA file is read **on your device** and is never uploaded or
 stored. Only the small number of variants relevant to a question travel with
 that question so it can be answered, and they are discarded once it is.
 
-The questions you ask **are** stored, so your history works. So is your email
-address if you sign in. Details below.
+If you sign in, the questions you ask are stored so your history works, along
+with your email address. **If you are not signed in, we store nothing at all.**
+
+Details below, including the parts that are less flattering.
 
 ---
 
 ## 1. Who is responsible
 
-MyDNA ("we", "us") is operated by **[LEGAL ENTITY NAME]**, [ADDRESS],
-[COUNTRY]. For questions about this policy or to exercise any right described
-here, contact **[PRIVACY CONTACT EMAIL]**.
+MyDNA ("we", "us") is operated by **Red Wolf Agency**, 1844 Jose Way, Murfreesboro, TN 37130,
+United States. For questions about this policy or to exercise any right described
+here, contact **info@redwolfagency.co**.
 
-If you are in the UK or EU and we are required to have a representative or Data
-Protection Officer, those details will appear here. *(Open item — see
-`legal/README.md`.)*
+We have not appointed a Data Protection Officer. Our processing does not meet
+the Article 37 thresholds that require one — we are a single-person operation
+and do not monitor individuals systematically or at scale.
+
+**EU and UK representatives.** [DECISION PENDING — see `legal/README.md`.
+Article 27 requires a representative in the EU, and separately in the UK, for a
+controller established outside them that offers services to people there and
+processes special-category data. Either appoint them and name them here, or
+restrict the service so it is not offered in those regions.]
 
 ## 2. What we collect
 
@@ -46,9 +54,10 @@ Sign-in uses Google. We receive, and store:
 
 We do **not** receive your Google password, contacts, calendar or Drive.
 
-### 2.2 Whether or not you sign in
+### 2.2 If you are signed in — your questions
 
-Every question you ask is recorded, including when you are not signed in:
+Questions asked **while signed in** are stored against your account, so your
+history works:
 
 | Data | Notes |
 |---|---|
@@ -58,23 +67,30 @@ Every question you ask is recorded, including when you are not signed in:
 | Which sources were used, and response timing | Operational and quality purposes |
 | Timestamp | |
 
-When you are not signed in these records are stored without an account
-identifier. **They are not anonymous in the strict sense** — a question can
-itself be identifying, and we would rather say so than claim otherwise.
+### 2.3 If you are not signed in
 
-### 2.3 Payments
+**We store nothing.** Questions asked without an account are answered and not
+recorded — no text, no answer, no timestamp, no row of any kind.
+
+They previously were stored without an account identifier. That was changed
+deliberately: a question can itself identify the person asking it, and keeping
+a record of what someone asked before they had agreed to anything was not a
+position worth defending. You have no history in that mode, because there is
+nothing to show.
+
+### 2.4 Payments
 
 If you subscribe or buy credits, **Stripe** processes the payment. We never
 see or store your card details. We store a Stripe customer reference so you can
 manage or cancel your subscription, plus what you are entitled to (subscription
 active, credits remaining).
 
-### 2.4 If you supply your own Anthropic API key
+### 2.5 If you supply your own Anthropic API key
 
 Optional. It is encrypted before storage (AES-256 via Fernet) and is never sent
 back to the browser or displayed again. You can remove it at any time.
 
-### 2.5 Technical data
+### 2.6 Technical data
 
 Your IP address is used to apply rate limits and to prevent abuse. **It is not
 written to our database.** It exists briefly in memory and in our hosting
@@ -103,15 +119,28 @@ reassuringly.
    are sent to NCBI's dbSNP. This happens only when you click.
 
 **What we do not do:** store your file, store your variants, build a profile
-from them, share them with anyone other than the processors named above, or use
-them to train any model.
+from them, or share them with anyone other than the processors named below.
 
 **Legal basis and sensitivity.** Genetic data is "special category" data under
 the UK/EU GDPR (Article 9) and "sensitive personal information" under the
 CPRA. We process it **only on your explicit consent**, given through the
 consent screen before any file is read, and only to answer the question you
-asked. You can withdraw consent at any time by clearing your DNA session — the
-× on the DNA banner — which removes it from your browser.
+asked.
+
+If you are signed in, we record **the date and time you gave that consent** and
+nothing else — no variants, no file, no record of what you then looked at. We
+keep it so that consent can be demonstrated rather than merely asserted, which
+is what Article 7(1) requires. Nothing is recorded for signed-out visitors.
+
+You can withdraw consent at any time by clearing your DNA session — the × on
+the DNA banner — which removes the data from your browser. Withdrawal does not
+affect processing already carried out.
+
+**We do not use your genetic data, or anything else you send, to train any
+model.** Your question and the relevant variants are sent to Anthropic to
+generate the answer, and Anthropic's API terms govern their handling of it. We
+do not control Anthropic's practices and do not make promises on their behalf;
+their terms are published at anthropic.com.
 
 ## 4. What we do not collect
 
@@ -163,7 +192,8 @@ specific mechanism per processor should be confirmed and named here.)*
 | Data | Retention |
 |---|---|
 | Account (email, name, entitlements) | Until you delete your account |
-| Your questions and their answers | Stored answers are automatically pruned after **[QUERY_PAYLOAD_RETENTION_DAYS, currently 90]** days; the question, target and sources are kept so your history still lists them |
+| Your questions and their answers (signed in) | Stored answers are automatically pruned after **90 days**; the question, target and sources are kept so your history still lists them |
+| Questions asked signed out | Not stored at all |
 | Stored Anthropic API key | Until you remove it |
 | Payment records | As long as tax and accounting law requires |
 | DNA variants | Not retained. Held in your browser session only |
@@ -190,8 +220,17 @@ not sell or share personal information, there is no opt-out to exercise — but
 you may still ask us to confirm that. We will not discriminate against you for
 exercising any right.
 
-To exercise any of these, contact **[PRIVACY CONTACT EMAIL]**. We will respond
-within 30 days (GDPR) or 45 days (CCPA). We do not charge for this.
+**Two of these you can do yourself, immediately, without asking us:**
+
+- **Export** — Settings → Download my data. Returns everything held about your
+  account as a single JSON file.
+- **Delete** — Settings → Delete my account. Immediate and irreversible: the
+  account, its questions, answers and projects are erased. If you have an
+  active subscription, cancel it in Stripe as well — deleting the account
+  removes our record of it but does not stop billing.
+
+For anything else, contact **info@redwolfagency.co**. We will respond within 30
+days (GDPR) or 45 days (CCPA). We do not charge for this.
 
 ## 9. Automated decision-making
 
@@ -205,9 +244,16 @@ back to the original records.
 
 ## 10. Children
 
-MyDNA is not intended for anyone under **[16 / 18 — decide]**, and we do not
-knowingly collect data from children. If you believe a child has used it,
-contact us and we will delete the records.
+MyDNA is for adults. You must be **18 or over** to use it. We do not knowingly
+collect data from anyone under 18, and we do not verify age beyond asking.
+
+If you believe someone under 18 has used MyDNA, contact
+**info@redwolfagency.co** and we will delete the records without requiring you
+to prove anything.
+
+Uploading a child's genetic data — your own child's included — is not permitted.
+Genetic data describes a person for life, and consenting to its processing is
+not a decision to make on someone else's behalf here.
 
 ## 11. Security
 

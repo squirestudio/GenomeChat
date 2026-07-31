@@ -588,6 +588,8 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
             </p>
           </Section>
 
+          <YourDataSection currentUser={currentUser} />
+
         </div>
 
         {/* Footer */}
@@ -731,6 +733,125 @@ function PlanSection({ currentUser }) {
         <PurchaseOptions compact testMode={currentUser.stripe_test_mode} currentUserHasBilling={currentUser.has_billing_account} />
       </Section>
     </>
+  );
+}
+
+/** Export and erasure, as buttons rather than as a promise in a policy.
+ *
+ *  GDPR Articles 15, 17 and 20, and the CCPA rights to know and delete. These
+ *  could be fulfilled by hand on request — that is legitimate at this size —
+ *  but a right that depends on someone remembering to run SQL is a weaker
+ *  right than one the reader can exercise themselves at 2am without asking.
+ *
+ *  Deletion is guarded by typing the word rather than by an "are you sure",
+ *  because it is genuinely irreversible and a mis-click should not be enough. */
+function YourDataSection({ currentUser }) {
+  const [busy, setBusy] = useState(null);      // "export" | "delete" | null
+  const [confirm, setConfirm] = useState("");
+  const [armed, setArmed] = useState(false);
+  const [error, setError] = useState(null);
+
+  if (!currentUser) return null;
+
+  const exportData = async () => {
+    setBusy("export"); setError(null);
+    try {
+      const r = await fetch(`${API}/user/export`, { headers: authHeaders() });
+      if (!r.ok) throw new Error(`Export failed (${r.status})`);
+      const blob = new Blob([JSON.stringify(await r.json(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mydna-data-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message || "Could not export your data");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setBusy("delete"); setError(null);
+    try {
+      const r = await fetch(`${API}/user/account`, { method: "DELETE", headers: authHeaders() });
+      if (!r.ok) throw new Error(`Deletion failed (${r.status})`);
+      const body = await r.json();
+      clearToken();
+      // A full reload rather than clearing state piecemeal: the account this
+      // session was built around no longer exists.
+      window.alert(
+        body.subscription_needs_cancelling
+          ? "Your account has been deleted.\n\nYou had an active subscription — cancel it in Stripe as well. Deleting the account removes our record of it but does not stop billing."
+          : "Your account and all of its data have been deleted.",
+      );
+      window.location.href = "/";
+    } catch (e) {
+      setError(e.message || "Could not delete your account");
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Section label="Your Data" hint="Export or erase everything held about your account">
+      <button onClick={exportData} disabled={!!busy}
+        style={{ width: "100%", fontSize: "0.72rem", padding: "0.45rem", borderRadius: 8,
+                 background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)",
+                 color: "var(--text-muted)", cursor: busy ? "default" : "pointer" }}>
+        {busy === "export" ? "Preparing…" : "Download my data"}
+      </button>
+      <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", margin: "5px 0 0", lineHeight: 1.5 }}>
+        Everything we hold about your account, as JSON. Your DNA file is not
+        included because it is never stored.
+      </p>
+
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgb(var(--c-border) / 0.3)" }}>
+        {!armed ? (
+          <button onClick={() => setArmed(true)}
+            style={{ width: "100%", fontSize: "0.72rem", padding: "0.45rem", borderRadius: 8,
+                     background: "none", border: "1px solid rgb(var(--c-danger) / 0.4)",
+                     color: "var(--danger)", cursor: "pointer" }}>
+            Delete my account
+          </button>
+        ) : (
+          <>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: "0 0 7px", lineHeight: 1.55 }}>
+              This erases your account, your questions and your projects
+              immediately. It cannot be undone. Type <strong>DELETE</strong> to
+              confirm.
+            </p>
+            <input value={confirm} onChange={e => setConfirm(e.target.value)}
+              placeholder="DELETE" autoComplete="off"
+              style={{ width: "100%", padding: "0.4rem 0.55rem", borderRadius: 7, fontSize: "0.72rem",
+                       background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.45)",
+                       color: "var(--text)", marginBottom: 7 }} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={deleteAccount} disabled={confirm !== "DELETE" || !!busy}
+                style={{ flex: 1, fontSize: "0.72rem", padding: "0.45rem", borderRadius: 8,
+                         background: confirm === "DELETE" ? "var(--danger)" : "rgb(var(--c-border) / 0.35)",
+                         border: "none", color: confirm === "DELETE" ? "white" : "var(--text-disabled)",
+                         cursor: confirm === "DELETE" && !busy ? "pointer" : "not-allowed" }}>
+                {busy === "delete" ? "Deleting…" : "Delete permanently"}
+              </button>
+              <button onClick={() => { setArmed(false); setConfirm(""); }}
+                style={{ fontSize: "0.72rem", padding: "0.45rem 0.7rem", borderRadius: 8, background: "none",
+                         border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dim)", cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+        {currentUser.byok_unlocked && armed && (
+          <p style={{ fontSize: "0.63rem", color: "var(--warning)", margin: "7px 0 0", lineHeight: 1.5 }}>
+            You have an active subscription. Cancel it in Stripe as well —
+            deleting the account does not stop billing.
+          </p>
+        )}
+      </div>
+
+      {error && <p style={{ fontSize: "0.65rem", color: "var(--danger)", margin: "7px 0 0" }}>{error}</p>}
+    </Section>
   );
 }
 

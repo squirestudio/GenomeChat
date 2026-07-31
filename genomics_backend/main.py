@@ -19,12 +19,13 @@ from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, 
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
-from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent
+from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 # The Stripe SDK logs every HTTP request/response at INFO, which buries our own
@@ -532,24 +533,33 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                 "query_type": interpreted.query_type.value, "target": interpreted.target,
                 "sources": sources, "result_count": len(raw_results),
             }
-            save_db = stream_db or SessionLocal()
-            try:
-                row = QueryModel(
-                    project_id=body.project_id,
-                    user_id=user_id_for_stream,
-                    query_text=body.message,
-                    query_type=interpreted.query_type.value,
-                    target=interpreted.target,
-                    results=stored, result_count=len(raw_results),
-                    sources=sources, cached=0,
-                )
-                save_db.add(row); save_db.commit(); save_db.refresh(row)
-                query_id = row.id
-            except Exception as e:
-                logger.warning(f"DB save failed: {e}")
-            finally:
-                if save_db is not stream_db:
-                    save_db.close()
+            # Nothing is written for a signed-out visitor. Their questions used
+            # to be stored as `user_id IS NULL` rows, which meant MyDNA held a
+            # record of what people asked before they had agreed to anything at
+            # all — and a question can itself identify someone. History is an
+            # account feature; a visitor without an account loses nothing by
+            # this, because there was no account to show it in.
+            if user_id_for_stream is None:
+                logger.debug("Anonymous query not persisted (by policy)")
+            else:
+                save_db = stream_db or SessionLocal()
+                try:
+                    row = QueryModel(
+                        project_id=body.project_id,
+                        user_id=user_id_for_stream,
+                        query_text=body.message,
+                        query_type=interpreted.query_type.value,
+                        target=interpreted.target,
+                        results=stored, result_count=len(raw_results),
+                        sources=sources, cached=0,
+                    )
+                    save_db.add(row); save_db.commit(); save_db.refresh(row)
+                    query_id = row.id
+                except Exception as e:
+                    logger.warning(f"DB save failed: {e}")
+                finally:
+                    if save_db is not stream_db:
+                        save_db.close()
 
             cache.set(body.message, {**stored, "query_id": query_id})
             yield _sse("done", {"query_id": query_id, "cached": False})
@@ -926,3 +936,113 @@ async def delete_user_api_key(current_user: User = Depends(require_user), db: Se
     current_user.encrypted_api_key = None
     db.commit()
     return {"removed": True}
+
+
+@app.post("/user/dna-consent")
+async def record_dna_consent(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Record that this account accepted the genetic-data consent notice.
+
+    Genetic data is special category under GDPR Article 9 and is processed here
+    on explicit consent, which a controller must be able to demonstrate rather
+    than merely assert. This stores a timestamp and nothing else — no variants,
+    no file, no indication of what was then looked at.
+
+    Signed-out visitors are not recorded, having no account to attach it to.
+    The consent screen still gates the upload for them; what differs is only
+    that MyDNA keeps no record of it.
+    """
+    current_user.dna_consent_at = datetime.utcnow()
+    db.commit()
+    return {"recorded": True, "at": current_user.dna_consent_at.isoformat()}
+
+
+@app.get("/user/export")
+async def export_user_data(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Everything held about this account, in one portable JSON document.
+
+    GDPR Article 15 (access) and Article 20 (portability), and the CCPA right
+    to know. Written as a real endpoint rather than a promise fulfilled by
+    hand, because a right that depends on someone remembering to run SQL is not
+    much of a right.
+
+    The stored Anthropic key is deliberately excluded: it is the reader's
+    credential, it is held encrypted, and returning it would turn a data
+    export into a secret-disclosure route.
+    """
+    queries = (
+        db.query(QueryModel)
+        .filter(QueryModel.user_id == current_user.id)
+        .order_by(QueryModel.created_at.desc())
+        .all()
+    )
+    projects = db.query(Project).filter(Project.user_id == current_user.id).all()
+
+    return {
+        "exported_at": datetime.utcnow().isoformat(),
+        "account": {
+            "email": current_user.email,
+            "name": current_user.name,
+            "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+            "dna_consent_at": current_user.dna_consent_at.isoformat() if current_user.dna_consent_at else None,
+            "total_queries": current_user.total_queries or 0,
+            "query_credits": current_user.query_credits or 0,
+            "subscription_active": bool(current_user.byok_unlocked),
+            "byok_purchased": bool(current_user.byok_purchased),
+            "has_stored_api_key": bool(current_user.encrypted_api_key),
+        },
+        "projects": [
+            {"id": p.id, "name": p.name, "description": p.description,
+             "created_at": p.created_at.isoformat() if p.created_at else None}
+            for p in projects
+        ],
+        "queries": [
+            {"id": q.id, "question": q.query_text, "type": q.query_type,
+             "target": q.target, "sources": q.sources,
+             "answer": q.results,
+             "created_at": q.created_at.isoformat() if q.created_at else None}
+            for q in queries
+        ],
+        "note": (
+            "Genetic data you uploaded is not included because it is never "
+            "stored — it is read in your browser and discarded."
+        ),
+    }
+
+
+@app.delete("/user/account")
+async def delete_user_account(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Erase this account and everything attached to it.
+
+    GDPR Article 17 and the CCPA right to delete. Irreversible and immediate.
+
+    Projects cascade to their queries via the ORM relationship, but queries
+    attached directly to the account without a project do not, so they are
+    removed explicitly — a partial delete would leave exactly the records
+    someone asked to be rid of.
+
+    An active Stripe subscription is not cancelled from here. Deleting the
+    account removes our record of it, and a subscription that keeps billing
+    after the account is gone would be the worse failure; the caller is told so
+    plainly, and the customer portal remains the route.
+    """
+    user_id = current_user.id
+    had_subscription = bool(current_user.byok_unlocked)
+
+    db.query(QueryModel).filter(QueryModel.user_id == user_id).delete(synchronize_session=False)
+    db.query(AuditLog).filter(AuditLog.user_id == user_id).delete(synchronize_session=False)
+    # Projects cascade to any remaining queries through the relationship.
+    for project in db.query(Project).filter(Project.user_id == user_id).all():
+        db.delete(project)
+    db.delete(current_user)
+    db.commit()
+
+    logger.info("Account %s deleted at the user's request", user_id)
+    return {
+        "deleted": True,
+        "subscription_needs_cancelling": had_subscription,
+        "note": (
+            "Cancel any active subscription through Stripe as well — deleting "
+            "the account removes our record of it but does not stop billing."
+            if had_subscription else None
+        ),
+    }

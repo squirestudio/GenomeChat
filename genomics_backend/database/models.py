@@ -58,6 +58,18 @@ class User(Base):
     # cancels or updates their card without contacting us.
     stripe_customer_id = Column(String(255), nullable=True, index=True)
     encrypted_api_key = Column(Text, nullable=True)
+    # When this account last accepted the genetic-data consent notice.
+    #
+    # Genetic data is special category under GDPR Article 9, processed here on
+    # explicit consent, and a controller must be able to *demonstrate* that
+    # consent was given. The consent screen already gated the upload, but
+    # nothing recorded it, so there was no evidence — only a claim.
+    #
+    # Deliberately a bare timestamp: no variants, no file, no content. It
+    # records that consent happened, which is the whole obligation, and nothing
+    # about what the person then looked at. Nothing is recorded for signed-out
+    # visitors, who have no account to attach it to.
+    dna_consent_at = Column(DateTime, nullable=True)
 
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
@@ -196,6 +208,7 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_queries INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS encrypted_api_key TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS byok_purchased BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS dna_consent_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
         # Columns added by ALTER TABLE do not get the index the model declares,
         # so these were never created and every history load and ownership check

@@ -1,15 +1,15 @@
 # Terms of Use
 
-**DRAFT — not yet reviewed by a lawyer. See `legal/README.md` for the open items that must be resolved before this is published.**
+**Draft pending legal review. See `legal/README.md` for what remains open.**
 
-**Last updated:** [DATE]
-**Effective:** [DATE]
+**Last updated:** 30 July 2026
+**Effective:** 30 July 2026
 
 ---
 
 ## 1. Agreement
 
-These terms are between you and **[LEGAL ENTITY NAME]** ("MyDNA", "we"). By
+These terms are between you and **Red Wolf Agency** ("MyDNA", "we"). By
 using mydna.chat you accept them. If you do not, please do not use the service.
 
 ## 2. What MyDNA is
@@ -58,7 +58,7 @@ accuracy, fitness for a particular purpose, or uninterrupted availability.
 
 ## 5. Eligibility
 
-You must be at least **[16 / 18 — decide]** and able to form a binding
+You must be at least **18** and able to form a binding
 contract. Do not use MyDNA on behalf of another person without their informed
 consent, and do not upload another person's genetic data without it.
 
@@ -104,8 +104,9 @@ MyDNA claims no ownership of that content and displays it with attribution. Your
 use of it is subject to those sources' terms, which you are responsible for
 observing if you reuse anything you find here.
 
-*(Open item: some of these sources restrict commercial use and may require a
-licence. See `legal/README.md`.)*
+Sources whose terms restrict commercial use are not used. OMIM was
+disconnected for that reason rather than licensed. See
+`legal/data-source-licensing.md`.
 
 ## 9. Accounts
 
@@ -126,8 +127,10 @@ misused.
   Anthropic API key. You then pay Anthropic directly for usage.
 - **Prices** are shown before purchase and may change with notice. Changes do not
   affect a period already paid for.
-- **Refunds.** Statutory rights are unaffected. Beyond those, refunds are at our
-  discretion — ask. *(Open item: a stated refund window is clearer for everyone.)*
+- **Refunds.** Within **14 days**: unused credits are refundable, and a
+  subscription can be refunded for the current period if you have not used it
+  meaningfully. After 14 days, refunds are at our discretion — ask, and we will
+  be reasonable. Your statutory rights are unaffected either way.
 - **Taxes** may apply depending on where you are.
 
 ## 11. Availability
@@ -144,8 +147,8 @@ incidental, special or consequential loss, or for any loss arising from a
 decision made on the basis of its output. **Health decisions belong with your
 clinician**, and this term reflects that rather than trying to escape it.
 
-Where liability cannot be excluded, it is limited to the greater of the amount
-you paid us in the previous twelve months or [AMOUNT].
+Where liability cannot be excluded, it is limited to the total amount you paid
+us in the **six months** before the claim arose.
 
 Nothing here excludes liability for death or personal injury caused by
 negligence, fraud, or anything else that cannot lawfully be excluded — and if
@@ -164,8 +167,8 @@ the service or its data sources. Sections 3, 4, 6, 12 and 13 survive.
 
 ## 15. Governing law
 
-These terms are governed by the laws of **[JURISDICTION]**, and disputes are
-subject to the courts of **[JURISDICTION]**. If you are a consumer, this does
+These terms are governed by the laws of **the State of Tennessee, United States**, and disputes are
+subject to the courts of **the State of Tennessee, United States**. If you are a consumer, this does
 not deprive you of the protection of your local law.
 
 ## 16. Changes
@@ -175,4 +178,4 @@ revised date. Continuing to use MyDNA after that means you accept them.
 
 ## 17. Contact
 
-**[CONTACT EMAIL]**
+**info@redwolfagency.co**

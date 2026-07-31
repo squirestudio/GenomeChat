@@ -10,60 +10,55 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 ---
 
-## Blockers — the policy cannot be published without these
+## Resolved
 
-**1. A contact address.** Both GDPR and the CCPA require a route to exercise
-rights. There is currently none, and a privacy policy that describes rights with
-no way to invoke them is worse than no policy: it documents non-compliance.
-`privacy@mydna.chat` forwarding to your inbox is enough.
+| Item | Decision |
+|---|---|
+| Controller | **Red Wolf Agency**, 1844 Jose Way, Murfreesboro, TN 37130, United States |
+| Contact | **info@redwolfagency.co** |
+| Governing law | Tennessee |
+| Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
+| Refund window | 14 days |
+| Liability cap | Fees paid in the preceding **6 months** |
+| Query retention | 90 days for stored answers |
+| Anonymous queries | **No longer stored.** Signed-out visitors leave no row at all |
+| Consent | **Recorded** as a bare timestamp on the account (`dna_consent_at`); nothing for signed-out visitors |
+| Export & erasure | **Built and self-serve** — Settings → Your Data. `GET /user/export`, `DELETE /user/account`, 12 tests |
+| OMIM | Disconnected rather than licensed — see `data-source-licensing.md` |
 
-**2. A legal entity name and address.** GDPR requires the controller to be
-identifiable. "MyDNA" alone will not do — it needs whatever the operating entity
-is, even if that is a sole trader in your own name.
+## Blockers — still outstanding
 
-**3. The premise "we do not collect data from visitors" is not accurate.**
-Worth stating plainly because it shaped the brief:
+**1. EU and UK representatives (Article 27).** The one genuinely unresolved
+question. A controller established outside the EU that offers services to
+people there must appoint an EU representative, and the exemption for
+occasional, low-risk processing **does not apply to special-category data** —
+which genetic data is. UK GDPR imposes the same requirement separately.
 
-- Signing in stores **email and name**
-- **Every question is stored**, including from visitors who never sign in —
-  `queries` rows with `user_id IS NULL`. The text, the gene, the full answer
-  payload, the sources and a timestamp
-- Stripe customer references are stored for subscribers
+Three options, all defensible, none free:
 
-None of that is unusual or wrong, and none of it is sold or shared. But it is
-collection, and the policy has to describe it. **Decision needed:** keep storing
-anonymous queries (they power history within a session and are useful
-operationally), or stop? If they stay, they stay described.
+- **Appoint them.** Commercial services run roughly €200–500/year each.
+- **Do not offer the service in the EU/UK.** No representative needed if you
+  genuinely do not target those users. Means geo-blocking, and saying so.
+- **Accept the risk knowingly.** Common for projects this size. It is a gap,
+  not an oversight, and it should be a decision rather than a default.
 
-## Rights you have promised but cannot yet fulfil
+The policy currently carries a visible `[DECISION PENDING]` marker at section 1.
+It should not be published with that marker still in it.
 
-There is **no account deletion endpoint and no data export endpoint** — only key
-deletion exists. For a project this size, fulfilling requests **manually** is
-legitimate and common, and the drafts are written on that basis. But:
+**2. Data processing agreements.** GDPR Article 28 requires one with every
+processor. All four publish standard DPAs you accept online rather than
+negotiate:
 
-- Someone has to actually be able to do it. There is no admin tooling, so it
-  means running SQL against production.
-- The 30-day (GDPR) and 45-day (CCPA) response windows are commitments.
+| Processor | Where |
+|---|---|
+| **Anthropic** | Console → Settings → Compliance; also confirm the API data-retention terms while there |
+| **Stripe** | Dashboard → Settings → Compliance and privacy → DPA |
+| **Railway** | Account → Legal, or request via support |
+| **Vercel** | Dashboard → Settings → Legal → DPA |
 
-If self-serve is wanted later, `DELETE /auth/me` and `GET /auth/export` are
-small additions. Not urgent; do mean it in the meantime.
-
-## Consent is not recorded
-
-DNA processing relies on **explicit consent** — Article 9 GDPR, since genetic
-data is special category, and CPRA sensitive personal information. The consent
-screen exists and is shown before any file is read, which is the substance of it.
-
-But consent is handled **entirely client-side and never recorded**, so there is
-no evidence it was given. GDPR expects a controller to be able to demonstrate
-consent. Nothing about your current flow is unfair to users — the gap is
-evidential.
-
-The awkward part: recording consent means storing a record *about* a person's
-genetic-data use, which cuts against the privacy posture. A defensible middle is
-a timestamped record against the account only (`consented_at`), with no variant
-data, and nothing at all for anonymous users. Worth a decision rather than a
-default.
+Accept all four, keep the confirmations, then name the transfer mechanism
+(SCCs and/or Data Privacy Framework) in section 6 of the policy so it states a
+fact instead of gesturing at one.
 
 ## Licensing on the data sources
 
@@ -86,30 +81,6 @@ dataset — but confirm before pharmacogenomics becomes a headline feature.
 
 Everything else is clear for commercial use with attribution, which the product
 gives in the footer, on `/about`, and in each answer's source list.
-
-## Decisions needed in the drafts
-
-Marked `[LIKE THIS]` in both files:
-
-| Item | Note |
-|---|---|
-| Minimum age | 16 aligns with GDPR consent thresholds; 18 is simpler for a health-adjacent tool |
-| Governing law / jurisdiction | Where you are |
-| Refund window | "At our discretion" is honest but a stated window, e.g. 14 days unused, reads better and reduces disputes |
-| Liability cap amount | Usually fees paid, or a small fixed floor |
-| Query payload retention | Policy says 90 days, matching the default. **Note the earlier finding: the oldest stored answer was already 108 days old, so the default will prune real rows.** Set `QUERY_PAYLOAD_RETENTION_DAYS` deliberately and make the policy match |
-
-## Worth confirming with processors
-
-- **Anthropic** — API inputs are not used for training by default, and there is a
-  zero-retention option for eligible accounts. The policy's claim that variants
-  are not used for training rests on this; worth confirming it matches your
-  account terms.
-- **Data processing agreements** with Anthropic, Stripe, Railway and Vercel.
-  GDPR Article 28 requires them where a processor handles personal data on your
-  behalf. All four publish standard DPAs.
-- **Transfer mechanism** per processor — SCCs and/or Data Privacy Framework — so
-  section 6 of the policy can name it rather than gesture at it.
 
 ## What is genuinely strong here
 

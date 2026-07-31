@@ -4554,11 +4554,15 @@ export default function App({ onNavigate }) {
               <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 8 }}>
                 Ensembl · ClinVar · gnomAD · UniProt · PubMed · Claude AI
               </p>
-              {/* Easy to reach, out of the way. Privacy and FAQ join this row
-                  once they exist rather than being invented here. */}
-              <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 4 }}>
-                {/* "About MyDNA", not "About": directly beneath a row of source
-                    names, the bare word reads as one more database. */}
+              {/* Attribution above the rule, navigation below it. Without the
+                  divider the two read as a single list, which is the same
+                  reason the link is named rather than a bare "About". Privacy
+                  and FAQ join this row once they exist. */}
+              <div style={{
+                height: 1, maxWidth: 220, margin: "9px auto 0",
+                background: "rgb(var(--c-border) / 0.45)",
+              }} />
+              <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 9 }}>
                 <a href="/about"
                   onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate("/about"); } }}
                   style={{ color: "var(--text-dim)", textDecoration: "none" }}>

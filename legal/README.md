@@ -22,7 +22,8 @@ Where a claim could not be verified, the document says so rather than guessing.
 | Liability cap | Fees paid in the preceding **6 months** |
 | Query retention | 90 days for stored answers |
 | Anonymous queries | **No longer stored.** Signed-out visitors leave no row at all |
-| Consent | **Recorded** as a bare timestamp on the account (`dna_consent_at`); nothing for signed-out visitors |
+| Consent | **Recorded** as a bare timestamp on the account (`dna_consent_at`). DNA upload now **requires sign-in**, so every processing event has a consent record behind it |
+| Railway DPA | Reviewed clause by clause. Conventional; signing recommended. See below |
 | Export & erasure | **Built and self-serve** — Settings → Your Data. `GET /user/export`, `DELETE /user/account`, 12 tests |
 | OMIM | Disconnected rather than licensed — see `data-source-licensing.md` |
 
@@ -73,6 +74,36 @@ the signature block below", via a DocuSign form on the page itself.
 Transfers then rely on the Data Privacy Framework or the EU/UK SCCs. Railway
 holds the database, so this is the processor handling the most personal data of
 the four — worth doing before publishing the policy, not after.
+
+### Railway DPA — what a read of it turned up
+
+Not a legal opinion. Nothing predatory or unusual was found; it is a
+conventional, processor-favourable hosting DPA, and **the larger risk is not
+signing it**, since Article 28 requires a written contract with a processor and
+Railway holds the database.
+
+Standard and unremarkable: the indemnity is narrowly scoped to supplying
+unlawful or inappropriate data, liability defers to the Terms already accepted,
+and return-or-delete on termination is GDPR working in our favour.
+
+Three things worth remembering afterwards:
+
+1. **No 72-hour breach commitment** — only "without undue delay". Article 33
+   gives *us* 72 hours from awareness, so a slow notification eats our clock.
+   Common, and the reason to watch their status page rather than wait to be
+   told.
+2. **Sub-processor objection has no teeth.** Ten days' notice, objection on
+   data-protection grounds, and if they will not accommodate it the only
+   remedy is to leave, without fee relief.
+3. **Audits are at our cost**, including reimbursing Railway's staff time, once
+   a year, in business hours. Theoretical at this size — in practice we rely on
+   their certifications.
+
+**Section 11.1 puts the consent record on us**, for each data subject. That is
+what prompted requiring sign-in before DNA upload: previously a signed-out
+visitor could load a file whose variants transited Railway's infrastructure
+with no consent record anywhere. Transient and unstored, but a gap in this
+clause. Now closed by construction rather than by argument.
 
 ## Licensing on the data sources
 

@@ -127,10 +127,19 @@ CPRA. We process it **only on your explicit consent**, given through the
 consent screen before any file is read, and only to answer the question you
 asked.
 
-If you are signed in, we record **the date and time you gave that consent** and
-nothing else — no variants, no file, no record of what you then looked at. We
-keep it so that consent can be demonstrated rather than merely asserted, which
-is what Article 7(1) requires. Nothing is recorded for signed-out visitors.
+**Using your DNA requires an account.** Not as a paywall — the feature is
+included in the free allowance — but because consent to process genetic data
+has to be recorded against someone, and a signed-out visitor is no one we can
+attach a record to.
+
+We record **the date and time you gave that consent** and nothing else: no
+variants, no file, no record of what you then looked at. Article 7(1) requires
+a controller to be able to demonstrate consent rather than merely assert it,
+and a timestamp is the least we can store while still meeting that.
+
+Signing in changes who consented. It changes nothing about how your file is
+handled — still parsed on your device, still never uploaded, still never
+stored.
 
 You can withdraw consent at any time by clearing your DNA session — the × on
 the DNA banner — which removes the data from your browser. Withdrawal does not

@@ -867,18 +867,36 @@ function Section({ label, hint, children }) {
 
 // ─── Sign-in Gate Modal (anonymous query limit) ───────────────────────────────
 
-function SignInGateModal({ onClose }) {
+/** @param reason — "queries" when the free preview is spent, "dna" when someone
+ *  tries to load a DNA file. The DNA case is not a paywall and must not read
+ *  like one: it exists because processing genetic data requires consent that
+ *  can be evidenced, and consent is recorded against an account. */
+function SignInGateModal({ onClose, reason = "queries" }) {
+  const dna = reason === "dna";
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgb(var(--c-shadow) / 0.7)" }} />
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "2rem", width: 360, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Sign in to continue</h2>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>
+            {dna ? "Sign in to use your DNA" : "Sign in to continue"}
+          </h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
-        <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
-          You've used your {ANON_QUERY_LIMIT} free preview queries. Create a free account to get {20} queries — no credit card required.
-        </p>
+        {dna ? (
+          <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
+            Genetic data gets stricter treatment than everything else here, and
+            we need a record that you agreed to it — which means an account to
+            attach that record to.
+            <br /><br />
+            Your file still never leaves your device or gets stored. Signing in
+            changes who consented, not what happens to the data.
+          </p>
+        ) : (
+          <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
+            You've used your {ANON_QUERY_LIMIT} free preview queries. Create a free account to get {20} queries — no credit card required.
+          </p>
+        )}
         <a href={`${API}/auth/google`} style={{ display: "block", padding: "0.75rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))", border: "1px solid rgb(var(--c-accent) / 0.35)", cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
           <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent)" }}>Sign in with Google — it's free</span>
         </a>
@@ -3590,7 +3608,7 @@ export default function App({ onNavigate }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
-  const [showSignInGate, setShowSignInGate] = useState(false);
+  const [showSignInGate, setShowSignInGate] = useState(false);   // false | "queries" | "dna"
   const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
   // Evaluated once per mount rather than watched: the tally only advances on
   // send, and a card that appeared mid-sentence would be exactly the
@@ -3613,6 +3631,17 @@ export default function App({ onNavigate }) {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, [settings.theme]);
+
+  /** Genetic data requires consent that can be evidenced, and consent is
+   *  recorded against an account — so there has to be an account. Signing in
+   *  changes nothing about how the file is handled: it is still parsed in the
+   *  browser and still never stored. It changes only whether we can show, if
+   *  ever asked, that the person agreed. Also closes section 11.1 of Railway's
+   *  DPA, which puts the consent record squarely on us. */
+  const requestDnaUpload = useCallback(() => {
+    if (!currentUser) { setShowSignInGate("dna"); return; }
+    setShowConsentModal(true);
+  }, [currentUser]);
 
   const updateDnaData = useCallback((data) => {
     setDnaData(data);
@@ -3755,7 +3784,7 @@ export default function App({ onNavigate }) {
         }),
       });
       if (r.status === 402) { setShowUpgrade("blocked"); return; }
-      if (r.status === 401) { setShowSignInGate(true); return; }
+      if (r.status === 401) { setShowSignInGate("queries"); return; }
       if (!r.ok) throw new Error(String(r.status));
       const payload = await r.json();
       const { data: sectionData, empty } = payload;
@@ -3894,7 +3923,7 @@ export default function App({ onNavigate }) {
     if (!currentUser) {
       const count = getAnonQueryCount();
       if (count >= ANON_QUERY_LIMIT) {
-        setShowSignInGate(true);
+        setShowSignInGate("queries");
         return;
       }
       incrementAnonQueryCount();
@@ -3938,7 +3967,7 @@ export default function App({ onNavigate }) {
         // The server keeps its own count of anonymous questions; the localStorage
         // counter above only decides when to show this prompt early.
         setMessages(prev => prev.slice(0, -1));
-        setShowSignInGate(true);
+        setShowSignInGate("queries");
         return;
       }
       if (r.status === 429) {
@@ -4383,7 +4412,7 @@ export default function App({ onNavigate }) {
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "var(--bg)", color: "var(--text-secondary)", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
-        {showSignInGate && <SignInGateModal onClose={() => setShowSignInGate(false)} />}
+        {showSignInGate && <SignInGateModal reason={showSignInGate} onClose={() => setShowSignInGate(false)} />}
         {showUpgrade && <UpgradeModal currentUser={currentUser} blocked={showUpgrade === "blocked"} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
         {paymentToast && (() => {
           const tone = paymentToast === "failed"
@@ -4417,7 +4446,16 @@ export default function App({ onNavigate }) {
 
         {showConsentModal && (
           <ConsentModal
-            onAccept={(result, filename) => { updateDnaData({ ...result, filename }); setShowConsentModal(false); }}
+            onAccept={(result, filename) => {
+              updateDnaData({ ...result, filename });
+              setShowConsentModal(false);
+              // Fire-and-forget: a failure here must not block someone from
+              // using their own data, and the consent was still given. It is
+              // recorded on a best-effort basis, which is what the obligation
+              // to demonstrate consent reasonably asks for.
+              fetch(`${API}/user/dna-consent`, { method: "POST", headers: authHeaders() })
+                .catch(() => { /* offline or transient; the upload proceeds */ });
+            }}
             onClose={() => setShowConsentModal(false)}
           />
         )}
@@ -4446,7 +4484,7 @@ export default function App({ onNavigate }) {
                   </button>
                 )}
                 <button
-                  onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
+                  onClick={() => dnaData ? updateDnaData(null) : requestDnaUpload()}
                   style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                   title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
                 >
@@ -4527,7 +4565,7 @@ export default function App({ onNavigate }) {
             {/* Row 2 — mobile only: DNA + sign out spread across full width */}
             <div className="gc-header-row2" style={{ width: "100%", boxSizing: "border-box" }}>
               <button
-                onClick={() => dnaData ? updateDnaData(null) : setShowConsentModal(true)}
+                onClick={() => dnaData ? updateDnaData(null) : requestDnaUpload()}
                 style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.75rem", cursor: "pointer" }}
               >
                 {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
@@ -4605,7 +4643,7 @@ export default function App({ onNavigate }) {
                     </div>
                   ) : (
                     <button
-                      onClick={() => setShowConsentModal(true)}
+                      onClick={requestDnaUpload}
                       style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgb(var(--c-surface) / 0.25)", border: "1px dashed rgb(var(--c-border) / 0.5)", cursor: "pointer", textAlign: "left", transition: "border-color 0.15s" }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.35)"}
                       onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}

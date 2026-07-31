@@ -4557,10 +4557,12 @@ export default function App({ onNavigate }) {
               {/* Easy to reach, out of the way. Privacy and FAQ join this row
                   once they exist rather than being invented here. */}
               <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 4 }}>
+                {/* "About MyDNA", not "About": directly beneath a row of source
+                    names, the bare word reads as one more database. */}
                 <a href="/about"
                   onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate("/about"); } }}
                   style={{ color: "var(--text-dim)", textDecoration: "none" }}>
-                  About
+                  About MyDNA
                 </a>
               </p>
             </div>

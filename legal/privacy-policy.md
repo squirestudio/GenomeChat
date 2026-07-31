@@ -35,11 +35,15 @@ We have not appointed a Data Protection Officer. Our processing does not meet
 the Article 37 thresholds that require one — we are a single-person operation
 and do not monitor individuals systematically or at scale.
 
-**EU and UK representatives.** [DECISION PENDING — see `legal/README.md`.
-Article 27 requires a representative in the EU, and separately in the UK, for a
-controller established outside them that offers services to people there and
-processes special-category data. Either appoint them and name them here, or
-restrict the service so it is not offered in those regions.]
+**EU and UK representatives.** We have not appointed one. MyDNA is operated
+from the United States and is not directed at users in the EEA or the UK — see
+"Eligibility and where MyDNA is offered" in the Terms of Use — so Article 27
+does not apply.
+
+We nonetheless honour the rights set out in section 8 for anyone who asks,
+wherever they are. If that position changes, or if we begin offering MyDNA in
+those regions, we will appoint representatives and name them here before doing
+so.
 
 ## 2. What we collect
 

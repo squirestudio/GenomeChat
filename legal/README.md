@@ -23,6 +23,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 | Query retention | 90 days for stored answers |
 | Anonymous queries | **No longer stored.** Signed-out visitors leave no row at all |
 | Consent | **Recorded** as a bare timestamp on the account (`dna_consent_at`). DNA upload now **requires sign-in**, so every processing event has a consent record behind it |
+| Article 27 | **No EU/UK representative** — not offered in those regions; stated in the Terms |
 | Railway DPA | **Signed 30 July 2026** — DocuSign envelope `63268108-745A-4CB1-A5EE-40D110BFE605`, sealed 31 July 02:24 UTC. One completeness gap, below |
 | Export & erasure | **Built and self-serve** — Settings → Your Data. `GET /user/export`, `DELETE /user/account`, 12 tests |
 | OMIM | Disconnected rather than licensed — see `data-source-licensing.md` |
@@ -60,24 +61,34 @@ Recommended, in order:
 Renaming the GitHub organisation, the email addresses or anything in the code
 changes no legal fact and is not worth doing.
 
-## Blockers — still outstanding
+## Decisions taken, and why
 
-**1. EU and UK representatives (Article 27).** The one genuinely unresolved
-question. A controller established outside the EU that offers services to
-people there must appoint an EU representative, and the exemption for
-occasional, low-risk processing **does not apply to special-category data** —
-which genetic data is. UK GDPR imposes the same requirement separately.
+**1. EU and UK representatives (Article 27) — resolved 31 July 2026.**
 
-Three options, all defensible, none free:
+Position taken: **not appointed, on the basis that MyDNA is not offered in the
+EEA or the UK.** Article 3(2) applies only where a controller offers services
+to people there, and Recital 23 is explicit that a site being merely
+*accessible* from the EU does not establish that intention — there must be
+evidence of targeting, such as EU currencies, EU languages or region-specific
+marketing. MyDNA has none: USD pricing, English only, US-operated, no EU
+marketing.
 
-- **Appoint them.** Commercial services run roughly €200–500/year each.
-- **Do not offer the service in the EU/UK.** No representative needed if you
-  genuinely do not target those users. Means geo-blocking, and saying so.
-- **Accept the risk knowingly.** Common for projects this size. It is a gap,
-  not an oversight, and it should be a decision rather than a default.
+An earlier note here said the "occasional processing" exemption in Article
+27(2) is unavailable for special-category data. That was imprecise: the test is
+*large-scale* processing of special categories, and a project with a handful of
+EU users is plausibly not large scale. The exemption is arguable — but the
+targeting point above is the stronger and simpler ground, so the documents rest
+on that instead.
 
-The policy currently carries a visible `[DECISION PENDING]` marker at section 1.
-It should not be published with that marker still in it.
+The Terms now state the position outright, under "Eligibility and where MyDNA is
+offered", and the policy explains why no representative is named. **The data
+rights are honoured for everyone regardless of location** — export and erasure
+are built and self-serve, so extending them to all comers costs nothing and is
+worth more than the narrower position we could have taken.
+
+Revisit if EU signups actually appear, or if pricing, languages or marketing
+ever target those regions — at which point representatives cost roughly
+€200–500 per year each.
 
 **2. Data processing agreements.** GDPR Article 28 requires one with every
 processor. Two of the four are already settled — **verified, not assumed**:

@@ -57,11 +57,26 @@ optional extra.
 MyDNA is provided on an "as is" and "as available" basis, with no warranty of
 accuracy, fitness for a particular purpose, or uninterrupted availability.
 
-## 5. Eligibility
+## 5. Eligibility and where MyDNA is offered
 
-You must be at least **18** and able to form a binding
-contract. Do not use MyDNA on behalf of another person without their informed
-consent, and do not upload another person's genetic data without it.
+You must be at least **18** and able to form a binding contract. Do not use
+MyDNA on behalf of another person without their informed consent, and do not
+upload another person's genetic data without it.
+
+**MyDNA is operated from the United States and is offered to users in the
+United States.** It is not directed at, marketed to, or intended for
+individuals in the European Economic Area or the United Kingdom. Pricing is in
+US dollars, the service is offered only in English, and we do not target those
+regions.
+
+The site is reachable from anywhere, and we are not going to pretend otherwise.
+If you choose to use MyDNA from outside the United States, you do so on your
+own initiative and are responsible for complying with your local law.
+
+We honour the data rights described in the [Privacy Policy](./privacy-policy.md)
+— access, correction, deletion, portability — **for everyone who asks,
+regardless of where they live**. That is a deliberate choice rather than an
+obligation we have accepted.
 
 ## 6. Your data and your file
 

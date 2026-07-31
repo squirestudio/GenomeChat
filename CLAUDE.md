@@ -8,7 +8,14 @@ This repo is developed from more than one machine via `origin`. Claude Code sess
 
 ## Current state
 
-**Deferred, agreed:** an **FAQ page** built the same way as `/about` — a real URL plus a footer link. It is where the expectation-setting questions belong, so the About page can stay a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own). Also outstanding before either ships fully: a real **privacy policy** to link from the footer, and a contact address, both of which the About page currently leaves a slot for rather than inventing.
+**Open, in priority order:**
+
+1. **A mailing address that is not a home address.** [legal/privacy-policy.md](legal/privacy-policy.md) reads `[MAILING ADDRESS]` on purpose — Red Wolf Agency is a sole proprietorship, so its address is a residence, and a privacy policy publishes it permanently to an audience explicitly invited to read it. **Both legal documents are unpublishable until this is set.**
+2. **Wire `/privacy` and `/terms`** as real routes once (1) is done — same pattern as `/about` in [root.jsx](frontend/src/root.jsx) — plus footer links beside "About MyDNA".
+3. **An FAQ page**, agreed and deferred. Same pattern again. It is where the expectation-setting questions belong so `/about` stays a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own).
+4. **A Tennessee LLC** — recommended, not a blocker. There is no liability shield today; see the entity note in [legal/README.md](legal/README.md).
+
+**Legal drafts live in [legal/](legal/)** and are written from an audit of what the code actually does, not from a template. `legal/README.md` is the decision log — read it before changing anything in this area, because several product behaviours exist to satisfy specific clauses.
 
 Both apps are deployed: backend on Railway, frontend on Vercel. Recent work has centered on the freemium gate — anonymous users are limited client-side (3 queries) before a sign-in prompt, authenticated users are limited server-side by `FREE_QUERY_LIMIT` (currently 20). Stripe checkout and webhook entitlement granting are wired up.
 
@@ -19,6 +26,8 @@ That audit then found **ten of the twenty sources silently returning nothing** �
 `LollipopMap` is now interactive — scroll to zoom, drag to select a range, click to pin, filter chips, keyboard pan/zoom. Geometry and encodings live in [lollipop.js](frontend/src/lollipop.js) with 59 tests; the component is only SVG.
 
 **ClinVar variants are sampled across significance bands on purpose.** `CLINVAR_BANDS` runs three searches — pathogenic/likely pathogenic (20), uncertain (10), benign/likely benign (10) — and merges them. Asking only for `clinsig_pathogenic[Properties]`, as this used to, returned a set that was 100% Pathogenic for *every* gene, so the map's colour channel carried no information: RYR1 drew 18 identical red circles. Dropping the filter fails the other way, since RYR1 unfiltered is 33/40 uncertain-significance. Results are sorted most-severe-first so the variant table still leads with what a reader came for. Changing the quotas changes both the map and the table.
+
+**A privacy workstream landed alongside the source work, and parts of it are load-bearing** — see "Data protection" below. In short: signed-out visitors are no longer recorded at all, DNA upload now requires sign-in so consent can be evidenced, and export and erasure are self-serve. `/about` exists as a real URL, with routing in [root.jsx](frontend/src/root.jsx) above `App`.
 
 `NCBI_API_KEY` **is set in Railway** but is not in the local `genomics_backend/.env`, so a dev container runs at 2.5 req/sec against production's 9.0. Worth adding locally before profiling anything or debugging a source that returns nothing — the symptom of the anonymous cap is an empty result, not an error.
 
@@ -143,9 +152,9 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **20 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, OMIM, PharmGKB, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **19 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
-**Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, OMIM, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
+**Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
 **Upstream drift is the dominant failure mode, and it is silent.** In July 2026 an audit found **ten of the twenty sources returning nothing** while reporting success — the defensive `except: return []` in every fetcher turns a moved endpoint into "this gene has no pathways". Nothing errored, nothing alerted, and the answers just got thinner. What had happened, and what to check first when a panel goes quiet:
 
@@ -160,9 +169,11 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 | GDC | `/ssms` has no `case.project.project_id` facet | 200, empty aggregation, and `warnings.facets` explaining why — a key nothing read. Use `/ssm_occurrences` |
 | GWAS Catalog | No gene-keyed association endpoint | `associations/search/findByGene` 404s. Traverse gene → SNP → associations |
 | GTEx | Needs a version-pinned GENCODE id | `ENSG00000012048.20`, not a symbol and not a bare Ensembl id. Resolve via `/reference/gene`; the suffix moves between releases |
-| OMIM | `mimtype` gone | Kind is now the `oid` prefix symbol (`*` gene, `#` phenotype) |
+| OMIM | `mimtype` gone | Kind is now the `oid` prefix symbol (`*` gene, `#` phenotype). Fixed, then **disconnected** for licensing — see below |
 
 Three lessons worth generalising. **A 200 is not success** — check for an empty aggregation, an `errors` array, a `warnings` key, and a `content-type` that isn't JSON. **An empty result and a broken query are indistinguishable without a control**: `tests/test_upstream_contracts.py` asserts against answers that are not in reasonable doubt (BRCA1 is in the HR-repair pathways, CYP2C19 governs clopidogrel), because a test that merely asserts "returned a list" passes forever while the data is gone. And **an empty answer can be the right one** — BRCA1 genuinely has no drugs, because a tumour suppressor's loss of function is not a drug target; that is why the Open Targets test uses EGFR.
+
+**OMIM is fetched-but-not-offered.** `DISCONNECTED_SECTIONS` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) records why: OMIM is free for academic use and **commercial use requires a Johns Hopkins licence**, which a paid subscription plausibly needs. It is withheld from `OPTIONAL_SECTIONS` *and* from the `simple` dispatch map, so `/gene/section` cannot reach it by being asked directly. `fetch_omim_data` and its tests are intact — a licence makes it a two-line restoration. The frontend panel is deliberately left in place so stored answers containing OMIM data still replay. Cost of removal was measured first, not assumed; see [legal/data-source-licensing.md](legal/data-source-licensing.md), which covers the terms for every source.
 
 **Adding an NCBI source: use `elink`, not a text search.** `elink_ids(dbfrom, db, uid, client)` traverses from a Gene UID to the curated links in another database — 18,354 ClinVar records, 22,227 dbSNP entries, 447 GTR tests for BRCA1. A search for `"BRCA1"` matches records that merely mention it; the link is the asserted relationship. **An elink call that omits `db` returns PubMed links only**, which reads as a working call that happened to find nothing elsewhere.
 
@@ -225,6 +236,50 @@ Two related traps: price IDs are also per-account and per-mode, so a live key wi
 
 Optional features (OAuth, Stripe, stored API keys, the shared Claude key) degrade to 501s when unconfigured. `_log_feature_status()` runs in the lifespan and logs each one as enabled or DISABLED at boot, so a misconfigured deploy is visible in the deploy log rather than discovered by a user hitting a dead button. Add new optional config to that list.
 
+### Data protection — behaviours that exist for a legal reason
+
+These look like ordinary product decisions and are not. Each satisfies a
+specific obligation, and reverting one for convenience would quietly break a
+published commitment. [legal/README.md](legal/README.md) has the full reasoning.
+
+**Signed-out visitors are never recorded.** `/chat/stream` skips the DB write
+entirely when there is no user — the guard is explicit, not incidental. Their
+questions used to be stored as `user_id IS NULL` rows, which meant holding a
+record of what someone asked before they had agreed to anything, and a question
+can identify its asker. The privacy policy now states outright that nothing is
+stored for them. Do not reintroduce anonymous persistence for analytics.
+
+**DNA upload requires sign-in.** `requestDnaUpload()` in App.jsx gates all three
+entry points. Not a paywall — DNA stays inside the free allowance — but genetic
+data is Article 9 special category, processed on explicit consent, and consent
+must be recorded against *someone*. It also closes section 11.1 of Railway's
+DPA, which puts the consent record on us. The modal copy says exactly this,
+because a sign-in wall in front of someone's own data otherwise reads as a
+money grab.
+
+**Consent is a bare timestamp.** `users.dna_consent_at`, written by
+`POST /user/dna-consent`. No variants, no file, no record of what was then
+looked at — Article 7(1) requires demonstrating consent, and a timestamp is the
+least that meets it. Recorded best-effort from the client: a failed write must
+not stand between someone and their own data when consent was given regardless.
+
+**Export and erasure are self-serve**, in Settings → Your Data.
+`GET /user/export` returns the account as portable JSON and **deliberately
+excludes the stored API key** — it is the reader's credential, and an export
+must never become a route for reading secrets back out. `DELETE /user/account`
+erases the account, its queries and its projects; queries without a project do
+not cascade, so they are deleted explicitly. It reports
+`subscription_needs_cancelling`, because removing our record of a subscription
+does not stop Stripe billing for it. Twelve tests in
+`tests/test_privacy_rights.py` cover this, including that erasing one account
+touches no other.
+
+**MyDNA is not offered in the EEA or UK**, which is why no Article 27
+representative is appointed. Stated in the Terms rather than left implied. The
+data rights are honoured for everyone regardless of location anyway, since
+export and erasure already exist and extending them costs nothing. Revisit if
+pricing, languages or marketing ever target those regions.
+
 ### Schema migrations
 
 `create_tables()` in [database/models.py](genomics_backend/database/models.py) calls a hand-rolled `_run_migrations()` — a list of idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements, each individually try/excepted. Adding a nullable column to an existing table means appending one line there, not writing an Alembic revision. This runs on every boot.
@@ -242,6 +297,20 @@ All config is [config.py](genomics_backend/config.py) `Settings` (pydantic-setti
 The structure that makes it navigable: **each key in the backend's pipeline dict has a matching display component** — `pathways` → `PathwayViewer`, `expression` → `ExpressionChart`, `interactions` → `InteractionNetwork`, `drugs` → `DrugPanel`, `gwas` → `GWASPanel`, `hpo`/`monarch` → `PhenotypePanel`, `pharmgkb` → `PharmGKBPanel`, `cancer_mutations` → `CancerMutationsPanel`, `clingen` → `ClinGenPanel`, `omim` → `OmimPanel`, `population_summary` → `PopulationFrequencyChart`, `publication_timeline` → `PublicationTimeline`, `variants` + `domains` → `LollipopMap`, `structural_variants` → `StructuralVariantsPanel`, `genetic_tests` → `GeneticTestsPanel`, `medgen` → `MedGenPanel`, `full_text` → `FullTextPanel`, `gene_locus_grch37` + uploaded DNA → `MyVariantsPanel`. `SectionPanel` dispatches by key; `DataSection` handles the variant table. Adding a backend data source means adding a `fetch_*` in the pipeline and one panel component here — and registering the key in the five places listed under "the genomics fan-out".
 
 Charts and the lollipop variant map are hand-rolled SVG — no charting library.
+
+**Routing is one `if` in [root.jsx](frontend/src/root.jsx), above `App`.** Not a
+router, and deliberately not inside `App` — that component has a great many
+hooks, and a second view behind an early return there would be one reordering
+away from breaking the rules of hooks. Vercel rewrites every path to
+`index.html`, so `/about` is a real, linkable, crawlable URL. `/privacy`,
+`/terms` and an FAQ follow the same three-line pattern.
+
+**Centred empty states use `justify-content: safe center`.** Plain centring
+overflows equally in both directions and a scroll container cannot scroll above
+its own start, so with the DNA banner taking a strip of height the top of the
+logo became unreachable. The plain declaration is kept ahead of it as a
+fallback, and the inline `justifyContent` had to be removed because it would
+have beaten the rule.
 
 ### Colour tokens — measure, do not eyeball
 

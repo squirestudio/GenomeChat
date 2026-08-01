@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pictogramScale, oneInPhrase, comparePopulations } from "./frequency";
+import { pictogramScale, sharedPictogramScale, filledOn, oneInPhrase, comparePopulations } from "./frequency";
 
 describe("pictogramScale", () => {
   it("scales the grid to the rarity rather than fixing it", () => {
@@ -108,5 +108,43 @@ describe("comparePopulations", () => {
   it("is safe on nothing", () => {
     expect(comparePopulations([]).rows).toEqual([]);
     expect(comparePopulations(null).rows).toEqual([]);
+  });
+});
+
+describe("sharedPictogramScale", () => {
+  /* The flaw a reader spotted: scaling each group independently made the most
+     and least affected CFTR groups both resolve to one filled dot, hiding the
+     2x difference the panel exists to show. */
+  const CFTR = [0.000558, 0.000469, 0.000422, 0.000399, 0.000359, 0.000333, 0.000279];
+
+  it("picks one grid fine enough for the rarest group to register", () => {
+    const s = sharedPictogramScale(CFTR);
+    expect(s.total).toBe(10000);
+    expect(filledOn(Math.min(...CFTR), s.total)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("makes the difference between groups visible", () => {
+    const { total } = sharedPictogramScale(CFTR);
+    const most = filledOn(0.000558, total);
+    const least = filledOn(0.000279, total);
+    expect(most).toBe(6);
+    expect(least).toBe(3);
+    expect(most).toBeGreaterThan(least);   // the whole point
+  });
+
+  it("uses a coarser grid when the variant is common enough not to need one", () => {
+    expect(sharedPictogramScale([0.16, 0.09]).total).toBe(100);
+  });
+
+  it("never renders a present group as an empty grid", () => {
+    /* Zero dots reads as "not found here", which is a different claim. */
+    const { total } = sharedPictogramScale([0.5, 0.00002]);
+    expect(filledOn(0.00002, total)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("is safe on nothing", () => {
+    expect(sharedPictogramScale([])).toBeNull();
+    expect(sharedPictogramScale(null)).toBeNull();
+    expect(filledOn(null, 1000)).toBe(0);
   });
 });

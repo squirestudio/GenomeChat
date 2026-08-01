@@ -10,7 +10,7 @@ import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems } from "./response";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
-import { comparePopulations, pictogramScale } from "./frequency";
+import { comparePopulations, sharedPictogramScale, filledOn } from "./frequency";
 import { parseTable, isNumeric } from "./table";
 import {
   consequenceClass, significanceClass, evidenceLevel,
@@ -1905,11 +1905,15 @@ function PopulationFrequencyChart({ populations }) {
   if (!rows.length) return null;
 
   const active = rows[Math.min(selected, rows.length - 1)];
-  const grid = pictogramScale(active.frequency);
-  // Wide enough that the filled dots are findable, short enough to scan.
-  const cols = grid ? (grid.total > 1000 ? 100 : grid.total > 100 ? 50 : 10) : 0;
-  const dotsShown = grid ? Math.min(grid.total, 2000) : 0;
-  const filledShown = grid ? Math.max(1, Math.round((grid.filled / grid.total) * dotsShown)) : 0;
+  // One grid for every group, chosen so the rarest still registers. Scaling
+  // each independently made the most and least affected groups look identical,
+  // which hid the very difference this panel exists to show.
+  const grid = sharedPictogramScale(rows.map(r => r.frequency));
+  const filled = grid ? filledOn(active.frequency, grid.total) : 0;
+  // Roughly 4:1, so a ten-thousand grid stays a band rather than a square.
+  const cols = grid ? Math.ceil(Math.sqrt(grid.total * 4)) : 0;
+  const gridRows = grid ? Math.ceil(grid.total / cols) : 0;
+  const patternId = grid ? `popdots-${grid.total}` : null;
 
   return (
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
@@ -1934,23 +1938,28 @@ function PopulationFrequencyChart({ populations }) {
 
       {grid && (
         <div style={{ padding: "0.75rem 0.875rem 0" }}>
-          <svg viewBox={`0 0 ${cols * 3} ${Math.ceil(dotsShown / cols) * 3}`} width="100%"
-            role="img" aria-label={`${active.phrase} people of ${active.name} ancestry`}
-            style={{ display: "block", maxHeight: 140 }}>
-            {Array.from({ length: dotsShown }, (_, i) => {
-              const on = i < filledShown;
-              return (
-                <circle key={i} cx={(i % cols) * 3 + 1.5} cy={Math.floor(i / cols) * 3 + 1.5}
-                  r={on ? 1.3 : 0.85}
-                  fill={on ? "var(--accent)" : "var(--text-dim)"}
-                  opacity={on ? 1 : 0.22} />
-              );
-            })}
+          {/* The unfilled population is a repeating pattern, not ten thousand
+              elements — the grid is uncapped and the DOM holds only the handful
+              of dots that are actually filled. */}
+          <svg viewBox={`0 0 ${cols} ${gridRows}`} width="100%" preserveAspectRatio="xMidYMid meet"
+            role="img" aria-label={`${active.phrase} people of ${active.name} ancestry carry a variant`}
+            style={{ display: "block", maxHeight: 150 }}>
+            <defs>
+              <pattern id={patternId} width="1" height="1" patternUnits="userSpaceOnUse">
+                <circle cx="0.5" cy="0.5" r="0.28" fill="var(--text-dim)" opacity="0.28" />
+              </pattern>
+            </defs>
+            <rect x="0" y="0" width={cols} height={gridRows} fill={`url(#${patternId})`} />
+            {Array.from({ length: Math.min(filled, 400) }, (_, i) => (
+              <circle key={i} cx={(i % cols) + 0.5} cy={Math.floor(i / cols) + 0.5}
+                r="0.48" fill="var(--accent)" />
+            ))}
           </svg>
           <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", textAlign: "center", margin: "5px 0 0" }}>
-            Each dot is one person. {dotsShown < grid.total
-              ? `Shown to scale — the real figure is ${active.phrase.toLowerCase()}.`
-              : `${filledShown} highlighted of ${dotsShown.toLocaleString()}.`}
+            Each dot is one person — <strong style={{ color: "var(--accent)" }}>{filled}</strong> highlighted
+            of {grid.total.toLocaleString()}. The same grid is used for every
+            ancestry group, so switching between them is a like-for-like
+            comparison.
           </p>
         </div>
       )}

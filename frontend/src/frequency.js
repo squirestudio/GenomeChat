@@ -85,4 +85,38 @@ function comparePopulations(populations) {
   };
 }
 
-export { pictogramScale, oneInPhrase, comparePopulations, SCALES };
+/**
+ * One grid for every group in a panel, so they can be compared.
+ *
+ * Scaling each group independently was the flaw: at CFTR's frequencies the
+ * most and least affected groups both resolved to a single filled dot, hiding
+ * the 2x difference the panel exists to show. The grid is now chosen from the
+ * *smallest* frequency present, so even the rarest group fills at least one
+ * dot — and the others then fill proportionally more.
+ */
+function sharedPictogramScale(frequencies) {
+  const values = (frequencies || [])
+    .map(Number)
+    .filter(f => Number.isFinite(f) && f > 0);
+  if (!values.length) return null;
+
+  const smallest = Math.min(...values);
+  const largest = Math.max(...values);
+  if (largest >= 1) return { total: 100, scale: 100 };
+
+  for (const total of SCALES) {
+    // The rarest group has to register, or it renders as an empty grid while
+    // its neighbours show dots — which reads as "none here" rather than "rare".
+    if (Math.round(smallest * total) >= 1) return { total, scale: total };
+  }
+  return { total: SCALES[SCALES.length - 1], scale: SCALES[SCALES.length - 1] };
+}
+
+/** How many dots a given frequency fills on a shared grid. */
+function filledOn(frequency, total) {
+  const f = Number(frequency);
+  if (!Number.isFinite(f) || f <= 0 || !total) return 0;
+  return Math.min(total, Math.max(1, Math.round(f * total)));
+}
+
+export { pictogramScale, sharedPictogramScale, filledOn, oneInPhrase, comparePopulations, SCALES };

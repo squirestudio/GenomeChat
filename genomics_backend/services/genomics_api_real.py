@@ -1977,9 +1977,25 @@ async def fetch_structural_variants(gene_symbol: str) -> dict:
                 accession = entry.get("sv") or entry.get("st")
                 if not accession:
                     continue
+                # GRCh37 on purpose, not whichever placement happened to come
+                # first. dbVar returns both builds for most records — and
+                # BRCA1 sits ~1.85 Mb apart between them — so drawing a mix of
+                # assemblies on one axis would scatter variants across a region
+                # they do not occupy. GRCh37 is the complete set here (every
+                # record carries it, only some carry GRCh38), it matches
+                # `gene_locus_grch37`, and it is the build consumer DNA files
+                # use, so a reader's own variants can share the axis later.
+                # Assembly strings carry patch suffixes ("GRCh38.p12"), hence
+                # the prefix match.
+                placements = [p for p in (entry.get("dbvarplacementlist") or []) if p.get("chr")]
                 placement = next(
-                    (p for p in (entry.get("dbvarplacementlist") or []) if p.get("chr")), {}
+                    (p for p in placements if str(p.get("assembly", "")).startswith("GRCh37")),
+                    None,
                 )
+                if placement is None:
+                    # Nothing to draw against, but the variant is still real —
+                    # it is reported without coordinates rather than dropped.
+                    placement = placements[0] if placements else {}
                 start, end = placement.get("chr_start"), placement.get("chr_end")
                 span = (end - start + 1) if isinstance(start, int) and isinstance(end, int) else None
                 vtype = (entry.get("dbvarvarianttypelist") or [None])[0]

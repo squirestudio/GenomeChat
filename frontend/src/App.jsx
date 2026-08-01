@@ -8,6 +8,7 @@ import {
 import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems } from "./response";
+import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -1983,49 +1984,161 @@ function ClinGenPanel({ curations }) {
 
 // ─── Structural variants (dbVar) ──────────────────────────────────────────────
 
-const bp = (n) => {
-  if (!Number.isFinite(n)) return null;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)} Mb`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)} kb`;
-  return `${n} bp`;
-};
+/**
+ * Structural variants, drawn to scale against the gene they affect.
+ *
+ * The lollipop map cannot express these: a whole-exon deletion has no single
+ * residue, and its meaning lives entirely in how much of the gene it removes.
+ * Here a 23 Mb copy-number loss and a 2.8% deletion look as different as they
+ * are — which is the whole reason for a second, genomic axis.
+ *
+ * Geometry is in spans.js and tested. This is only SVG.
+ */
+function StructuralVariantsPanel({ data, locus, geneName }) {
+  const [hover, setHover] = useState(null);
 
-function StructuralVariantsPanel({ data }) {
+  const { rows, gene } = useMemo(
+    () => layoutSpans(data?.variants, locus),
+    [data, locus],
+  );
+
   if (!data?.variants?.length) return null;
+
+  // Without a GRCh37 locus there is nothing to draw against, so the panel
+  // falls back to naming the variants rather than showing nothing at all.
+  const drawable = rows.length > 0 && gene;
+  const legend = spanLegend(rows);
+  const shown = drawable ? rows.slice(0, 12) : [];
+  const ROW_H = 17;
+  const H = shown.length * ROW_H;
+
   return (
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.1)", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet)" }}>Structural Variants</span>
         <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
-          dbVar · {data.variants.length} large pathogenic{data.matched > data.total ? ` of ${data.matched} reported` : ""}
+          dbVar · {data.variants.length} large pathogenic
+          {data.matched > data.total ? ` of ${data.matched} reported` : ""}
         </span>
       </div>
+
       <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
-        Deletions and duplications spanning 50 bp or more — the class of change that
-        variant-by-variant testing does not detect.
+        Deletions and duplications spanning 50 bp or more — the class of change
+        that variant-by-variant testing does not detect. Drawn to scale against{" "}
+        {geneName || "the gene"}; the bar behind them is the gene itself.
       </p>
-      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
-        {data.variants.map((v, i) => (
-          <a key={i} href={v.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
-            >
-              <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: "rgb(var(--c-violet) / 0.12)", color: "var(--violet)", border: "1px solid rgb(var(--c-violet) / 0.28)", flexShrink: 0, whiteSpace: "nowrap" }}>
-                {bp(v.span_bp) || "size n/a"}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: "0.73rem", color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {v.variant_type || "structural variant"}
-                </p>
-                <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2, fontFamily: "monospace" }}>
-                  {[v.accession, v.chromosome ? `chr${v.chromosome}` : null, v.assembly].filter(Boolean).join(" · ")}
-                </p>
-              </div>
-              <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>↗</span>
+
+      {drawable && (
+        <div style={{ padding: "0.7rem 0.875rem 0", position: "relative" }}>
+          <svg viewBox={`0 0 100 ${H + 16}`} preserveAspectRatio="none"
+            width="100%" height={H + 16} role="img"
+            aria-label={`${shown.length} structural variants drawn against ${geneName}`}
+            style={{ display: "block", overflow: "visible" }}>
+
+            {/* The gene body, behind everything, as the reference extent. */}
+            <rect x={gene.x0 * 100} y={0} width={(gene.x1 - gene.x0) * 100} height={H}
+              fill="rgb(var(--c-accent) / 0.10)" stroke="rgb(var(--c-accent) / 0.35)"
+              strokeWidth={0.15} vectorEffect="non-scaling-stroke" />
+
+            {shown.map((v, i) => {
+              const y = i * ROW_H + 3;
+              const on = hover?.accession === v.accession;
+              return (
+                <g key={v.accession} style={{ cursor: "pointer" }}
+                  onMouseEnter={() => setHover(v)} onMouseLeave={() => setHover(null)}>
+                  {/* Full-width hit target: the bars are thin. */}
+                  <rect x={0} y={y - 3} width={100} height={ROW_H} fill="transparent" />
+                  <rect x={v.x0 * 100} y={y} width={(v.x1 - v.x0) * 100} height={ROW_H - 7}
+                    rx={0.4} fill={v.kind.color} opacity={on ? 1 : 0.75} />
+                  {/* A variant running past the window is marked, not silently
+                      squared off — otherwise a 23 Mb loss reads as ending here. */}
+                  {v.clippedLeft && (
+                    <path d={`M0 ${y}L0 ${y + ROW_H - 7}`} stroke={v.kind.color}
+                      strokeWidth={1.2} vectorEffect="non-scaling-stroke" strokeDasharray="2 2" />
+                  )}
+                  {v.clippedRight && (
+                    <path d={`M100 ${y}L100 ${y + ROW_H - 7}`} stroke={v.kind.color}
+                      strokeWidth={1.2} vectorEffect="non-scaling-stroke" strokeDasharray="2 2" />
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Gene label sits outside the SVG so it is not stretched by
+              preserveAspectRatio="none". */}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.6rem", color: "var(--text-faintest)", marginTop: 2 }}>
+            <span>chr{locus.chromosome}:{Number(gene.start).toLocaleString()}</span>
+            <span style={{ color: "var(--accent)" }}>{geneName} · GRCh37</span>
+            <span>{Number(gene.end).toLocaleString()}</span>
+          </div>
+
+          {hover && (
+            <div style={{ position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", zIndex: 10,
+                          background: "rgb(var(--c-deep) / 0.97)", border: `1px solid ${hover.kind.color}66`,
+                          borderRadius: 8, padding: "0.45rem 0.65rem", pointerEvents: "none",
+                          minWidth: 200, boxShadow: "0 4px 20px rgb(var(--c-shadow) / 0.5)" }}>
+              <p style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--violet-faint)", fontWeight: 600 }}>
+                {hover.accession}
+              </p>
+              <p style={{ fontSize: "0.68rem", color: hover.kind.color, marginTop: 2 }}>{hover.kind.label}</p>
+              <p style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: 2 }}>
+                {formatBp(hover.span_bp) || "size unknown"}
+                {" · covers "}
+                <strong style={{ color: "var(--text-muted)" }}>
+                  {hover.coverage >= 0.995 ? "all" : `${Math.round(hover.coverage * 100)}%`}
+                </strong>
+                {" of "}{geneName}
+              </p>
             </div>
-          </a>
-        ))}
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: "0.6rem 0.875rem 0.75rem" }}>
+        {drawable && legend.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 9, marginBottom: 8 }}>
+            {legend.map(k => (
+              <span key={k.key} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 9, height: 6, borderRadius: 1, background: k.color }} />
+                <span style={{ fontSize: "0.6rem", color: "var(--text-dimmer)" }}>{k.label}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {(drawable ? shown : rows.length ? rows : data.variants).map((v) => (
+            <a key={v.accession} href={v.url} target="_blank" rel="noreferrer"
+              style={{ textDecoration: "none" }}
+              onMouseEnter={() => drawable && setHover(v)} onMouseLeave={() => setHover(null)}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 0.5rem",
+                            background: hover?.accession === v.accession ? "rgb(var(--c-surface) / 0.6)" : "rgb(var(--c-surface) / 0.28)",
+                            border: "1px solid rgb(var(--c-border) / 0.22)", borderRadius: 6 }}>
+                <span style={{ width: 9, height: 6, borderRadius: 1, flexShrink: 0,
+                               background: (v.kind || svKind(v.variant_type)).color }} />
+                <span style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "var(--text-dim)", flexShrink: 0 }}>{v.accession}</span>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {v.variant_type || "structural variant"}
+                </span>
+                <span style={{ fontSize: "0.63rem", color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                  {formatBp(v.span_bp) || "—"}
+                </span>
+              </div>
+            </a>
+          ))}
+        </div>
+
+        {drawable && rows.length > shown.length && (
+          <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", margin: "6px 0 0" }}>
+            Showing the {shown.length} largest of {rows.length}.
+          </p>
+        )}
+        {!drawable && (
+          <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", margin: "6px 0 0" }}>
+            Positions unavailable for this gene, so these are listed rather than mapped.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -3154,7 +3267,7 @@ function ComparisonView({ msg }) {
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
       {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} />}
       {(data.hpo?.phenotype_terms?.length > 0 || data.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={data.hpo} monarch={data.monarch} />}
-      {data.structural_variants?.variants?.length > 0 && <StructuralVariantsPanel data={data.structural_variants} />}
+      {data.structural_variants?.variants?.length > 0 && <StructuralVariantsPanel data={data.structural_variants} locus={data.gene_locus_grch37} geneName={gene} />}
       {data.genetic_tests?.tests?.length > 0 && <GeneticTestsPanel data={data.genetic_tests} />}
       {data.medgen?.concepts?.length > 0 && <MedGenPanel data={data.medgen} />}
       {data.full_text?.articles?.length > 0 && <FullTextPanel data={data.full_text} />}
@@ -3292,7 +3405,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} /> : null;
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
-    case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} /> : null;
+    case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} locus={d.gene_locus_grch37} geneName={msg.target} /> : null;
     case "genetic_tests":        return d.genetic_tests?.tests?.length > 0 ? <GeneticTestsPanel data={d.genetic_tests} /> : null;
     case "medgen":               return d.medgen?.concepts?.length > 0 ? <MedGenPanel data={d.medgen} /> : null;
     case "full_text":            return d.full_text?.articles?.length > 0 ? <FullTextPanel data={d.full_text} /> : null;

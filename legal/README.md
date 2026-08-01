@@ -15,7 +15,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 | Item | Decision |
 |---|---|
 | Controller | **Benjamin Kenneth Brown, trading as Squire Studios**, a sole proprietorship, Tennessee. See "Entity" below |
-| Contact | **privacy@mydna.chat** — *not yet created; see blockers* |
+| Contact | **privacy@mydna.chat** — live, forwarding verified 1 Aug 2026. DMARC `p=reject` set |
 | Governing law | Tennessee |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
 | Refund window | 14 days |
@@ -67,18 +67,13 @@ Recommended, in order:
    we signed is a PMB — but it cannot accept service of process, and if an LLC
    follows within months a registered agent service covers the same need plus
    the registered office and service of process for similar money.
-2. **`privacy@mydna.chat` must exist.** The documents name it as the route for
-   exercising data rights, and a policy describing rights with a dead address is
-   worse than one describing none. `info@redwolfagency.co` is a working fallback
-   if another mailbox is unwelcome — it is a one-word change, and the only cost
-   is that a Red Wolf address under a Squire Studios product reads as an error.
-3. **A Tennessee LLC**, before the legal pages go live — publishing terms is the
+2. **A Tennessee LLC**, before the legal pages go live — publishing terms is the
    point at which the operation is visibly a business.
-4. **A separate bank account** for it, or a single-member LLC can be pierced for
+3. **A separate bank account** for it, or a single-member LLC can be pierced for
    commingling and the protection is illusory.
-5. **Then** move Stripe and Railway, and re-execute the Railway DPA with
+4. **Then** move Stripe and Railway, and re-execute the Railway DPA with
    Exhibit B completed.
-6. Tech E&O insurance is worth pricing alongside the LLC; for a solo operator it
+5. Tech E&O insurance is worth pricing alongside the LLC; for a solo operator it
    is often the more practical protection, and they complement each other.
 
 Renaming the GitHub organisation, the email addresses or anything in the code

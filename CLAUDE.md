@@ -126,7 +126,7 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 196 checks, ~1.5s, no network — what CI runs
+python -m pytest -m "not external"   # 196 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
 python -m pytest                     # all 250, adds the ones hitting real APIs
 ```
 
@@ -432,6 +432,8 @@ This is the product's core privacy claim, stated in the UI consent modal and in 
 **The upload copy is a commitment, so the two notes differ on purpose** — the PDF note says "nothing leaves your device" and the image note does not, because for images it would be false. `extract.test.js` asserts that difference; it is the kind of wording that gets "tidied" into consistency by someone who has not read this.
 
 **HEIC needs its own decoder and its own detection.** iPhone photos are HEIC, no browser paints one to a canvas, and Chrome and Firefox commonly report an empty MIME type for them — so the extension is the reliable signal, and `classifyFile` checks it. Without this the most natural way to capture a page silently fails. `heic-to` is ~751KB gzipped and `pdfjs-dist` ~127KB; both are behind dynamic `import()` and build to their own chunks, so a reader who never uploads downloads neither. Verify that after any Vite or dependency change: losing the code-split would put 751KB in the critical path for everybody.
+
+**CI runs with no `ANTHROPIC_API_KEY`, and tests have to be written for that.** It has bitten twice. `interpret_query` returns its regex fallback when no key is set, so mocked classifier tests never reach the mock unless they patch `get_settings` too. `/documents/extract` reports 501 *before* the quota check, so its 402 tests are unreachable there — they are `skipif`-ed on the key, and a mirror test asserts the 501 when it is absent, so each branch is covered where it is actually reachable. **Simulating this locally means a keyless *server*, not just keyless pytest** — the first attempt set the variable only in the test process while the container's uvicorn still held a key, which reproduced nothing. Run a second uvicorn with `ANTHROPIC_API_KEY=""` on another port and point `MYDNA_TEST_BASE_URL` at it.
 
 **A test that costs money must say so.** `tests/test_document_extract.py` keeps the vision call behind the `external` marker and asserts the gate, the bounds and the charge without it. The subtle one is `test_the_ceiling_itself_is_allowed`: it runs on an account with no quota left, because pydantic validates the body before the handler runs, so a 402 proves the schema accepted eight pages. Written the obvious way — a funded account — that single CI test made a real eight-page vision call on every push. Verified by counting Anthropic requests in the container log across a run: the CI subset makes zero.
 

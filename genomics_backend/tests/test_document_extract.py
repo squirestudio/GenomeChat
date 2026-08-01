@@ -18,9 +18,19 @@ import zlib
 import httpx
 import pytest
 
+from config import get_settings
 from services.billing import FREE_QUERY_LIMIT
 
 TIMEOUT = 120
+
+# CI runs with no ANTHROPIC_API_KEY, and the endpoint reports 501 before it
+# reaches the quota check — correctly, since an unconfigured feature is not a
+# billing problem. So the two branches are tested where each one is reachable
+# rather than asserted blindly in both, which would only test whichever
+# environment happened to run last.
+CONFIGURED = bool(get_settings().anthropic_api_key)
+needs_key = pytest.mark.skipif(not CONFIGURED, reason="no ANTHROPIC_API_KEY: endpoint reports 501 before the quota check")
+needs_no_key = pytest.mark.skipif(CONFIGURED, reason="only reachable when the feature is unconfigured")
 
 
 def _png(width=120, height=60):
@@ -81,22 +91,26 @@ def test_the_ceiling_itself_is_allowed(base_url, make_user, auth, page_image):
     off-by-one nobody notices until a reader uploads a long article.
 
     Deliberately run on an account with no quota left. Pydantic validates the
-    body before the handler runs, so a 402 proves the schema accepted eight
-    pages; using a funded account here would have this CI test quietly make a
-    real eight-page vision call every push."""
+    body before the handler runs, so anything other than a 422 proves the
+    schema accepted eight pages; using a funded account here would have this CI
+    test quietly make a real eight-page vision call every push. The exact
+    rejection differs by environment — 402 configured, 501 not — and is not
+    what this test is about."""
     user = _exhausted(make_user)
     r = extract(base_url, auth(user), images=[page_image] * 8)
-    assert r.status_code == 402
+    assert r.status_code != 422
 
 
 # ── the charge ───────────────────────────────────────────────────────────────
 
+@needs_key
 def test_an_account_out_of_quota_is_refused(base_url, make_user, auth, page_image):
     r = extract(base_url, auth(_exhausted(make_user)), images=[page_image])
     assert r.status_code == 402
     assert r.json()["detail"]["upgrade_required"] is True
 
 
+@needs_key
 def test_the_refusal_names_the_free_alternative(base_url, make_user, auth, page_image):
     """Someone out of credits should be told that a text PDF still costs
     nothing, rather than concluding the whole feature is behind the paywall."""
@@ -112,6 +126,16 @@ def test_a_refused_extraction_charges_nothing(base_url, make_user, auth, fresh, 
     after = fresh(user)
     assert after.total_queries == FREE_QUERY_LIMIT
     assert (after.query_credits or 0) == 0
+
+
+@needs_no_key
+def test_an_unconfigured_deployment_says_so_rather_than_charging(base_url, make_user, auth, fresh, page_image):
+    """Without a key the feature cannot work, and the reader must not be told
+    they are out of credits for something that was never going to run."""
+    user = make_user(query_credits=5)
+    r = extract(base_url, auth(user), images=[page_image])
+    assert r.status_code == 501
+    assert fresh(user).query_credits == 5, "an unavailable feature charges nothing"
 
 
 # ── the real call ────────────────────────────────────────────────────────────

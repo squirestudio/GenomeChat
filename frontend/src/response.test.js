@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS, groupExploreItems, groupFor, SECTION_GROUP } from "./response";
+import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS, groupExploreItems, groupFor, SECTION_GROUP, proseLayout, noResultsFor } from "./response";
 
 describe("splitProseSections", () => {
   const answer = [
@@ -200,5 +200,75 @@ describe("grouping the Explore further cards", () => {
   it("is safe on nothing", () => {
     expect(groupExploreItems([])).toEqual([]);
     expect(groupExploreItems(null)).toEqual([]);
+  });
+});
+
+describe("proseLayout", () => {
+  // The answer that shipped broken: a real reply, rendered as one line.
+  const followup = {
+    content: "# Hypotonia: Clinical Overview\n\n## Overview\nLow muscle tone.\n\n"
+           + "## Causes\nCentral and peripheral.\n\n## Clinical Significance\nVaries.",
+  };
+
+  it("renders a data-less answer whole, because nothing else will show it", () => {
+    expect(proseLayout(followup).mode).toBe("whole");
+  });
+
+  it("splits a pipeline answer so panels can sit between the sections", () => {
+    const msg = { ...followup, data: { genes: [] } };
+    const plan = proseLayout(msg);
+    expect(plan.mode).toBe("split");
+    expect(plan.lead).toBe("# Hypotonia: Clinical Overview");
+    expect(plan.overview.body).toBe("Low muscle tone.");
+  });
+
+  it("does not lose sections it has no inline slot for — Explore further has them", () => {
+    const plan = proseLayout({ ...followup, data: {} });
+    expect(plan.findings).toBeNull();
+    // The same message split without a menu would drop Causes and Clinical
+    // Significance entirely, which is why mode is "whole" when data is absent.
+    expect(proseLayout(followup).mode).toBe("whole");
+  });
+
+  it("matches section titles loosely, so 'Key Findings:' still lands inline", () => {
+    const msg = { content: "## Key Findings:\nATM dominates.", data: {} };
+    expect(proseLayout(msg).findings.body).toBe("ATM dominates.");
+  });
+
+  it("is safe on nothing", () => {
+    expect(proseLayout(null).mode).toBe("whole");
+    expect(proseLayout({}).mode).toBe("whole");
+    expect(proseLayout({ content: "", data: {} }).overview).toBeNull();
+  });
+});
+
+describe("noResultsFor", () => {
+  it("reports a disease query that found no genes", () => {
+    expect(noResultsFor({
+      query_type: "disease_query", target: "asdkjhqwe syndrome", data: { genes: [] },
+    })).toBe("asdkjhqwe syndrome");
+  });
+
+  it("stays quiet when genes came back", () => {
+    expect(noResultsFor({
+      query_type: "disease_query", target: "hypotonia", data: { genes: [{ gene_symbol: "SOD1" }] },
+    })).toBeNull();
+  });
+
+  it("never fires on a gene query — no ClinVar variants is not an empty answer", () => {
+    // The gene still has pathways, expression, interactions and the rest.
+    expect(noResultsFor({
+      query_type: "gene_query", target: "BRCA1", data: { variants: [], pathways: [1] },
+    })).toBeNull();
+  });
+
+  it("stays quiet while still streaming, and on a conversational reply", () => {
+    expect(noResultsFor({ query_type: "disease_query", data: { genes: [] }, streaming: true })).toBeNull();
+    expect(noResultsFor({ content: "Sure — that means..." })).toBeNull();
+  });
+
+  it("is safe on nothing", () => {
+    expect(noResultsFor(null)).toBeNull();
+    expect(noResultsFor({})).toBeNull();
   });
 });

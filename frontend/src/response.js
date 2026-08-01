@@ -38,6 +38,44 @@ const norm = t => (t || "").toLowerCase().replace(/[^a-z]/g, "");
 // Shown inline, in this order, before the reader chooses anything.
 const PROSE_PRIMARY = ["overview", "keyfindings"];
 
+/**
+ * How an answer's prose should be laid out.
+ *
+ * A pipeline answer is *split*: Overview and Key Findings render inline around
+ * the protein viewer, and every other section becomes a card in Explore
+ * further. That menu is what makes the split safe — the sections left out are
+ * still one click away.
+ *
+ * An answer with no `data` has no menu, because Explore further is gated on
+ * `msg.data`. Splitting it therefore did not defer the other sections, it
+ * *deleted* them: a complete reply arrived from the backend and the reader saw
+ * its first line. Anything the pipeline did not produce — a follow-up, a
+ * definition, a query that fell to the conversational path — renders whole.
+ */
+function proseLayout(msg) {
+  const { lead, sections } = splitProseSections(msg?.content);
+  if (!msg?.data) return { mode: "whole", lead: "", overview: null, findings: null };
+  const pick = name => sections.find(sx => norm(sx.title) === name) || null;
+  return { mode: "split", lead, overview: pick("overview"), findings: pick("keyfindings") };
+}
+
+/**
+ * Whether to tell the reader outright that nothing was found.
+ *
+ * Only for disease answers, and only on a genuinely empty gene list. A gene
+ * query returning zero ClinVar variants is *not* empty — it still carries
+ * pathways, expression, interactions and the rest — so reporting "no results"
+ * there would be false. A disease query with no genes has nothing behind it at
+ * all, and used to render as a bare heading indistinguishable from a routing
+ * failure.
+ */
+function noResultsFor(msg) {
+  if (!msg || msg.streaming || !msg.data) return null;
+  if (msg.query_type !== "disease_query") return null;
+  if ((msg.data.genes || []).length > 0) return null;
+  return msg.target || msg.data.disease || "that term";
+}
+
 
 // Labels for sections, used when reporting one that came back empty.
 /* Both lists mirror OPTIONAL_SECTIONS in the backend's genomics_api_real.py.
@@ -144,4 +182,5 @@ function buildExploreItems(msg) {
 export {
   splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS,
   buildExploreItems, groupExploreItems, groupFor, EXPLORE_GROUPS, SECTION_GROUP,
+  proseLayout, noResultsFor,
 };

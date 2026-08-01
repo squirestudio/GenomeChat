@@ -88,17 +88,23 @@ jobs:
         working-directory: genomics_backend
         run: |
           set +e
+          # Only the suites that check third-party biomedical sources.
+          # A bare `-m external` also sweeps up the Stripe and Anthropic tests,
+          # which need real credentials CI does not have and so fail forever —
+          # turning a drift alarm into a weekly false positive, which is how a
+          # monitor gets muted and stops being a monitor.
+          SUITE="tests/test_upstream_contracts.py tests/test_ncbi_sources.py"
           # A single failure is more often a transient upstream than real
           # drift, so it is retried before anything is reported. Only a
           # repeated failure opens an issue.
-          python -m pytest -m external -q --no-header -p no:warnings \
+          python -m pytest $SUITE -m external -q --no-header -p no:warnings \
             > /tmp/run1.txt 2>&1
           if [ $? -eq 0 ]; then
             echo "outcome=pass" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "First attempt failed; retrying once in 60s."
           sleep 60
-          python -m pytest -m external -q --no-header -p no:warnings \
+          python -m pytest $SUITE -m external -q --no-header -p no:warnings \
             > /tmp/run2.txt 2>&1
           if [ $? -eq 0 ]; then
             echo "outcome=flaky" >> "$GITHUB_OUTPUT"; exit 0

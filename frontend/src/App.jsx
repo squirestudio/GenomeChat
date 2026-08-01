@@ -11,6 +11,7 @@ import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KE
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
 import { rankCancerTypes, splitConsequences } from "./cancer";
+import { rankAssociations } from "./gwas";
 
 // Shades for the consequence bar — one family, so it reads as parts of a whole
 // rather than as unrelated categories.
@@ -1865,48 +1866,94 @@ const PHASE_COLOR = {
   0: { bg: "rgb(var(--c-surface) / 0.5)", color: "var(--text-faint)", border: "rgb(var(--c-border) / 0.4)" },
 };
 
-function DrugPanel({ drugs }) {
-  const [expanded, setExpanded] = useState(false);
+// Stages in development order, so the pipeline reads left to right.
+const DRUG_STAGES = ["Preclinical", "Early Phase I", "Phase I", "Phase II", "Phase III", "Phase IV", "Approved"];
+const DRUG_STAGE_COLOR = {
+  Approved: "#10b981", "Phase IV": "#22c55e", "Phase III": "#84cc16",
+  "Phase II": "#eab308", "Phase I": "#f59e0b", "Early Phase I": "#f97316",
+  Preclinical: "#94a3b8", "Unknown stage": "#64748b",
+};
+
+/**
+ * Drugs targeting this gene, and how far each has got.
+ *
+ * The pipeline is drawn from every candidate, not from the listed ones. The
+ * list is capped at 25 and sorted approved-first, so EGFR's would have shown
+ * 25 approved drugs and no trials at all — the cap describing the pipeline
+ * rather than the data. It actually has 82 across five stages.
+ */
+function DrugPanel({ drugs, stages, total, geneName }) {
   if (!drugs?.length) return null;
-  const shown = expanded ? drugs : drugs.slice(0, 6);
+
+  const counts = stages || {};
+  const ordered = DRUG_STAGES.filter(s => counts[s]).map(s => ({ stage: s, count: counts[s] }));
+  for (const s of Object.keys(counts)) {
+    if (!DRUG_STAGES.includes(s)) ordered.push({ stage: s, count: counts[s] });
+  }
+  const pipelineTotal = ordered.reduce((n, s) => n + s.count, 0);
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Drug Interactions</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Open Targets · {drugs.length} compounds</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Drugs &amp; Clinical Candidates</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          Open Targets · {total || drugs.length} targeting {geneName || "this gene"}
+        </span>
       </div>
-      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
-        {shown.map((drug, i) => {
-          const phase = drug.phase ?? 0;
-          const pc = PHASE_COLOR[Math.min(phase, 4)] || PHASE_COLOR[0];
+
+      {pipelineTotal > 0 && (
+        <div style={{ padding: "0.7rem 0.875rem 0" }}>
+          <div style={{ display: "flex", height: 14, borderRadius: 3, overflow: "hidden", background: "rgb(var(--c-surface) / 0.6)" }}>
+            {ordered.map(s => (
+              <span key={s.stage} title={`${s.stage}: ${s.count}`}
+                style={{ width: `${(s.count / pipelineTotal) * 100}%`, background: DRUG_STAGE_COLOR[s.stage] || "#64748b" }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 9, marginTop: 7 }}>
+            {ordered.map(s => (
+              <span key={s.stage} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: DRUG_STAGE_COLOR[s.stage] || "#64748b" }} />
+                <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>
+                  {s.stage} <span style={{ color: "var(--text-faintest)" }}>{s.count}</span>
+                </span>
+              </span>
+            ))}
+          </div>
+          <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", margin: "6px 0 0", lineHeight: 1.5 }}>
+            Every candidate, including ones that never reached approval.
+            Targeting a gene is not the same as treating a condition caused by it.
+          </p>
+        </div>
+      )}
+
+      <div style={{ padding: "0.75rem 0.875rem 0.85rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {drugs.map((d, i) => {
+          const color = DRUG_STAGE_COLOR[d.phase_label] || "#64748b";
           return (
-            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "0.5rem 0.6rem", background: "rgb(var(--c-surface) / 0.3)", borderRadius: 8, border: "1px solid rgb(var(--c-border) / 0.25)" }}>
-              <span style={{ fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 5, background: pc.bg, color: pc.color, border: `1px solid ${pc.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
-                {/* The backend names the stage: its vocabulary is an enum, and
-                    a phase 4 trial is a post-approval study rather than an
-                    approval, which this scale cannot express on its own. */}
-                {drug.phase_label || PHASE_LABEL[Math.min(phase, 4)] || `Phase ${phase}`}
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "0.4rem 0.55rem", background: "rgb(var(--c-surface) / 0.3)", borderRadius: 7, border: "1px solid rgb(var(--c-border) / 0.22)" }}>
+              <span style={{ fontSize: "0.6rem", padding: "0.14em 0.45em", borderRadius: 4, whiteSpace: "nowrap", flexShrink: 0,
+                             background: `${color}22`, color, border: `1px solid ${color}55` }}>
+                {d.phase_label || "Unknown"}
               </span>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <p style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 600 }}>{drug.name}</p>
-                {drug.mechanism && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drug.mechanism}</p>}
-                {/* Open Targets no longer returns a per-drug indication; the
-                    field is kept because older cached answers still carry it. */}
-                {drug.indication && <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 1 }}>{drug.indication}</p>}
+                <p style={{ fontFamily: "monospace", fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: 600 }}>{d.name}</p>
+                {d.mechanism && (
+                  <p style={{ fontSize: "0.66rem", color: "var(--text-dim)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.mechanism}</p>
+                )}
+                {d.indication && <p style={{ fontSize: "0.64rem", color: "var(--text-dimmer)", marginTop: 1 }}>{d.indication}</p>}
               </div>
-              {drug.drug_type && <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)", flexShrink: 0, alignSelf: "center" }}>{drug.drug_type}</span>}
+              {d.drug_type && (
+                <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0, alignSelf: "center" }}>{d.drug_type}</span>
+              )}
             </div>
           );
         })}
+        {total > drugs.length && (
+          <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", margin: "2px 0 0" }}>
+            Showing {drugs.length} of {total}, furthest developed first.
+          </p>
+        )}
       </div>
-      {drugs.length > 6 && (
-        <div style={{ padding: "0 0.875rem 0.625rem" }}>
-          <button onClick={() => setExpanded(e => !e)} style={{ fontSize: "0.72rem", color: "var(--success-soft)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-            {expanded ? "Show less" : `+ ${drugs.length - 6} more compounds`}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -2861,52 +2908,108 @@ function PublicationTimeline({ timeline }) {
 
 // ─── GWAS Panel ──────────────────────────────────────────────────────────────
 
-function GWASPanel({ gwas }) {
-  if (!gwas?.length) return null;
+/**
+ * Genome-wide association results.
+ *
+ * Not a volcano plot, deliberately. That chart needs a shared effect-size axis
+ * and this data has none: betas arrive in whatever unit each study measured —
+ * z score, nmol/L, year — so plotting them together would assert a comparison
+ * that does not exist. Odds ratios would be comparable and are almost never
+ * present. Significance is the one thing that *is* comparable, so it gets the
+ * bar; effect size is stated per trait with its own unit.
+ *
+ * Conditions are separated from molecular measurements because most GWAS hits
+ * for a gene are protein or lipid levels, and mixing them buries the findings
+ * a reader came for. Ranked together, APOE's nectin-2 measurement outranks its
+ * Alzheimer's association — true, and useless.
+ */
+function GWASPanel({ gwas, geneName }) {
+  const { conditions, measurements, conditionTotal, measurementTotal } =
+    useMemo(() => rankAssociations(gwas), [gwas]);
+  const [showMeasurements, setShowMeasurements] = useState(false);
 
-  const sigColor = (p) => {
-    if (p === null || p === undefined) return "var(--text-faint)";
-    if (p < 5e-8) return "var(--danger)";   // genome-wide significant
-    if (p < 1e-5) return "var(--warning-soft)";   // suggestive
-    return "var(--warning)";                  // nominal
-  };
+  if (!conditions.length && !measurements.length) return null;
+
+  const row = (a) => (
+    <a key={`${a.trait}-${a.rsid}`} href={a.url} target="_blank" rel="noreferrer"
+      style={{ textDecoration: "none", display: "block" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 0.45rem", borderRadius: 6 }}
+        onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-surface) / 0.45)"}
+        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", width: 168, flexShrink: 0,
+                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.trait}>
+          {a.trait}
+        </span>
+        <span style={{ flex: 1, height: 7, borderRadius: 3, background: "rgb(var(--c-surface) / 0.7)", overflow: "hidden", minWidth: 36 }}>
+          <span style={{ display: "block", height: "100%", width: `${Math.max(2, a.relative * 100)}%`,
+                         borderRadius: 3, background: "var(--warning)", opacity: 0.85 }} />
+        </span>
+        <span style={{ fontSize: "0.62rem", color: "var(--text-dim)", width: 68, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+          {a.pText}
+        </span>
+        {/* Direction survives the unit problem — raises and lowers mean the
+            same thing whatever was measured. The magnitude never leaves its
+            own row. */}
+        <span style={{ fontSize: "0.62rem", width: 92, textAlign: "right", flexShrink: 0,
+                       color: a.direction === "up" ? "var(--danger)" : a.direction === "down" ? "var(--success-soft)" : "var(--text-faintest)" }}
+          title={a.text ? `Effect: ${a.text}` : "No effect size reported"}>
+          {a.direction === "up" ? "↑ " : a.direction === "down" ? "↓ " : ""}{a.text || "—"}
+        </span>
+      </div>
+    </a>
+  );
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger)" }}>GWAS Catalog</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>Trait associations · {gwas.length} results</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-warning) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--warning)" }}>Population Associations</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          GWAS Catalog · {conditionTotal + measurementTotal} findings
+        </span>
       </div>
-      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
-        {gwas.map((a, i) => (
-          <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <div style={{ padding: "0.45rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-danger) / 0.3)"}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: "0.73rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.trait}</p>
-                <div style={{ display: "flex", gap: 8, marginTop: 2, alignItems: "center" }}>
-                  {a.risk_allele && <span style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>{a.risk_allele}</span>}
-                  {a.or_beta != null && <span style={{ fontSize: "0.62rem", color: "var(--text-dim)" }}>OR/β={a.or_beta.toFixed(2)}</span>}
-                  {a.pmid && <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>PMID:{a.pmid}</span>}
-                </div>
-              </div>
-              <span style={{ fontSize: "0.65rem", fontFamily: "monospace", color: sigColor(a.p_value), flexShrink: 0, whiteSpace: "nowrap" }}>
-                {a.p_value_str !== "N/A" ? `p=${a.p_value_str}` : "p=N/A"}
-              </span>
-            </div>
-          </a>
-        ))}
-      </div>
-      <div style={{ padding: "0.35rem 0.875rem 0.5rem", borderTop: "1px solid rgb(var(--c-surface) / 0.4)", display: "flex", gap: 12, alignItems: "center" }}>
-        {[["< 5×10⁻⁸", "var(--danger)", "Genome-wide"], ["< 1×10⁻⁵", "var(--warning-soft)", "Suggestive"], ["other", "var(--warning)", "Nominal"]].map(([thr, col, lbl]) => (
-          <div key={lbl} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: col }} />
-            <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{lbl}</span>
-          </div>
-        ))}
-      </div>
+
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
+        Traits statistically associated with variants near {geneName || "this gene"}
+        across large populations. An association is not a cause, and these are
+        population-level findings rather than anything about one person.
+      </p>
+
+      {conditions.length > 0 && (
+        <div style={{ padding: "0.6rem 0.875rem 0" }}>
+          <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-faintest)", margin: "0 0 5px" }}>
+            Conditions &amp; traits
+          </p>
+          {conditions.map(row)}
+        </div>
+      )}
+
+      {measurements.length > 0 && (
+        <div style={{ padding: "0.7rem 0.875rem 0" }}>
+          <button onClick={() => setShowMeasurements(v => !v)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: "0.62rem", color: "var(--text-dim)", width: 9 }}>{showMeasurements ? "▾" : "▸"}</span>
+            <span style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-faintest)" }}>
+              Molecular measurements ({measurementTotal})
+            </span>
+          </button>
+          {showMeasurements && (
+            <>
+              <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", margin: "5px 0 4px", lineHeight: 1.5 }}>
+                Protein and biomarker levels rather than conditions. Often the
+                most statistically significant results a gene has, and rarely
+                what someone is looking for — which is why they are separate.
+              </p>
+              {measurements.map(row)}
+            </>
+          )}
+        </div>
+      )}
+
+      <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", padding: "0.6rem 0.875rem 0.75rem", margin: 0, lineHeight: 1.5 }}>
+        Bars compare significance within each group. Effect sizes are shown per
+        trait and are <em>not</em> comparable between them — each study reports
+        in its own units.
+      </p>
     </div>
   );
 }
@@ -3704,11 +3807,11 @@ function ComparisonView({ msg }) {
       {data.expression?.length > 0 && <ExpressionChart expression={data.expression} />}
       {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} />}
       {data.protein_info?.length && <LollipopMap key={gene} variants={data.variants || []} domains={data.domains || []} proteinLength={data.protein_info.length} geneName={gene} />}
-      {data.drugs?.length > 0 && <DrugPanel drugs={data.drugs} />}
+      {data.drugs?.length > 0 && <DrugPanel drugs={data.drugs} stages={data.drug_stages} total={data.drug_total} geneName={gene} />}
       {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} geneName={gene} />}
       {(data.clingen?.length > 0) && <ClinGenPanel curations={data.clingen} />}
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
-      {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} />}
+      {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} geneName={gene} />}
       {(data.hpo?.phenotype_terms?.length > 0 || data.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={data.hpo} monarch={data.monarch} />}
       {data.disease_network?.diseases?.length > 0 && <DiseaseNetworkPanel data={data.disease_network} geneName={gene} />}
       {data.structural_variants?.variants?.length > 0 && <StructuralVariantsPanel data={data.structural_variants} locus={data.gene_locus_grch37} geneName={gene} />}
@@ -3841,12 +3944,12 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "pathways":             return d.pathways?.length > 0 ? <PathwayViewer pathways={d.pathways} /> : null;
     case "expression":           return d.expression?.length > 0 ? <ExpressionChart expression={d.expression} /> : null;
     case "interactions":         return d.interactions?.length > 0 ? <InteractionNetwork interactions={d.interactions} centerGene={msg.target} /> : null;
-    case "drugs":                return d.drugs?.length > 0 ? <DrugPanel drugs={d.drugs} /> : null;
+    case "drugs":                return d.drugs?.length > 0 ? <DrugPanel drugs={d.drugs} stages={d.drug_stages} total={d.drug_total} geneName={msg.target} /> : null;
     case "omim":                 return (d.omim?.gene_entry || d.omim?.phenotypes?.length) ? <OmimPanel omim={d.omim} /> : null;
     case "pharmgkb":             return (d.pharmgkb?.related_drugs?.length || d.pharmgkb?.clinical_annotations?.length) ? <PharmGKBPanel pgkb={d.pharmgkb} /> : null;
     case "cancer_mutations":     return d.cancer_mutations?.cancer_types?.length > 0 ? <CancerMutationsPanel data={d.cancer_mutations} geneName={msg.target} /> : null;
     case "clingen":              return d.clingen?.length > 0 ? <ClinGenPanel curations={d.clingen} /> : null;
-    case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} /> : null;
+    case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} geneName={msg.target} /> : null;
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
     case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} /> : null;

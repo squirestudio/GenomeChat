@@ -1000,10 +1000,15 @@ async def fetch_open_targets_drugs(ensembl_id: str) -> list[dict]:
                     "mechanism": mechanisms[0] if mechanisms else "",
                     "source": "Open Targets",
                 })
+            # Uncapped and sorted. The caller decides how many to show, which
+            # is what lets the stage counts below be taken from everything
+            # rather than from a truncated, approved-first slice — EGFR has 82
+            # candidates and the first 25 are all approved, so a pipeline drawn
+            # from the visible list would report no trials at all.
             return sorted(
                 drugs,
                 key=lambda d: -OPENTARGETS_STAGE_RANK.get(d["stage"], -99),
-            )[:25]
+            )
     except Exception as e:
         logger.warning(f"Open Targets drug query failed for {ensembl_id}: {e}")
         return []
@@ -2383,7 +2388,12 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         if not ensembl_id:
             info = await lookup_gene_ensembl(gene_symbol)
             ensembl_id = (info or {}).get("id", "")
-        return {"drugs": _safe(await fetch_open_targets_drugs(ensembl_id)) or []}
+        all_drugs = _safe(await fetch_open_targets_drugs(ensembl_id)) or []
+        stages: dict[str, int] = {}
+        for d in all_drugs:
+            stages[d["phase_label"]] = stages.get(d["phase_label"], 0) + 1
+        # `drugs` stays a list so answers already in the database still render.
+        return {"drugs": all_drugs[:25], "drug_stages": stages, "drug_total": len(all_drugs)}
 
     # "phenotypes" is deliberately unreachable: it drew on the same HPO data
     # that `disease_network` now presents organised by disease, so offering

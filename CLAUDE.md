@@ -126,8 +126,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 189 checks, ~3s, no network — what CI runs
-python -m pytest                     # all 241, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 196 checks, ~1.5s, no network — what CI runs
+python -m pytest                     # all 250, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -432,6 +432,8 @@ This is the product's core privacy claim, stated in the UI consent modal and in 
 **The upload copy is a commitment, so the two notes differ on purpose** — the PDF note says "nothing leaves your device" and the image note does not, because for images it would be false. `extract.test.js` asserts that difference; it is the kind of wording that gets "tidied" into consistency by someone who has not read this.
 
 **HEIC needs its own decoder and its own detection.** iPhone photos are HEIC, no browser paints one to a canvas, and Chrome and Firefox commonly report an empty MIME type for them — so the extension is the reliable signal, and `classifyFile` checks it. Without this the most natural way to capture a page silently fails. `heic-to` is ~751KB gzipped and `pdfjs-dist` ~127KB; both are behind dynamic `import()` and build to their own chunks, so a reader who never uploads downloads neither. Verify that after any Vite or dependency change: losing the code-split would put 751KB in the critical path for everybody.
+
+**A test that costs money must say so.** `tests/test_document_extract.py` keeps the vision call behind the `external` marker and asserts the gate, the bounds and the charge without it. The subtle one is `test_the_ceiling_itself_is_allowed`: it runs on an account with no quota left, because pydantic validates the body before the handler runs, so a 402 proves the schema accepted eight pages. Written the obvious way — a funded account — that single CI test made a real eight-page vision call on every push. Verified by counting Anthropic requests in the container log across a run: the CI subset makes zero.
 
 **Client-side OCR was considered and rejected.** On the material that matters — a phone photo of a rotated two-column genetics paper — it produces confident garbage, and a wrong character in `c.507G>A` silently makes it a different variant. No transcription beats a plausible wrong one, because nothing downstream can tell. That is also why `VISION_MODEL` is Sonnet rather than the Haiku used everywhere else.
 

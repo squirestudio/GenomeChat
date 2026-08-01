@@ -10,6 +10,7 @@ import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems } from "./response";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
+import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, filledOn } from "./frequency";
 import { parseTable, isNumeric } from "./table";
 import {
@@ -214,11 +215,31 @@ function load3Dmol() {
 }
 
 const REPRESENTATIONS = ["Cartoon", "Surface", "Stick", "Ball+Stick", "Sphere"];
-const COLOR_SCHEMES = ["pLDDT", "Secondary Structure", "Chain", "Hydrophobicity", "Spectrum"];
+const COLOR_SCHEMES = ["Variants", "pLDDT", "Secondary Structure", "Chain", "Hydrophobicity", "Spectrum"];
 
-function applyStyle(viewer, rep, scheme) {
+function applyStyle(viewer, rep, scheme, bands) {
   viewer.setStyle({}, {});
   try { viewer.removeAllSurfaces(); } catch {}
+
+  // "Variants" is not one of 3Dmol's colour schemes — it is our data. The
+  // structure is painted neutral first, then each severity band is applied to
+  // its own residues, least severe first so pathogenic cannot be overdrawn.
+  if (scheme === "Variants") {
+    const base = { cartoon: { color: "#3f4c5f" } };
+    if (rep === "Stick") base.stick = { color: "#3f4c5f", radius: 0.15 };
+    if (rep === "Sphere") base.sphere = { color: "#3f4c5f", scale: 0.5 };
+    viewer.setStyle({}, base);
+    for (const band of bands || []) {
+      const style = rep === "Sphere"
+        ? { sphere: { color: band.color, scale: 0.55 } }
+        : rep === "Stick"
+          ? { stick: { color: band.color, radius: 0.25 } }
+          : { cartoon: { color: band.color } };
+      viewer.setStyle({ resi: band.residues }, style);
+    }
+    viewer.render();
+    return;
+  }
   const colorscheme = (() => {
     if (scheme === "pLDDT") return { prop: "b", gradient: "linear", colors: ["#FF7D45","#FFDB13","#65CBF3","#0053D6"], min: 0, max: 100 };
     if (scheme === "Secondary Structure") return "ssJmol";
@@ -276,7 +297,13 @@ ray 1200, 900
 `;
 }
 
-function ProteinViewer({ pdbUrl, geneName, entryId }) {
+function ProteinViewer({ pdbUrl, geneName, entryId, variants, proteinLength }) {
+  // Computed once: a reader toggling between representations should not pay
+  // for this on every click.
+  const bands = useMemo(
+    () => variantColorBands(variants, proteinLength),
+    [variants, proteinLength],
+  );
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
   const [status, setStatus] = useState("loading");
@@ -327,13 +354,13 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
   const handleRep = (newRep) => {
     setRep(newRep);
     if (!viewerRef.current) return;
-    try { applyStyle(viewerRef.current, newRep, scheme); } catch {}
+    try { applyStyle(viewerRef.current, newRep, scheme, bands); } catch {}
   };
 
   const handleScheme = (newScheme) => {
     setScheme(newScheme);
     if (!viewerRef.current) return;
-    try { applyStyle(viewerRef.current, rep, newScheme); } catch {}
+    try { applyStyle(viewerRef.current, rep, newScheme, bands); } catch {}
   };
 
   const toggleSpin = () => {
@@ -345,7 +372,7 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
   const resetView = () => {
     if (!viewerRef.current) return;
     try {
-      applyStyle(viewerRef.current, "Cartoon", "pLDDT");
+      applyStyle(viewerRef.current, "Cartoon", "pLDDT", bands);
       viewerRef.current.zoomTo();
     } catch {}
     setRep("Cartoon");
@@ -404,7 +431,7 @@ function ProteinViewer({ pdbUrl, geneName, entryId }) {
             <button key={r} onClick={() => handleRep(r)} style={btnStyle(rep === r)}>{r}</button>
           ))}
           <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginLeft: 8, marginRight: 4 }}>Color:</span>
-          {COLOR_SCHEMES.map(s => (
+          {COLOR_SCHEMES.filter(s => s !== "Variants" || bands.length > 0).map(s => (
             <button key={s} onClick={() => handleScheme(s)} style={btnStyle(scheme === s)}>{s}</button>
           ))}
         </div>
@@ -3580,7 +3607,7 @@ function ComparisonView({ msg }) {
   const GeneCol = ({ data, gene }) => (
     <div style={{ flex: 1, minWidth: 0 }}>
       <GeneInfoBanner geneInfo={data.gene_info} proteinInfo={data.protein_info} pubCount={data.publication_count} />
-      {data.alphafold?.pdb_url && <ProteinViewer pdbUrl={data.alphafold.pdb_url} geneName={gene} entryId={data.alphafold.entry_id} />}
+      {data.alphafold?.pdb_url && <ProteinViewer pdbUrl={data.alphafold.pdb_url} geneName={gene} entryId={data.alphafold.entry_id} variants={data.variants} proteinLength={data.protein_info?.length} />}
       {data.pathways?.length > 0 && <PathwayViewer pathways={data.pathways} />}
       {data.expression?.length > 0 && <ExpressionChart expression={data.expression} />}
       {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} />}
@@ -3780,6 +3807,8 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
                   pdbUrl={msg.data.alphafold.pdb_url}
                   geneName={msg.data.alphafold.gene || msg.target}
                   entryId={msg.data.alphafold.entry_id}
+                  variants={msg.data.variants}
+                  proteinLength={msg.data.protein_info?.length}
                 />
               )}
 

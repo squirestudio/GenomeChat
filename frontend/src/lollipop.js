@@ -275,7 +275,62 @@ function matchUserGenotypes(variants, dnaData) {
   return out;
 }
 
+/**
+ * Residues carrying variants, grouped by the most severe call at each one.
+ *
+ * For colouring the 3D structure. The question a reader has looking at a
+ * protein is "where is the damage", and whether it clusters is the answer.
+ *
+ * Both outcomes are informative, and which one appears depends on the kind of
+ * variant. CFTR and RYR1 put 20-25 of ~34 coloured residues inside named
+ * domains, because their pathogenic variants are largely missense — a
+ * substitution only matters where structure matters. BRCA1 puts *zero* of 19
+ * in a domain: its set is 13 frameshift and 6 nonsense, and a truncation
+ * destroys the protein wherever it lands. Scattered is a finding, not a
+ * failure to find one.
+ *
+ * Most severe wins where a residue carries several calls: a position with both
+ * a benign and a pathogenic variant is a position worth looking at, and
+ * averaging them would paint it reassuringly.
+ */
+function residueSeverity(variants, proteinLength) {
+  const worst = new Map();
+  for (const v of positionVariants(variants, proteinLength)) {
+    const sig = significanceClass(v.clinical_significance);
+    const existing = worst.get(v.protein_position);
+    if (!existing || sig.rank < existing.rank) {
+      worst.set(v.protein_position, { ...sig, count: (existing?.count || 0) + 1 });
+    } else {
+      existing.count += 1;
+    }
+  }
+  return worst;
+}
+
+/**
+ * Residues bundled into one entry per colour, which is the shape 3Dmol wants.
+ *
+ * Styling residues one at a time would be hundreds of calls; this is a handful.
+ * Ordered least severe first so pathogenic is painted last and cannot be
+ * overdrawn by a milder call at a neighbouring position.
+ */
+function variantColorBands(variants, proteinLength) {
+  const severity = residueSeverity(variants, proteinLength);
+  const byKey = new Map();
+  for (const [position, sig] of severity) {
+    const band = byKey.get(sig.key)
+      || { key: sig.key, label: sig.label, color: sig.color, rank: sig.rank, residues: [] };
+    band.residues.push(position);
+    byKey.set(sig.key, band);
+  }
+  const bands = [...byKey.values()];
+  for (const b of bands) b.residues.sort((a, z) => a - z);
+  bands.sort((a, b) => b.rank - a.rank);
+  return bands;
+}
+
 export {
+  residueSeverity, variantColorBands,
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView, MIN_SPAN,
   positionVariants, filterVariants, facetCounts,

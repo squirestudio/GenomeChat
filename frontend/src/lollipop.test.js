@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseDNAFile } from "./dna";
 import {
+  residueSeverity, variantColorBands,
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView, MIN_SPAN,
   positionVariants, filterVariants, facetCounts,
@@ -426,5 +427,54 @@ describe("matchUserGenotypes", () => {
 
   it("is empty without an uploaded file", () => {
     expect(matchUserGenotypes(variants, null).size).toBe(0);
+  });
+});
+
+describe("colouring a structure by variant severity", () => {
+  const LEN = 1863;
+  const VARIANTS = [
+    { variant_id: "a", protein_position: 1700, clinical_significance: "Pathogenic" },
+    { variant_id: "b", protein_position: 1700, clinical_significance: "Benign" },
+    { variant_id: "c", protein_position: 1710, clinical_significance: "Benign" },
+    { variant_id: "d", protein_position: 30, clinical_significance: "Uncertain significance" },
+    { variant_id: "e", protein_position: 9999, clinical_significance: "Pathogenic" },
+  ];
+
+  it("takes the most severe call at a residue, never the average", () => {
+    /* A position carrying both a benign and a pathogenic variant is worth
+       looking at; averaging them would paint it reassuringly. */
+    expect(residueSeverity(VARIANTS, LEN).get(1700).key).toBe("pathogenic");
+  });
+
+  it("counts how many variants sit on a residue", () => {
+    expect(residueSeverity(VARIANTS, LEN).get(1700).count).toBe(2);
+    expect(residueSeverity(VARIANTS, LEN).get(1710).count).toBe(1);
+  });
+
+  it("ignores positions outside the protein", () => {
+    expect(residueSeverity(VARIANTS, LEN).has(9999)).toBe(false);
+  });
+
+  it("bundles residues into one band per colour", () => {
+    const bands = variantColorBands(VARIANTS, LEN);
+    expect(bands.map(b => b.key).sort()).toEqual(["benign", "pathogenic", "uncertain"]);
+    expect(bands.find(b => b.key === "pathogenic").residues).toEqual([1700]);
+  });
+
+  it("paints severe last so a milder neighbour cannot overdraw it", () => {
+    const bands = variantColorBands(VARIANTS, LEN);
+    expect(bands[bands.length - 1].key).toBe("pathogenic");
+  });
+
+  it("gives each band a colour matching the rest of the app", () => {
+    const bands = variantColorBands(VARIANTS, LEN);
+    expect(bands.find(b => b.key === "pathogenic").color)
+      .toBe(significanceClass("Pathogenic").color);
+  });
+
+  it("is safe with nothing to colour", () => {
+    expect(variantColorBands([], LEN)).toEqual([]);
+    expect(variantColorBands(null, LEN)).toEqual([]);
+    expect(residueSeverity(VARIANTS, null).size).toBe(0);
   });
 });

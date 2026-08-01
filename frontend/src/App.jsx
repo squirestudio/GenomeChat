@@ -10,6 +10,11 @@ import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems } from "./response";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
+import { rankCancerTypes, splitConsequences } from "./cancer";
+
+// Shades for the consequence bar — one family, so it reads as parts of a whole
+// rather than as unrelated categories.
+const CONSEQUENCE_SHADES = ["#dc2626", "#ea580c", "#d97706", "#ca8a04", "#65a30d", "#0891b2"];
 import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, filledOn } from "./frequency";
 import { parseTable, isNumeric } from "./table";
@@ -2058,54 +2063,114 @@ const CONSEQUENCE_COLORS = {
   "Intron": "var(--text-dim)", "Start Lost": "#f59e0b", "Stop Lost": "var(--warning-soft)",
 };
 
-function CancerMutationsPanel({ data }) {
-  if (!data?.cancer_types?.length) return null;
-  const { cancer_types, consequence_types, total_mutations } = data;
-  const max = Math.max(...cancer_types.map(c => c.mutation_count));
+/**
+ * Where a gene is mutated in cancer, and how.
+ *
+ * The biggest dataset in the app — TP53 spans 51 projects and 6,255 mutations —
+ * and it was a list. Two things had to be handled before a chart could be
+ * honest: CPTAC-3 tops both TP53 and BRCA1 and is a multi-cancer study rather
+ * than a cancer, and the consequence counts are annotations against every
+ * transcript a mutation touches, so non-coding terms dominate and outnumber
+ * the mutations themselves. Both are resolved in cancer.js.
+ */
+function CancerMutationsPanel({ data, geneName }) {
+  const [showAll, setShowAll] = useState(false);
+  const { rows, hidden } = useMemo(
+    () => rankCancerTypes(data?.cancer_types, { limit: showAll ? 40 : 10 }),
+    [data, showAll],
+  );
+  const { coding, codingTotal } = useMemo(
+    () => splitConsequences(data?.consequence_types),
+    [data],
+  );
+
+  if (!rows.length) return null;
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.12)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger-soft)" }}>Somatic Cancer Mutations</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>NCI GDC / TCGA · {total_mutations?.toLocaleString()} mutations</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-danger) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-danger) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--danger)" }}>Somatic Mutations in Cancer</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          NCI GDC · {(data.total_mutations || 0).toLocaleString()} across {data.project_count || rows.length} projects
+        </span>
       </div>
 
-      <div style={{ display: "flex", gap: 0 }}>
-        {/* Cancer type bars */}
-        <div style={{ flex: 1, padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
-          {cancer_types.map((c) => {
-            const pct = max > 0 ? (c.mutation_count / max) * 100 : 0;
-            return (
-              <div key={c.project_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: "0.68rem", color: "var(--text-dim)", width: 150, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.cancer_type}</span>
-                <div style={{ flex: 1, height: 14, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: `rgba(239,68,68,${0.3 + (pct / 100) * 0.6})`, borderRadius: 3, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
-                </div>
-                <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", width: 40, textAlign: "right", flexShrink: 0 }}>{c.mutation_count}</span>
-              </div>
-            );
-          })}
-        </div>
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
+        Mutations found in tumour samples{geneName ? ` carrying changes in ${geneName}` : ""},
+        not inherited variants. These are changes a cancer acquired &mdash; they
+        are not in the genome someone was born with, and not something a
+        consumer DNA test would show.
+      </p>
 
-        {/* Consequence type breakdown */}
-        {consequence_types?.length > 0 && (
-          <div style={{ width: 160, padding: "0.75rem", borderLeft: "1px solid rgb(var(--c-surface) / 0.5)", display: "flex", flexDirection: "column", gap: 5 }}>
-            <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Mutation Type</p>
-            {consequence_types.map((ct, i) => {
-              const color = CONSEQUENCE_COLORS[ct.type] || "#6366f1";
-              return (
-                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: 1, background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: "0.65rem", color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ct.type}</span>
-                  </div>
-                  <span style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", flexShrink: 0 }}>{ct.count}</span>
-                </div>
-              );
-            })}
+      <div style={{ padding: "0.7rem 0.875rem 0", display: "flex", flexDirection: "column", gap: 4 }}>
+        {rows.map(r => (
+          <div key={r.projectId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: "0.66rem", width: 150, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                           color: r.broad ? "var(--text-dimmer)" : "var(--text-muted)" }}
+              title={r.broad ? `${r.name} — a study spanning several cancers, not one cancer type` : r.name}>
+              {r.name}
+            </span>
+            <span style={{ flex: 1, height: 9, borderRadius: 3, background: "rgb(var(--c-surface) / 0.7)", overflow: "hidden", minWidth: 40 }}>
+              <span style={{
+                display: "block", height: "100%", width: `${Math.max(1.5, r.relative * 100)}%`, borderRadius: 3,
+                // Broad cohorts are drawn hatched-pale so they read as context
+                // rather than as the answer to "which cancer".
+                background: r.broad ? "rgb(var(--c-text-dim, 100 116 139) / 0.45)" : "var(--danger)",
+                opacity: r.broad ? 0.5 : 0.85,
+              }} />
+            </span>
+            <span style={{ fontSize: "0.64rem", color: "var(--text-dim)", width: 52, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+              {r.count.toLocaleString()}
+            </span>
           </div>
+        ))}
+      </div>
+
+      <div style={{ padding: "0.5rem 0.875rem 0", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {rows.some(r => r.broad) && (
+          <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", lineHeight: 1.5 }}>
+            Paler bars are multi-cancer studies, not a single cancer type &mdash;
+            their size reflects how many samples the study collected.
+          </span>
+        )}
+        {(hidden > 0 || showAll) && (
+          <button onClick={() => setShowAll(v => !v)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "0.64rem", color: "var(--accent)" }}>
+            {showAll ? "Show fewer" : `Show all ${rows.length + hidden}`}
+          </button>
         )}
       </div>
+
+      {coding.length > 0 && (
+        <div style={{ padding: "0.75rem 0.875rem 0.85rem", marginTop: 8, borderTop: "1px solid rgb(var(--c-border) / 0.25)" }}>
+          <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-faintest)", margin: "0 0 7px" }}>
+            What the mutations do to the protein
+          </p>
+          {/* One stacked bar rather than a second ranking: the useful fact is
+              the proportion, and these are shares of the coding total. */}
+          <div style={{ display: "flex", height: 12, borderRadius: 3, overflow: "hidden", background: "rgb(var(--c-surface) / 0.6)" }}>
+            {coding.slice(0, 6).map((c, i) => (
+              <span key={c.type} title={`${c.type}: ${c.count.toLocaleString()}`}
+                style={{ width: `${c.share * 100}%`, background: CONSEQUENCE_SHADES[i % CONSEQUENCE_SHADES.length] }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 9, marginTop: 7 }}>
+            {coding.slice(0, 6).map((c, i) => (
+              <span key={c.type} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: CONSEQUENCE_SHADES[i % CONSEQUENCE_SHADES.length] }} />
+                <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>
+                  {c.type} <span style={{ color: "var(--text-faintest)" }}>{Math.round(c.share * 100)}%</span>
+                </span>
+              </span>
+            ))}
+          </div>
+          <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", margin: "7px 0 0", lineHeight: 1.5 }}>
+            Proportions of {codingTotal.toLocaleString()} protein-changing annotations.
+            Non-coding annotations are excluded &mdash; one mutation is annotated
+            against every transcript it touches, so those outnumber the mutations.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -3613,7 +3678,7 @@ function ComparisonView({ msg }) {
       {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} />}
       {data.protein_info?.length && <LollipopMap key={gene} variants={data.variants || []} domains={data.domains || []} proteinLength={data.protein_info.length} geneName={gene} />}
       {data.drugs?.length > 0 && <DrugPanel drugs={data.drugs} />}
-      {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} />}
+      {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} geneName={gene} />}
       {(data.clingen?.length > 0) && <ClinGenPanel curations={data.clingen} />}
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
       {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} />}
@@ -3752,7 +3817,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "drugs":                return d.drugs?.length > 0 ? <DrugPanel drugs={d.drugs} /> : null;
     case "omim":                 return (d.omim?.gene_entry || d.omim?.phenotypes?.length) ? <OmimPanel omim={d.omim} /> : null;
     case "pharmgkb":             return (d.pharmgkb?.related_drugs?.length || d.pharmgkb?.clinical_annotations?.length) ? <PharmGKBPanel pgkb={d.pharmgkb} /> : null;
-    case "cancer_mutations":     return d.cancer_mutations?.cancer_types?.length > 0 ? <CancerMutationsPanel data={d.cancer_mutations} /> : null;
+    case "cancer_mutations":     return d.cancer_mutations?.cancer_types?.length > 0 ? <CancerMutationsPanel data={d.cancer_mutations} geneName={msg.target} /> : null;
     case "clingen":              return d.clingen?.length > 0 ? <ClinGenPanel curations={d.clingen} /> : null;
     case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} /> : null;
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;

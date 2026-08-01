@@ -31,12 +31,18 @@ const isBroad = (projectId) => BROAD_COHORTS.has(String(projectId || "").toUpper
 /**
  * Cancer types ranked by mutation count, with bar widths relative to the top.
  *
- * Broad cohorts keep their place in the ranking — hiding them would misstate
- * the totals — but are flagged so the label can say what they are.
+ * Broad cohorts are flagged rather than assumed away. `specificOnly` drops
+ * them entirely and rescales, which is the view that answers "which cancer is
+ * this gene mutated in" — the question the confound gets in the way of.
+ *
+ * Offering both as a toggle rather than mixing them on one chart is the point:
+ * two scales shown at once would make bars of equal width mean different
+ * counts. One scale at a time is unambiguous.
  */
-function rankCancerTypes(cancerTypes, { limit = 12 } = {}) {
+function rankCancerTypes(cancerTypes, { limit = 12, specificOnly = false } = {}) {
   const rows = (cancerTypes || [])
     .filter(c => Number(c?.mutation_count) > 0)
+    .filter(c => !specificOnly || !isBroad(c.project_id))
     .map(c => ({
       projectId: c.project_id,
       name: c.cancer_type || c.project_id,
@@ -54,7 +60,14 @@ function rankCancerTypes(cancerTypes, { limit = 12 } = {}) {
   const specificMax = specific.length ? specific[0].count : max;
 
   for (const r of shown) r.relative = r.count / max;
-  return { rows: shown, max, specificMax, hidden: Math.max(0, rows.length - shown.length) };
+  return {
+    rows: shown, max, specificMax,
+    hidden: Math.max(0, rows.length - shown.length),
+    // How many of each kind exist in the full data, so the toggle can say what
+    // switching would show rather than making the reader discover it.
+    specificCount: (cancerTypes || []).filter(c => Number(c?.mutation_count) > 0 && !isBroad(c.project_id)).length,
+    broadCount: (cancerTypes || []).filter(c => Number(c?.mutation_count) > 0 && isBroad(c.project_id)).length,
+  };
 }
 
 /**

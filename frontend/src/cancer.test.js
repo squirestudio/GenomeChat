@@ -118,3 +118,36 @@ describe("isBroad", () => {
     expect(isBroad(null)).toBe(false);
   });
 });
+
+describe("rankCancerTypes with specificOnly", () => {
+  it("drops multi-cancer studies and rescales to what remains", () => {
+    /* The view that answers "which cancer is this gene mutated in" — CPTAC-3
+       is the confound that question has to get past. */
+    const { rows, max } = rankCancerTypes(TP53, { specificOnly: true });
+    expect(rows.some(r => r.broad)).toBe(false);
+    expect(rows[0].projectId).toBe("ALCHEMIST-ALCH");
+    expect(max).toBe(603);
+    expect(rows[0].relative).toBe(1);
+  });
+
+  it("rescales the rest against the new top, not the old one", () => {
+    const { rows } = rankCancerTypes(TP53, { specificOnly: true });
+    const lusc = rows.find(r => r.projectId === "TCGA-LUSC");
+    expect(lusc.relative).toBeCloseTo(432 / 603, 3);   // not 432/685
+  });
+
+  it("reports how many of each kind exist, so the toggle can say so", () => {
+    const all = rankCancerTypes(TP53);
+    expect(all.broadCount).toBe(1);
+    expect(all.specificCount).toBe(5);
+  });
+
+  it("still includes everything when the option is off", () => {
+    expect(rankCancerTypes(TP53).rows.some(r => r.broad)).toBe(true);
+  });
+
+  it("copes with a gene whose projects are all broad", () => {
+    const onlyBroad = [{ project_id: "CPTAC-3", cancer_type: "CPTAC-3", mutation_count: 5 }];
+    expect(rankCancerTypes(onlyBroad, { specificOnly: true }).rows).toEqual([]);
+  });
+});

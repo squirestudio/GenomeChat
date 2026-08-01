@@ -2075,9 +2075,17 @@ const CONSEQUENCE_COLORS = {
  */
 function CancerMutationsPanel({ data, geneName }) {
   const [showAll, setShowAll] = useState(false);
-  const { rows, hidden } = useMemo(
-    () => rankCancerTypes(data?.cancer_types, { limit: showAll ? 40 : 10 }),
-    [data, showAll],
+  // Defaults to cancers, because "which cancer is this gene mutated in" is the
+  // question, and a multi-cancer study sitting at the top of that answer is a
+  // confound rather than a finding. Switching rescales rather than mixing the
+  // two: one scale at a time is what keeps bar widths comparable.
+  const [scope, setScope] = useState("cancers");
+  const { rows, hidden, specificCount, broadCount } = useMemo(
+    () => rankCancerTypes(data?.cancer_types, {
+      limit: showAll ? 40 : 10,
+      specificOnly: scope === "cancers",
+    }),
+    [data, showAll, scope],
   );
   const { coding, codingTotal } = useMemo(
     () => splitConsequences(data?.consequence_types),
@@ -2094,6 +2102,24 @@ function CancerMutationsPanel({ data, geneName }) {
           NCI GDC · {(data.total_mutations || 0).toLocaleString()} across {data.project_count || rows.length} projects
         </span>
       </div>
+
+      {broadCount > 0 && (
+        <div style={{ display: "flex", gap: 5, padding: "0.55rem 0.875rem 0" }}>
+          {[
+            { key: "cancers", label: `Cancer types (${specificCount})` },
+            { key: "all", label: `All projects (${specificCount + broadCount})` },
+          ].map(opt => (
+            <button key={opt.key} onClick={() => setScope(opt.key)}
+              aria-pressed={scope === opt.key}
+              style={{
+                fontSize: "0.64rem", padding: "0.2rem 0.55rem", borderRadius: 100, cursor: "pointer",
+                background: scope === opt.key ? "rgb(var(--c-danger) / 0.12)" : "rgb(var(--c-surface) / 0.4)",
+                border: `1px solid ${scope === opt.key ? "rgb(var(--c-danger) / 0.4)" : "rgb(var(--c-border) / 0.35)"}`,
+                color: scope === opt.key ? "var(--danger)" : "var(--text-dimmer)",
+              }}>{opt.label}</button>
+          ))}
+        </div>
+      )}
 
       <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
         Mutations found in tumour samples{geneName ? ` carrying changes in ${geneName}` : ""},
@@ -2127,12 +2153,13 @@ function CancerMutationsPanel({ data, geneName }) {
       </div>
 
       <div style={{ padding: "0.5rem 0.875rem 0", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        {rows.some(r => r.broad) && (
-          <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", lineHeight: 1.5 }}>
-            Paler bars are multi-cancer studies, not a single cancer type &mdash;
-            their size reflects how many samples the study collected.
-          </span>
-        )}
+        <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", lineHeight: 1.5 }}>
+          {scope === "cancers"
+            ? broadCount > 0
+              ? `${broadCount === 1 ? "One study spanning several cancers is" : `${broadCount} studies spanning several cancers are`} excluded here — their size reflects how many samples were collected, not how often this gene is mutated in any one cancer.`
+              : ""
+            : "Paler bars are multi-cancer studies rather than a single cancer type."}
+        </span>
         {(hidden > 0 || showAll) && (
           <button onClick={() => setShowAll(v => !v)}
             style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "0.64rem", color: "var(--accent)" }}>

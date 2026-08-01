@@ -1915,7 +1915,7 @@ function PopulationFrequencyChart({ populations }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>How Common Is This?</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>gnomAD · {rows.length} populations</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>gnomAD · {rows.length} ancestry groups</span>
       </div>
 
       <div style={{ padding: "0.85rem 0.875rem 0", textAlign: "center" }}>
@@ -1924,6 +1924,11 @@ function PopulationFrequencyChart({ populations }) {
         </p>
         <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", margin: "3px 0 0" }}>
           people of {active.name} ancestry carry a variant in this gene
+        </p>
+        <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", margin: "4px auto 0", maxWidth: 380, lineHeight: 1.5 }}>
+          Select an ancestry below to compare. These are gnomAD&rsquo;s broad
+          ancestry groupings, not countries — several span more than one region,
+          and some describe descent rather than geography.
         </p>
       </div>
 
@@ -1952,7 +1957,7 @@ function PopulationFrequencyChart({ populations }) {
 
       <div style={{ padding: "0.85rem 0.875rem 0.75rem" }}>
         <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-faintest)", margin: "0 0 6px" }}>
-          By ancestry {spread && <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>· {spread}× between highest and lowest</span>}
+          By ancestry group
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {rows.map((r, i) => {
@@ -1979,8 +1984,28 @@ function PopulationFrequencyChart({ populations }) {
             );
           })}
         </div>
+        {spread && (
+          <div style={{ marginTop: 9, padding: "0.5rem 0.6rem", borderRadius: 8,
+                        background: "rgb(var(--c-accent) / 0.07)",
+                        border: "1px solid rgb(var(--c-accent) / 0.18)" }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.55 }}>
+              Carrier frequency varies <strong>{spread}&times;</strong> between
+              the highest and lowest of these groups. That is why population
+              screening programmes are often ancestry-informed.
+            </p>
+            <p style={{ fontSize: "0.64rem", color: "var(--text-dimmer)", margin: "5px 0 0", lineHeight: 1.55 }}>
+              {/* The misreading this exists to prevent: ancestry shifts the
+                  prior, never the result. Someone looking at their own file
+                  should not conclude their genotype is more or less likely
+                  because of which row is highlighted. */}
+              It does not change an individual result. If you have had testing,
+              what you carry is what you carry — ancestry affects how common a
+              variant is in a group, not what is in your own sequence.
+            </p>
+          </div>
+        )}
         <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", margin: "7px 0 0", lineHeight: 1.5 }}>
-          Bars compare populations with each other, not against the whole
+          Bars compare these groups with each other, not against the whole
           population — at these frequencies an absolute bar would be invisible.
           Carrying a variant is not the same as having a condition.
         </p>

@@ -11,6 +11,7 @@ import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KE
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
 import { comparePopulations, pictogramScale } from "./frequency";
+import { parseTable, isNumeric } from "./table";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -1244,6 +1245,49 @@ function Markdown({ content }) {
         i++;
       }
       elements.push(<ul key={`ul${i}`} style={{ paddingLeft: "1.25rem", listStyle: "disc", margin: "0.5rem 0" }}>{items}</ul>);
+      continue;
+    } else if (line.includes("|") && parseTable(lines, i)) {
+      // Tables were reaching the reader as raw pipe characters — the renderer
+      // had no support for them at all, and the model writes them whenever
+      // data is genuinely tabular. Parsed in table.js, which requires a
+      // delimiter row so a line of prose containing a pipe is not mistaken
+      // for one.
+      const t = parseTable(lines, i);
+      elements.push(
+        <div key={`tbl${i}`} style={{ overflowX: "auto", margin: "0.7rem 0" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.8rem" }}>
+            <thead>
+              <tr>
+                {t.headers.map((h, c) => (
+                  <th key={c} style={{
+                    textAlign: t.align[c] || "left", padding: "0.35rem 0.6rem",
+                    borderBottom: "1px solid rgb(var(--c-border) / 0.5)",
+                    color: "var(--text-muted)", fontWeight: 700, whiteSpace: "nowrap",
+                  }}>{renderInline(h)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {t.rows.map((row, r) => (
+                <tr key={r} style={{ background: r % 2 ? "rgb(var(--c-surface) / 0.25)" : "transparent" }}>
+                  {row.map((cell, c) => (
+                    <td key={c} style={{
+                      // Numbers right-align and share a width so columns of
+                      // frequencies can be compared down the page.
+                      textAlign: isNumeric(cell) ? "right" : (t.align[c] || "left"),
+                      fontVariantNumeric: isNumeric(cell) ? "tabular-nums" : "normal",
+                      padding: "0.35rem 0.6rem", color: "var(--text-faint)",
+                      borderBottom: "1px solid rgb(var(--c-border) / 0.2)",
+                      lineHeight: 1.5,
+                    }}>{renderInline(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      i = t.endsAt;
       continue;
     } else if (line.trim() === "") {
       elements.push(<div key={i} style={{ height: "0.375rem" }} />);

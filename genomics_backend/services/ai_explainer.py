@@ -1,10 +1,11 @@
 import anthropic
 import logging
 from config import get_settings
+from services.safety import NO_DIAGNOSIS_RULES, detect_diagnostic_intent, reframe_directive
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert clinical genomicist and molecular biologist with deep knowledge of human genetics, variant interpretation, gene-disease relationships, and population genetics.
+_SYSTEM_PROMPT_BODY = """You are an expert clinical genomicist and molecular biologist with deep knowledge of human genetics, variant interpretation, gene-disease relationships, and population genetics.
 
 When analyzing genomics data, structure your response using these sections (use only what's relevant):
 
@@ -40,6 +41,11 @@ Formatting rules:
 - If a user asks about specific population comparisons (e.g. South Asian vs Non-Finnish European), address it directly using the AF data provided
 - If data is limited, say so honestly
 - Keep responses focused — avoid padding"""
+
+# The output-side clinical guard is appended to every system prompt, on every
+# path, rather than being passed in by callers who might forget. See
+# services/safety.py for why there are two independent guards.
+SYSTEM_PROMPT = f"{_SYSTEM_PROMPT_BODY}\n\n{NO_DIAGNOSIS_RULES}"
 
 
 def _format_gene_data(data: dict) -> str:
@@ -161,6 +167,37 @@ DETAIL_INSTRUCTIONS = {
     "detailed": "Provide a thorough, in-depth analysis. Include all relevant sections: population genetics with specific numbers, molecular mechanisms, gene-disease relationships, research implications, and 3-4 specific follow-up queries. Do not abbreviate any section.",
 }
 
+def _format_documents(personal_documents: list) -> str:
+    """The reader's own uploaded literature, as prompt text.
+
+    Held to the same rule as personal_variants: passed per-request, used, and
+    never written anywhere. The instruction to attribute and to keep the
+    document separate from the databases is not politeness — merging a single
+    paper's cohort into MyDNA's curated sources is how one study's finding
+    starts sounding like established fact.
+    """
+    if not personal_documents:
+        return ""
+
+    out = [
+        "\n\n## Documents the reader uploaded (session only — never stored)\n"
+        "These are the reader's own materials, not MyDNA's sources. Cite them by title "
+        "when you use them, keep their claims distinct from the curated databases above, "
+        "and state the cohort size whenever a claim rests on one study. If a document "
+        "contradicts a database, say so rather than silently preferring either.\n"
+    ]
+    for doc in personal_documents[:10]:
+        title = (doc.get("title") or "Untitled document").strip()
+        citation = (doc.get("citation") or "").strip()
+        out.append(f"\n### {title}" + (f"\n*{citation}*" if citation else ""))
+        for passage in (doc.get("passages") or [])[:12]:
+            text = (passage or "").strip()
+            if text:
+                out.append(f"\n> {text}")
+        out.append("\n")
+    return "".join(out)
+
+
 def build_explanation_messages(
     query: str,
     query_type: str,
@@ -168,6 +205,7 @@ def build_explanation_messages(
     conversation_history: list = None,
     personal_variants: list = None,
     response_detail: str = "standard",
+    personal_documents: list = None,
 ) -> list:
     """Build the message list for an explanation. Shared by the streaming and
     non-streaming paths so both send byte-identical prompts."""
@@ -196,7 +234,8 @@ def build_explanation_messages(
 
     user_content = (
         f'User query: "{query}"\n\n'
-        f"Genomics data retrieved:\n{formatted}{personal_section}\n\n"
+        f"Genomics data retrieved:\n{formatted}{personal_section}"
+        f"{_format_documents(personal_documents)}\n\n"
         f"Please analyze this data. Explain the findings, clinical significance, "
         f"gene-disease relationships, and suggest follow-up research directions."
         + ("\n\nNOTE: The user has personal genetic data loaded for this gene. Address their specific variants directly, but remind them this is for research purposes only and not a substitute for clinical genetic counseling." if personal_variants else "")
@@ -206,6 +245,13 @@ def build_explanation_messages(
     if detail_note:
         user_content += f"\n\nINSTRUCTION: {detail_note}"
 
+    # The input-side guard, last so it is the most recent thing the model reads.
+    # Its job is to redirect a diagnostic question to the data relationship
+    # behind it, not to refuse the turn.
+    directive = reframe_directive(detect_diagnostic_intent(query))
+    if directive:
+        user_content += f"\n\n{directive}"
+
     messages = list((conversation_history or [])[-6:])
     messages.append({"role": "user", "content": user_content})
     return messages
@@ -213,6 +259,53 @@ def build_explanation_messages(
 
 EXPLAIN_MODEL = "claude-haiku-4-5-20251001"
 EXPLAIN_MAX_TOKENS = 1200
+
+# Transcription is the one place a bigger model earns its cost. A photographed
+# journal page is rotated, two-column, and full of variant notation where a
+# single wrong character (c.507G>A vs c.507C>A) makes it a different variant —
+# and a plausible-looking wrong transcription is worse than no transcription,
+# because nothing downstream can tell it is wrong.
+VISION_MODEL = "claude-sonnet-5"
+VISION_MAX_TOKENS = 8000
+
+TRANSCRIBE_PROMPT = (
+    "Transcribe this page of a scientific paper as plain text. Preserve paragraph "
+    "breaks, headings, table contents and any DOI, PMID or citation line. Read "
+    "multi-column layouts in reading order, finishing one column before starting the "
+    "next. Correct obvious scanning artefacts but never invent text: if something is "
+    "illegible, write [illegible] rather than guessing. Gene symbols, variant notation "
+    "(c.507G>A, p.Cys170Leufs) and numbers must be transcribed exactly. Output only the "
+    "transcription, with no preamble."
+)
+
+
+async def transcribe_pages(images: list[str], media_type: str = "image/jpeg",
+                           user_api_key: str = None) -> str:
+    """Read photographed or scanned pages into plain text.
+
+    Privacy: the images and the resulting text are returned to the caller and
+    never stored or logged here. The error path deliberately says how many pages
+    failed and nothing about their content.
+    """
+    settings = get_settings()
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
+        raise RuntimeError("no Anthropic API key configured")
+
+    content = [
+        {"type": "image",
+         "source": {"type": "base64", "media_type": media_type, "data": img}}
+        for img in images
+    ]
+    content.append({"type": "text", "text": TRANSCRIBE_PROMPT})
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    response = await client.messages.create(
+        model=VISION_MODEL,
+        max_tokens=VISION_MAX_TOKENS,
+        messages=[{"role": "user", "content": content}],
+    )
+    return "".join(b.text for b in response.content if getattr(b, "type", "") == "text")
 
 
 async def explain_results(
@@ -223,6 +316,7 @@ async def explain_results(
     personal_variants: list = None,
     response_detail: str = "standard",
     user_api_key: str = None,
+    personal_documents: list = None,
 ) -> str:
     settings = get_settings()
     api_key = user_api_key or settings.anthropic_api_key
@@ -230,7 +324,8 @@ async def explain_results(
         return _fallback_explanation(query_type, data)
 
     messages = build_explanation_messages(
-        query, query_type, data, conversation_history, personal_variants, response_detail
+        query, query_type, data, conversation_history, personal_variants, response_detail,
+        personal_documents=personal_documents,
     )
     # AsyncAnthropic: the sync client blocks the event loop for the whole
     # generation, which stalls every other request on the server.
@@ -256,6 +351,7 @@ async def stream_explanation(
     personal_variants: list = None,
     response_detail: str = "standard",
     user_api_key: str = None,
+    personal_documents: list = None,
 ):
     """Yield the explanation in chunks as the model produces it."""
     settings = get_settings()
@@ -265,7 +361,8 @@ async def stream_explanation(
         return
 
     messages = build_explanation_messages(
-        query, query_type, data, conversation_history, personal_variants, response_detail
+        query, query_type, data, conversation_history, personal_variants, response_detail,
+        personal_documents=personal_documents,
     )
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
@@ -288,6 +385,7 @@ async def stream_followup(
     personal_variants: list = None,
     response_detail: str = "standard",
     user_api_key: str = None,
+    personal_documents: list = None,
 ):
     """Streaming counterpart of answer_followup."""
     settings = get_settings()
@@ -296,7 +394,8 @@ async def stream_followup(
         yield "Configure an Anthropic API key to enable AI responses."
         return
 
-    messages = build_followup_messages(question, conversation_history, personal_variants, response_detail)
+    messages = build_followup_messages(question, conversation_history, personal_variants,
+                                       response_detail, personal_documents=personal_documents)
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
         async with client.messages.stream(
@@ -375,7 +474,7 @@ async def explain_comparison(
 
 
 def build_followup_messages(question: str, conversation_history: list, personal_variants: list = None,
-                            response_detail: str = "standard") -> list:
+                            response_detail: str = "standard", personal_documents: list = None) -> list:
     """Shared by the streaming and non-streaming follow-up paths."""
     messages = list((conversation_history or [])[-12:])
 
@@ -389,22 +488,32 @@ def build_followup_messages(question: str, conversation_history: list, personal_
             + "\n\nPlease interpret these variants. Address them specifically and remind the user this is educational only, not a clinical diagnosis."
         )
 
+    content += _format_documents(personal_documents)
+
     detail_note = DETAIL_INSTRUCTIONS.get(response_detail or "standard", "")
     if detail_note:
         content += f"\n\nINSTRUCTION: {detail_note}"
+
+    # Follow-ups need the input guard as much as pipeline answers do — arguably
+    # more, since "so do I have it?" is exactly the shape of a follow-up.
+    directive = reframe_directive(detect_diagnostic_intent(question))
+    if directive:
+        content += f"\n\n{directive}"
 
     messages.append({"role": "user", "content": content})
     return messages
 
 
 async def answer_followup(question: str, conversation_history: list, personal_variants: list = None,
-                          response_detail: str = "standard", user_api_key: str = None) -> str:
+                          response_detail: str = "standard", user_api_key: str = None,
+                          personal_documents: list = None) -> str:
     settings = get_settings()
     api_key = user_api_key or settings.anthropic_api_key
     if not api_key:
         return "Configure an Anthropic API key to enable AI responses."
 
-    messages = build_followup_messages(question, conversation_history, personal_variants, response_detail)
+    messages = build_followup_messages(question, conversation_history, personal_variants,
+                                       response_detail, personal_documents=personal_documents)
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
         response = await client.messages.create(

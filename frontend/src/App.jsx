@@ -7,7 +7,9 @@ import {
 } from "./dna";
 import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
-import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems } from "./response";
+import { splitProseSections, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems, proseLayout, noResultsFor } from "./response";
+import { makeDocument, documentsForRequest, saveDocsToSession, loadDocsFromSession, documentsSummary } from "./documents";
+import { classifyFile, needsVision, extractText } from "./extract";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
 import { rankCancerTypes, splitConsequences } from "./cancer";
@@ -18,7 +20,7 @@ import { rankAssociations } from "./gwas";
 const CONSEQUENCE_SHADES = ["#dc2626", "#ea580c", "#d97706", "#ca8a04", "#65a30d", "#0891b2"];
 import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, filledOn } from "./frequency";
-import { parseTable, isNumeric } from "./table";
+import { Markdown } from "./markdown.jsx";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -910,13 +912,16 @@ function Section({ label, hint, children }) {
  *  can be evidenced, and consent is recorded against an account. */
 function SignInGateModal({ onClose, reason = "queries" }) {
   const dna = reason === "dna";
+  const docs = reason === "documents";
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgb(var(--c-shadow) / 0.7)" }} />
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "2rem", width: 360, maxWidth: "calc(100vw - 2rem)", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
           <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>
-            {dna ? "Sign in to use your DNA" : "Sign in to continue"}
+            {dna ? "Sign in to use your DNA"
+                 : docs ? "Sign in to add documents"
+                 : "Sign in to continue"}
           </h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
         </div>
@@ -928,6 +933,18 @@ function SignInGateModal({ onClose, reason = "queries" }) {
             <br /><br />
             Your file still never leaves your device or gets stored. Signing in
             changes who consented, not what happens to the data.
+          </p>
+        ) : docs ? (
+          /* Same reasoning as DNA, spelled out for the same reason: a wall in
+             front of someone's own research otherwise reads as a money grab. */
+          <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
+            A paper you upload about your own condition says something about
+            your health, so it gets the same treatment as your DNA — and we need
+            a record that you agreed to it, which means an account to attach
+            that record to.
+            <br /><br />
+            Your documents are still never stored. They live in this tab and are
+            gone when you close it.
           </p>
         ) : (
           <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", margin: "0 0 1.25rem", lineHeight: 1.6 }}>
@@ -1116,6 +1133,127 @@ function DNASessionBanner({ dnaData, onClear }) {
   );
 }
 
+/**
+ * Uploading the reader's own literature.
+ *
+ * The notice is the product here as much as the upload is. Someone handing over
+ * a paper about their own condition is disclosing a suspected diagnosis, and
+ * they should know before they do it that it is temporary — both so the trust
+ * is earned rather than assumed, and so the documents vanishing when the tab
+ * closes is expected rather than a nasty surprise mid-research.
+ *
+ * The two paths are priced differently and the modal says which one a file will
+ * take *before* it is read, because "free" and "one credit" is exactly the kind
+ * of thing that feels like a bait-and-switch when discovered afterwards.
+ */
+function DocumentUploadModal({ onAccept, onClose, onTranscribe }) {
+  const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  const fileRef = useRef(null);
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setError(null);
+
+    const made = [];
+    for (const file of files) {
+      const kind = classifyFile(file);
+      if (kind === "unsupported") {
+        setError(`${file.name} is not a PDF, image or text file.`);
+        setBusy(null);
+        return;
+      }
+      setBusy(needsVision(kind) ? `Reading ${file.name}…` : `Extracting ${file.name}…`);
+      try {
+        const { text, source } = await extractText(file, { transcribe: onTranscribe });
+        if (!text || text.trim().length < 40) {
+          setError(`No readable text found in ${file.name}.`);
+          setBusy(null);
+          return;
+        }
+        made.push(makeDocument({ text, name: file.name, source }));
+      } catch (err) {
+        setError(err.message || `Could not read ${file.name}.`);
+        setBusy(null);
+        return;
+      }
+    }
+    setBusy(null);
+    onAccept(made);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgb(var(--c-shadow) / 0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "var(--bg-inset)", border: "1px solid rgb(var(--c-accent) / 0.25)", borderRadius: 16, padding: "1.75rem", maxWidth: 540, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 50px rgb(var(--c-shadow) / 0.6)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
+          <div>
+            <p style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Add research documents</p>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 3 }}>PDF · photo of a page · HEIC · text</p>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
+          {[
+            { icon: "🚫", title: "MyDNA never stores what you upload", body: "Your documents are held in this browser tab only and disappear when you close it. Nothing is written to our database — not the file, not the text, not a copy of any kind." },
+            { icon: "📄", title: "PDFs are read on your device", body: "A PDF with selectable text is extracted in your browser and never leaves it. Free." },
+            { icon: "📷", title: "Photos and scans are read by Claude", body: "A photographed page has no text to extract, so the image is sent to Claude to be transcribed, then discarded. Uses one query credit per page." },
+            { icon: "⚕️", title: "Relationships, not diagnoses", body: "MyDNA will connect what your documents say to what the databases say, and to your own variants. It will not tell you whether you have a condition — it cannot, and neither can any tool without examining you." },
+            { icon: "©", title: "Your own copies only", body: "Upload material you have lawful access to. MyDNA reads it with you for this session; it never redistributes it or adds it to any shared library." },
+          ].map(({ icon, title, body }) => (
+            <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgb(var(--c-surface) / 0.4)", borderRadius: 10, border: "1px solid rgb(var(--c-border) / 0.3)" }}>
+              <span style={{ fontSize: "0.95rem", flexShrink: 0, marginTop: 1 }}>{icon}</span>
+              <div>
+                <p style={{ fontSize: "0.73rem", fontWeight: 600, color: "var(--text-muted)", margin: 0 }}>{title}</p>
+                <p style={{ fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 2, lineHeight: 1.5 }}>{body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: "1.25rem", cursor: "pointer" }}>
+          <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
+            style={{ width: 15, height: 15, marginTop: 2, accentColor: "var(--accent-strong)", flexShrink: 0 }} />
+          <span style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.55 }}>
+            I understand my documents are not stored and will be lost when I close this tab, that scanned pages are sent to Claude to be read, and that MyDNA explains published data rather than diagnosing me.
+          </span>
+        </label>
+
+        {error && <p style={{ fontSize: "0.72rem", color: "var(--danger)", marginBottom: "0.75rem" }}>{error}</p>}
+
+        <input ref={fileRef} type="file" multiple accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.heic,.heif,image/*,application/pdf"
+               style={{ display: "none" }} onChange={handleFiles} />
+        <button
+          disabled={!agreed || !!busy}
+          onClick={() => fileRef.current?.click()}
+          style={{ width: "100%", padding: "0.625rem", borderRadius: 10, background: agreed && !busy ? "var(--accent-deep)" : "rgb(var(--c-border) / 0.4)", border: "none", color: agreed && !busy ? "white" : "var(--text-disabled)", fontSize: "0.8rem", fontWeight: 600, cursor: agreed && !busy ? "pointer" : "not-allowed", transition: "background 0.15s" }}
+        >
+          {busy || "Choose files"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsBanner({ documents, onClear }) {
+  const summary = documentsSummary(documents);
+  if (!summary) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 1.25rem", background: "rgb(var(--c-violet) / 0.25)", borderBottom: "1px solid rgb(var(--c-border) / 0.15)", fontSize: "0.68rem", flexShrink: 0, flexWrap: "wrap" }}>
+      <span style={{ fontSize: "0.75rem" }}>📄</span>
+      <span style={{ color: "var(--violet)", fontWeight: 600 }}>{summary.label}</span>
+      <span style={{ color: "var(--text-dimmer)" }}>·</span>
+      <span style={{ color: "var(--text-dimmer)" }}>not stored · session only</span>
+      <button onClick={onClear}
+        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-faintest)", cursor: "pointer", fontSize: "0.9rem", padding: "0 2px", lineHeight: 1 }}
+        title="Remove documents from this session"
+      >×</button>
+    </div>
+  );
+}
+
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -1221,22 +1359,6 @@ function getPersonalizedSuggestions(dnaData) {
 
 // ─── Markdown Renderer ───────────────────────────────────────────────────────
 
-function renderInline(text) {
-  const parts = [];
-  const re = /(\*\*(.+?)\*\*|`(.+?)`|\*(.+?)\*)/g;
-  let last = 0, m;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[2]) parts.push(<strong key={m.index} style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{m[2]}</strong>);
-    else if (m[3]) parts.push(<code key={m.index} style={{ fontFamily: "monospace", fontSize: "0.78em", background: "var(--border-solid)", color: "var(--accent-soft)", padding: "0.1em 0.35em", borderRadius: 3 }}>{m[3]}</code>);
-    else if (m[4]) parts.push(<em key={m.index} style={{ color: "var(--text-muted)" }}>{m[4]}</em>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-
-
 /** The MyDNA mark. Kept as an image with live text beside it rather than a
  *  baked-in lockup, so the wordmark follows the theme instead of being a fixed
  *  slate that disappears on a dark background. */
@@ -1250,86 +1372,6 @@ function BrandMark({ size = 28, style }) {
       style={{ objectFit: "contain", flexShrink: 0, display: "block", ...style }}
     />
   );
-}
-
-function Markdown({ content }) {
-  if (!content) return null;
-  const lines = content.split("\n");
-  const elements = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith("## ")) {
-      elements.push(
-        <h2 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text)", margin: "1.25rem 0 0.5rem", paddingBottom: "0.375rem", borderBottom: "1px solid var(--border-solid)" }}>
-          {renderInline(line.slice(3))}
-        </h2>
-      );
-    } else if (line.startsWith("### ")) {
-      elements.push(
-        <h3 key={i} style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", margin: "0.875rem 0 0.25rem" }}>
-          {renderInline(line.slice(4))}
-        </h3>
-      );
-    } else if (line.startsWith("- ") || line.startsWith("• ")) {
-      const items = [];
-      while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("• "))) {
-        items.push(<li key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].slice(2))}</li>);
-        i++;
-      }
-      elements.push(<ul key={`ul${i}`} style={{ paddingLeft: "1.25rem", listStyle: "disc", margin: "0.5rem 0" }}>{items}</ul>);
-      continue;
-    } else if (line.includes("|") && parseTable(lines, i)) {
-      // Tables were reaching the reader as raw pipe characters — the renderer
-      // had no support for them at all, and the model writes them whenever
-      // data is genuinely tabular. Parsed in table.js, which requires a
-      // delimiter row so a line of prose containing a pipe is not mistaken
-      // for one.
-      const t = parseTable(lines, i);
-      elements.push(
-        <div key={`tbl${i}`} style={{ overflowX: "auto", margin: "0.7rem 0" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.8rem" }}>
-            <thead>
-              <tr>
-                {t.headers.map((h, c) => (
-                  <th key={c} style={{
-                    textAlign: t.align[c] || "left", padding: "0.35rem 0.6rem",
-                    borderBottom: "1px solid rgb(var(--c-border) / 0.5)",
-                    color: "var(--text-muted)", fontWeight: 700, whiteSpace: "nowrap",
-                  }}>{renderInline(h)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {t.rows.map((row, r) => (
-                <tr key={r} style={{ background: r % 2 ? "rgb(var(--c-surface) / 0.25)" : "transparent" }}>
-                  {row.map((cell, c) => (
-                    <td key={c} style={{
-                      // Numbers right-align and share a width so columns of
-                      // frequencies can be compared down the page.
-                      textAlign: isNumeric(cell) ? "right" : (t.align[c] || "left"),
-                      fontVariantNumeric: isNumeric(cell) ? "tabular-nums" : "normal",
-                      padding: "0.35rem 0.6rem", color: "var(--text-faint)",
-                      borderBottom: "1px solid rgb(var(--c-border) / 0.2)",
-                      lineHeight: 1.5,
-                    }}>{renderInline(cell)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-      i = t.endsAt;
-      continue;
-    } else if (line.trim() === "") {
-      elements.push(<div key={i} style={{ height: "0.375rem" }} />);
-    } else {
-      elements.push(<p key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.7, margin: "0.25rem 0" }}>{renderInline(line)}</p>);
-    }
-    i++;
-  }
-  return <div>{elements}</div>;
 }
 
 // ─── Data Cards ──────────────────────────────────────────────────────────────
@@ -3985,16 +4027,16 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             shown up front: the reader chooses what to open from Explore further,
             rather than receiving every dataset at once. */}
         {(() => {
-          const { lead, sections } = splitProseSections(msg.content);
-          const pick = name => sections.find(sx => norm(sx.title) === name);
-          const overview = pick("overview");
-          const findings = pick("keyfindings");
-          const untitled = !sections.length;   // still streaming, or a plain follow-up
+          const { mode, lead, overview, findings } = proseLayout(msg);
+
+          // No pipeline data means no Explore further menu to hold the rest of
+          // the answer, so splitting it would discard everything that is not
+          // Overview or Key Findings. See proseLayout in response.js.
+          if (mode === "whole") return <Markdown content={msg.content} />;
 
           return (
             <>
               {lead && <Markdown content={lead} />}
-              {untitled && <Markdown content={msg.content} />}
               {overview && <Markdown content={`## ${overview.title}\n${overview.body}`} />}
 
               {msg.data?.alphafold?.pdb_url && (
@@ -4022,6 +4064,26 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             </>
           );
         })()}
+
+        {/* An empty answer must say it is empty. This used to render as a
+            heading and nothing else, which looks exactly like the routing bug
+            that sent answerable phenotype queries down the conversational path
+            — the reader could not tell "nothing is recorded" from "MyDNA
+            mishandled your question", and neither could we. */}
+        {noResultsFor(msg) && (
+          <div style={{ marginTop: 12, padding: "0.7rem 0.85rem", borderRadius: 8,
+                        background: "var(--bg-inset)", border: "1px solid var(--border-solid)" }}>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0, fontWeight: 600 }}>
+              No genes found for “{noResultsFor(msg)}”
+            </p>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", margin: "4px 0 0", lineHeight: 1.55 }}>
+              Nothing in ClinVar or NCBI Gene is indexed under that term. It may be spelled
+              differently, be too broad, or have no curated gene associations yet — that is a
+              fact about the databases, not about you. Try a more specific term, an alternative
+              name for the condition, or ask about a gene directly.
+            </p>
+          </div>
+        )}
 
         {msg.expired && onAsk && (
           <button onClick={() => onAsk(msg.retryQuery)}
@@ -4266,12 +4328,14 @@ export default function App({ onNavigate }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [dnaData, setDnaData] = useState(() => loadDnaFromSession());
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [documents, setDocuments] = useState(() => loadDocsFromSession());
+  const [showDocModal, setShowDocModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settings, setSettings] = useState(() => loadSettings());
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
-  const [showSignInGate, setShowSignInGate] = useState(false);   // false | "queries" | "dna"
+  const [showSignInGate, setShowSignInGate] = useState(false);   // false | "queries" | "dna" | "documents"
   const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
   // Evaluated once per mount rather than watched: the tally only advances on
   // send, and a card that appeared mid-sentence would be exactly the
@@ -4309,6 +4373,37 @@ export default function App({ onNavigate }) {
   const updateDnaData = useCallback((data) => {
     setDnaData(data);
     saveDnaToSession(data);
+  }, []);
+
+  /** Same reasoning as DNA, and for the same clause: a document about someone's
+   *  own condition is health data, processed on explicit consent, and consent
+   *  has to be recorded against an account. Signing in changes nothing about
+   *  how the file is handled — it is still discarded when the tab closes. */
+  const requestDocUpload = useCallback(() => {
+    if (!currentUser) { setShowSignInGate("documents"); return; }
+    setShowDocModal(true);
+  }, [currentUser]);
+
+  const updateDocuments = useCallback((docs) => {
+    setDocuments(docs);
+    saveDocsToSession(docs);
+  }, []);
+
+  /** Send page images to be transcribed. The images are not held anywhere on
+   *  the way through, and the backend does not store or log them either. */
+  const transcribePages = useCallback(async (images) => {
+    const r = await fetch(`${API}/documents/extract`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ images }),
+    });
+    if (r.status === 402) throw new Error("Reading a scanned page uses a query credit, and you are out. PDFs with selectable text are always free.");
+    if (r.status === 401) throw new Error("Sign in to have a scanned page read.");
+    if (!r.ok) throw new Error("Could not read that page. Try a clearer photo, or a PDF.");
+    const { text } = await r.json();
+    // The credit was just spent server-side; refresh the header counter.
+    fetchMe();
+    return text;
   }, []);
   const [streamStage, setStreamStage] = useState(null);
   const [loadingSections, setLoadingSections] = useState({});
@@ -4613,6 +4708,9 @@ export default function App({ onNavigate }) {
         // so selection falls back to variants named in the question and the
         // curated panel.
         personal_variants: dnaData ? selectRelevantVariants(dnaData, msg) : null,
+        // Passages are chosen against this question, not sent wholesale — the
+        // same budgeting problem as the variant file, for the same reason.
+        personal_documents: documentsForRequest(documents, msg),
       });
 
       const r = await fetch(`${API}/chat/stream`, {
@@ -4692,7 +4790,10 @@ export default function App({ onNavigate }) {
       setStreamStage(null);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, loading, buildHistory, activeProjectId, currentUser, dnaData, settings]);
+    // `documents` belongs here for the same reason `dnaData` does: without it
+    // the closure keeps whichever list existed when the callback was built, so
+    // a paper added mid-conversation would silently not be sent.
+  }, [input, loading, buildHistory, activeProjectId, currentUser, dnaData, documents, settings]);
 
   const exportReport = async () => {
     if (exporting) return;
@@ -5107,6 +5208,17 @@ export default function App({ onNavigate }) {
           currentUser={currentUser} open={sidebarOpen} onClose={() => setSidebarOpen(false)}
         />
 
+        {showDocModal && (
+          <DocumentUploadModal
+            onTranscribe={transcribePages}
+            onAccept={(docs) => {
+              updateDocuments([...documents, ...docs]);
+              setShowDocModal(false);
+            }}
+            onClose={() => setShowDocModal(false)}
+          />
+        )}
+
         {showConsentModal && (
           <ConsentModal
             onAccept={(result, filename) => {
@@ -5152,6 +5264,13 @@ export default function App({ onNavigate }) {
                   title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
                 >
                   {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
+                </button>
+                <button
+                  onClick={() => documents.length ? updateDocuments([]) : requestDocUpload()}
+                  style={{ fontSize: "0.72rem", color: documents.length ? "var(--violet)" : "var(--text-dim)", background: documents.length ? "rgb(var(--c-violet) / 0.08)" : "none", border: `1px solid ${documents.length ? "rgb(var(--c-violet) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
+                  title={documents.length ? "Remove documents from this session" : "Add your own papers to read alongside the data"}
+                >
+                  {documents.length ? `📄 ${documents.length} loaded` : "Add documents"}
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
@@ -5244,6 +5363,7 @@ export default function App({ onNavigate }) {
           </header>
 
           <DNASessionBanner dnaData={dnaData} onClear={() => updateDnaData(null)} />
+          <DocumentsBanner documents={documents} onClear={() => updateDocuments([])} />
 
           {/* Messages */}
           <div className={messages.length > 0 ? "gc-msg-pad" : ""} style={{ flex: 1, overflowY: "auto" }}>
@@ -5378,18 +5498,27 @@ export default function App({ onNavigate }) {
               </p>
               {/* Attribution above the rule, navigation below it. Without the
                   divider the two read as a single list, which is the same
-                  reason the link is named rather than a bare "About". Privacy
-                  and FAQ join this row once they exist. */}
+                  reason the link is named rather than a bare "About". FAQ joins
+                  this row once it exists. */}
               <div style={{
                 height: 1, maxWidth: 220, margin: "9px auto 0",
                 background: "rgb(var(--c-border) / 0.45)",
               }} />
-              <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 9 }}>
-                <a href="/about"
-                  onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate("/about"); } }}
-                  style={{ color: "var(--text-dim)", textDecoration: "none" }}>
-                  About MyDNA
-                </a>
+              <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 9, display: "flex", justifyContent: "center", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                {[
+                  ["/about", "About MyDNA"],
+                  ["/privacy", "Privacy"],
+                  ["/terms", "Terms"],
+                ].map(([href, label], n) => (
+                  <span key={href} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                    {n > 0 && <span aria-hidden="true" style={{ color: "var(--text-faintest)" }}>·</span>}
+                    <a href={href}
+                      onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(href); } }}
+                      style={{ color: "var(--text-dim)", textDecoration: "none" }}>
+                      {label}
+                    </a>
+                  </span>
+                ))}
               </p>
             </div>
           </div>

@@ -16,7 +16,7 @@ from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
 from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
-from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup
+from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup, transcribe_pages
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
 from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
@@ -51,6 +51,13 @@ class ChatRequest(BaseModel):
     # [{rsid, genotype, chromosome?}] — session only, never stored. The UI sends
     # at most 200; the ceiling is here so that stays true of every caller.
     personal_variants: Optional[list[dict]] = Field(default=None, max_length=500)
+    # [{title, citation?, passages: [str]}] — the reader's own uploaded papers.
+    # Held to exactly the same rule as personal_variants: forwarded into the
+    # prompt for this one request and never written to the database. That is
+    # both the privacy commitment and the copyright position — MyDNA has no
+    # licence to hold a publisher's text, and does not need one to help someone
+    # read their own lawful copy. Bounded for the same token-spend reason.
+    personal_documents: Optional[list[dict]] = Field(default=None, max_length=10)
     response_detail: Optional[str] = "standard"     # concise | standard | detailed
     staged: bool = True                             # core data first; sections on demand
     user_api_key: Optional[str] = None              # user-supplied Anthropic key; never logged or stored
@@ -482,6 +489,7 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                     personal_variants=body.personal_variants,
                     response_detail=body.response_detail,
                     user_api_key=user_api_key,
+                    personal_documents=body.personal_documents,
                 ):
                     parts.append(chunk)
                     yield _sse("token", {"text": chunk})
@@ -520,6 +528,7 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                 personal_variants=body.personal_variants,
                 response_detail=body.response_detail,
                 user_api_key=user_api_key,
+                personal_documents=body.personal_documents,
             ):
                 parts.append(chunk)
                 yield _sse("token", {"text": chunk})
@@ -687,6 +696,66 @@ async def dna_annotate(request: Request, current_user: Optional[User] = Depends(
 
     return {"annotations": annotations, "requested": len(body.rsids),
             "resolved": len(annotations), "source": "dbSNP"}
+
+
+class DocumentExtractRequest(BaseModel):
+    # Base64 page images, downscaled and re-encoded as JPEG by the browser
+    # before they get here. Bounded hard: vision is the costliest call in the app.
+    images: list[str] = Field(min_length=1, max_length=8)
+    media_type: str = "image/jpeg"
+
+
+@app.post("/documents/extract")
+async def documents_extract(
+    body: DocumentExtractRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """Transcribe photographed or scanned pages so they can be read alongside the data.
+
+    **Requires sign-in, and that is not a paywall.** A paper someone uploads
+    about their own condition is health data in its own right — uploading one on
+    osteogenesis imperfecta discloses a suspected diagnosis, which is arguably
+    more revealing than the variants themselves. So it is processed on explicit
+    consent, and consent must be recorded against somebody. Same reasoning as
+    DNA upload; see "Data protection" in CLAUDE.md.
+
+    **Charged, unlike `/dna/annotate`.** A PDF with a text layer is extracted
+    entirely in the browser and costs nothing, so it stays free. A scan has no
+    text layer, and only a vision model reads a rotated two-column journal page
+    reliably — a real per-page cost. Charging for the path that costs money and
+    not the one that doesn't is the honest version of both.
+
+    **Nothing is stored.** Not the image, not the transcription, not in the
+    database and not in the log. Same rule as `personal_variants`, for the same
+    privacy reasons plus one more: MyDNA has no licence to hold a publisher's
+    text, and needs none to help someone read their own lawful copy. Do not add
+    persistence here.
+    """
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=501, detail="Document reading is not configured")
+
+    has_working_key = bool(try_decrypt_key(current_user.encrypted_api_key)) \
+        if current_user.encrypted_api_key else False
+
+    allowed, reason = user_can_query(current_user, has_working_key=has_working_key)
+    if not allowed:
+        raise HTTPException(status_code=402, detail={
+            "upgrade_required": True,
+            "reason": reason,
+            "message": "Reading a scanned page uses one query credit. "
+                       "PDFs with selectable text are read in your browser, free.",
+        })
+
+    try:
+        text = await transcribe_pages(body.images, media_type=body.media_type)
+    except Exception as e:
+        # Note the deliberate absence of the image and of any transcribed text.
+        logger.error("Document transcription failed for %d page(s): %s", len(body.images), e)
+        raise HTTPException(status_code=502, detail="Could not read that document")
+
+    consume_query(current_user, db, has_working_key=has_working_key)
+    return {"text": text, "pages": len(body.images), "charged": True}
 
 
 # ── Streaming chat ────────────────────────────────────────────────────────────

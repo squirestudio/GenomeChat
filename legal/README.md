@@ -14,7 +14,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 | Item | Decision |
 |---|---|
-| Controller | **Benjamin Kenneth Brown, trading as Squire Studios**, a sole proprietorship, Tennessee. See "Entity" below |
+| Controller | **Benjamin Kenneth Brown, trading as Squire Studio**, a sole proprietorship, Tennessee. See "Entity" below |
 | Contact | **privacy@mydna.chat** — live, forwarding verified 1 Aug 2026. DMARC `p=reject` set |
 | Governing law | Tennessee |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
@@ -30,23 +30,23 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 ## Entity — the position as of 31 July 2026
 
-Squire Studios is an informal trading name. Red Wolf Agency is a sole
+Squire Studio is an informal trading name. Red Wolf Agency is a sole
 proprietorship. **Neither is a separate legal entity**, so both resolve to
 Benjamin Kenneth Brown, and there is no inconsistency between accounts to
 reconcile — there was never a second party to be inconsistent with. The Railway
 DPA was signed by the correct legal person regardless of which account name it
 sits under, and switching the published name does not affect it.
 
-**MyDNA is published under Squire Studios**, which is the lab where products
+**MyDNA is published under Squire Studio**, which is the lab where products
 ship (Tik Attack Toe, SudoSwap); Red Wolf Agency is the client-work side and is
 expected to act as MyDNA's marketing agency later. The distinction carries no
 legal weight while both are the same person, but it decides the name that ends
 up in archived pages and shared links, and it matches the accounts that already
-exist — GitHub, email and the rest are Squire Studios already, so this aligns
+exist — GitHub, email and the rest are Squire Studio already, so this aligns
 the paperwork to reality rather than the reverse.
 
-Because Squire Studios is *informal* rather than a registered assumed name, the
-documents read "Benjamin Kenneth Brown, trading as Squire Studios". A controller
+Because Squire Studio is *informal* rather than a registered assumed name, the
+documents read "Benjamin Kenneth Brown, trading as Squire Studio". A controller
 must be identifiable as a legal person, and naming an unregistered trading name
 alone would not do that. If it is ever registered as an assumed name in TN, the
 phrasing can shorten.

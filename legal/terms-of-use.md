@@ -43,6 +43,15 @@ family history, clinical context and other factors that a raw data file cannot
 supply. A qualified genetic counsellor or clinician is the right person to help
 with that.
 
+**This applies most of all when you combine your own data with your own
+reading.** Uploading your DNA alongside a paper about a condition can make an
+answer feel like it is about you. It is not. MyDNA describes relationships in
+published data — which variants are associated with which phenotypes, in whose
+cohort, at what strength — and declines to draw a conclusion about any
+individual. Where a question asks for one, it will say so and give you the
+underlying relationship instead. That is a deliberate limit, not a gap to be
+worked around by rephrasing.
+
 ## 4. Accuracy, and its limits
 
 MyDNA draws on public databases maintained by others. We do not control their
@@ -88,6 +97,15 @@ How genetic data is handled — parsed in your browser, never uploaded or stored
 is set out in the [Privacy Policy](./privacy-policy.md). We do not use your data
 to train any model.
 
+**Documents you upload** are handled the same way and are never stored. You must
+have lawful access to anything you upload: MyDNA reads your own copy with you for
+the length of a session, and does not store, republish or redistribute it, add it
+to any shared library, or show it to anyone else. Nothing here gives you rights in
+a publisher's work that you did not already have, and you remain responsible for
+observing the terms attached to whatever you upload. A photographed or scanned
+page is sent to Anthropic to be transcribed and then discarded; a PDF with
+selectable text never leaves your device.
+
 ## 7. Acceptable use
 
 Do not:
@@ -95,6 +113,10 @@ Do not:
 - Use MyDNA to make clinical decisions, or present its output as medical advice
   to anyone else
 - Upload another person's genetic data without their informed consent
+- Upload another person's medical records or health documents without their
+  informed consent
+- Upload material you do not have lawful access to, or use MyDNA as a way to
+  extract or redistribute copyrighted work
 - Attempt to re-identify any individual from any data
 - Use it as a bulk proxy for the underlying databases, or scrape it — these are
   shared public resources with their own rate limits, and abusing them through

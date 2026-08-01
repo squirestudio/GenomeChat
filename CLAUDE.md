@@ -10,16 +10,19 @@ This repo is developed from more than one machine via `origin`. Claude Code sess
 
 **Open, in priority order:**
 
-1. **A mailing address that is not a home address** — the last blank. [legal/privacy-policy.md](legal/privacy-policy.md) reads `[MAILING ADDRESS]` on purpose: this is a sole proprietorship, so its address is a residence, and a privacy policy publishes it permanently to an audience explicitly invited to read it. **Both legal documents are unpublishable until it is set.** A CMRA suffices — Railway's own DPA address is a PMB — and a registered agent is only the better buy if an LLC follows within months, which it does not.
+1. **A mailing address that is not a home address** — the last blank, and now the *only* one. [legal/privacy-policy.md](legal/privacy-policy.md) still reads `[MAILING ADDRESS]`: this is a sole proprietorship, so its address is a residence, and a privacy policy publishes it permanently to an audience explicitly invited to read it. A CMRA suffices — Railway's own DPA address is a PMB — and a registered agent is only the better buy if an LLC follows within months, which it does not.
+
+   **The earlier position was that both documents were unpublishable until this was set. That was overridden deliberately on 1 Aug 2026**, with the risk accepted: a CMRA is days away, and nobody knows the product exists yet. The pages are live at `/privacy` and `/terms` with a **draft banner that names the outstanding blank**, generated from the document text by `unresolved()` in [draft.js](frontend/src/draft.js) rather than from a flag — so it cannot be silenced by editing code, only by filling the address in. `draft.test.js` asserts the mailing address is the only thing left; when that test fails because the list is empty, the banner has done its job and can come off.
 
    `privacy@mydna.chat` is live (Namecheap forwarding to squirestudio@gmail.com, verified 1 Aug 2026), with SPF inherited from the forwarder and DMARC at `p=reject`. Domain contacts are under Squire Studio.
-2. **Wire `/privacy` and `/terms`** as real routes once (1) is done — same pattern as `/about` in [root.jsx](frontend/src/root.jsx) — plus footer links beside "About MyDNA".
-3. **An FAQ page**, agreed and deferred. Same pattern again. It is where the expectation-setting questions belong so `/about` stays a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own).
-4. **A Tennessee LLC** — recommended, not a blocker. There is no liability shield today; see the entity note in [legal/README.md](legal/README.md).
+2. **An FAQ page**, agreed and deferred. Same pattern again. It is where the expectation-setting questions belong so `/about` stays a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own).
+3. **A Tennessee LLC** — recommended, not a blocker. There is no liability shield today; see the entity note in [legal/README.md](legal/README.md).
 
 **MyDNA publishes under Squire Studio** — the lab where products ship, alongside Tik Attack Toe and SudoSwap. Red Wolf Agency is the client-work side and is expected to be MyDNA's marketing agency later. Both are the same legal person (Benjamin Kenneth Brown), so the choice carries no legal weight; it decides the name in archived pages and shared links, and it matches the accounts that already exist. Squire Studio is an *informal* trading name rather than a registered assumed name, which is why the documents read "Benjamin Kenneth Brown, trading as Squire Studio" — a controller must be identifiable as a legal person.
 
 **Legal drafts live in [legal/](legal/)** and are written from an audit of what the code actually does, not from a template. `legal/README.md` is the decision log — read it before changing anything in this area, because several product behaviours exist to satisfy specific clauses.
+
+**`/privacy` and `/terms` render `legal/*.md` directly** — [legal.jsx](frontend/src/legal.jsx) imports the markdown with Vite's `?raw` and renders it through the shared `Markdown` component. There is deliberately no hand-converted JSX copy: a second original drifts from the one that gets reviewed, and the whole trust argument here is that the documents describe what the code really does. Editing the policy means editing the markdown. Two consequences: `vite.config.js` needs `server.fs.allow: ['..']` or `npm run dev` breaks while `npm run build` keeps working, and **a feature that processes a new category of personal data has to land in the policy in the same commit** — document upload did.
 
 Both apps are deployed: backend on Railway, frontend on Vercel. Recent work has centered on the freemium gate — anonymous users are limited client-side (3 queries) before a sign-in prompt, authenticated users are limited server-side by `FREE_QUERY_LIMIT` (currently 20). Stripe checkout and webhook entitlement granting are wired up.
 
@@ -98,7 +101,7 @@ Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` read
 **Frontend tests live beside the code they cover and run on every push.**
 
 ```bash
-cd frontend && npm test          # 48 checks, ~0.3s
+cd frontend && npm test          # 311 checks, ~0.4s
 ```
 
 They cover pure logic, not component rendering: DNA parsing, SSE framing, plan
@@ -123,8 +126,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 73 checks, ~1s, no network — what CI runs
-python -m pytest                     # all 80, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 189 checks, ~3s, no network — what CI runs
+python -m pytest                     # all 241, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -152,6 +155,12 @@ It runs three stages:
 
 `unknown` short-circuits stages 2–3 and goes straight to `answer_followup()`, which is how conversational follow-ups ("what does that mean?") work.
 
+**The tool call is forced (`tool_choice: {"type": "any"}`), and there is a fourth tool for follow-ups. Both halves are load-bearing.** "Always call exactly one tool" was only ever a request in the prompt, and the model declined it for some inputs: *"what is hypotonia"* returned prose rather than a tool call **10 times out of 10**, and *"what is ataxia"* roughly 1 time in 10. A prose reply matched no branch, fell through to `_fallback_interpret()`, and became `unknown` — routing an answerable question (ClinVar has 20 genes for hypotonia; HPO lists 1,956) to the path that runs no pipeline. For ataxia the same bug was intermittent, so it read as an answer that occasionally arrived thin and worked on retry.
+
+`interpret_followup_query` exists so that forcing a call is safe. Remove it and `tool_choice` will shove "what does that mean?" into a gene lookup, breaking every conversational turn in the app. It maps to `QueryType.UNKNOWN` deliberately, at **confidence 0.9** — the regex fallback returns **0.2**, and that number is the only thing separating "this is conversation" from "interpretation broke" in logs.
+
+**A phenotype is a lookup, not a disease, and the tool description has to say so.** Hypotonia, ataxia, nystagmus and the rest are clinical *signs*; the model correctly declined to call a tool described as being for diseases. The description now claims signs and phenotypes explicitly and names the regression cases, and `_fallback_interpret`'s keyword list covers them too. `tests/test_query_routing.py` asserts all of this — including that phrasing never decides the route, since "hypotonia", "what is hypotonia" and "tell me about hypotonia" are one query. Note that no test could have caught the original bug from our side of the call: it lived entirely in the model's tool-calling behaviour, which is why the mocked tests assert on `tool_choice` being *sent*.
+
 Two different models are used on purpose: interpretation is a cheap tool call, explanation is the long generation. Both model IDs are hardcoded in their respective service modules.
 
 ### The genomics fan-out
@@ -178,6 +187,10 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 **A scheduled job now watches for this.** `.github/workflows/upstream-drift.yml` runs the `external` suite every Monday and opens an issue when a source stops answering. It exists because these tests were excluded from CI — correctly, they are as flaky as the network — which meant they only ran when somebody thought to run them, precisely the condition under which drift goes unnoticed for months. A failure is retried once before anything is reported, since a single NCBI hiccup is not drift and a weekly job that cries wolf gets muted. Repeat failures comment on one issue rather than opening a new one each week. **Set `NCBI_API_KEY` in repository secrets** — without it the job runs at 2.5 req/sec and its own concurrency produces timeouts that look like drift.
 
 Three lessons worth generalising. **A 200 is not success** — check for an empty aggregation, an `errors` array, a `warnings` key, and a `content-type` that isn't JSON. **An empty result and a broken query are indistinguishable without a control**: `tests/test_upstream_contracts.py` asserts against answers that are not in reasonable doubt (BRCA1 is in the HR-repair pathways, CYP2C19 governs clopidogrel), because a test that merely asserts "returned a list" passes forever while the data is gone. And **an empty answer can be the right one** — BRCA1 genuinely has no drugs, because a tumour suppressor's loss of function is not a drug target; that is why the Open Targets test uses EGFR.
+
+**Splitting an answer's prose is only safe when Explore further exists to catch the rest.** `AssistantMessage` renders Overview and Key Findings inline and leaves every other `##` section to the Explore-further menu — but that menu is gated on `msg.data`, and an answer that never ran the pipeline has none. Splitting one therefore did not defer the other sections, it **deleted** them: the backend streamed a complete reply and the reader saw its first line. `proseLayout()` in [response.js](frontend/src/response.js) now returns `mode: "whole"` whenever `msg.data` is absent, and everything data-less renders entire. This was the visible half of the hypotonia bug and it degraded *every* conversational follow-up, not just misrouted queries. If you ever gate Explore further on something else, revisit `proseLayout` in the same commit.
+
+**An empty answer has to say it is empty.** `noResultsFor()` fires only for a disease query whose gene list is empty — deliberately never for a gene query, since a gene with no ClinVar variants still has pathways, expression and interactions, and claiming "no results" there would be false. Before it existed, a genuine miss and a routing failure rendered identically, so neither the reader nor we could tell them apart.
 
 **Explore Further is grouped, not a flat list.** `EXPLORE_GROUPS` and `SECTION_GROUP` in [response.js](frontend/src/response.js) sort cards by the question a reader is asking — clinical consequence, then mechanism, then treatment, then evidence — rather than by which institution answers it. Nineteen ungrouped cards was a wall in which the good ones got lost. A section missing from `SECTION_GROUP` falls to "evidence" rather than disappearing, and a test asserts every renderable key has a group.
 
@@ -290,6 +303,58 @@ data rights are honoured for everyone regardless of location anyway, since
 export and erasure already exist and extending them costs nothing. Revisit if
 pricing, languages or marketing ever target those regions.
 
+**Uploaded documents are never stored, and three separate obligations depend on
+that.** `personal_documents` on `ChatRequest` carries the reader's own papers
+into the prompt for one request and is never written anywhere — same rule as
+`personal_variants`, and `tests/test_document_privacy.py` asserts it by
+inspecting the `stored` payload and every `QueryModel(...)` construction, since
+this is the kind of thing that gets added "just for history" by someone who does
+not know why it is absent. The three reasons fail differently and all three
+matter: **privacy**, because a paper about someone's own condition discloses a
+suspected diagnosis and is arguably more revealing than their variants — a
+genome needs interpretation, "I am reading about osteogenesis imperfecta" does
+not; **copyright**, because MyDNA has no licence to hold a publisher's text, and
+needs none to help someone read their own lawful copy; and **honesty**, because
+the upload notice promises outright that nothing is stored.
+
+Document upload sits behind the same sign-in gate as DNA, for the same Article 9
+reason, and `SignInGateModal` has a `documents` branch that says so — a wall in
+front of someone's own research otherwise reads as a money grab.
+
+The clean path to ever sharing anything from an upload is **the pointer, not the
+document**: `extractCitation()` in [documents.js](frontend/src/documents.js)
+pulls the DOI and PMID, which are facts rather than the publisher's expression
+and point at records the existing PubMed and PMC fetchers may already retrieve.
+Nothing does that yet. Do not add a shared corpus of uploaded text.
+
+### Not a diagnostic tool — how that is actually enforced
+
+[services/safety.py](genomics_backend/services/safety.py) holds two independent
+guards, and both exist because a single one that misses ships a diagnosis. This
+became urgent with document upload: a reader holding their own genome *and* a
+paper about their own condition is one sentence from "so do I have it?", and a
+model handed both will answer unless told not to.
+
+- **input** — `detect_diagnostic_intent()` reads the question before generation
+  and injects a reframing directive. It is tuned to leave factual questions
+  alone, and that distinction is the whole difficulty: "do I have the rs334
+  variant" asks what is in the reader's own file and has a true answer, while
+  "do I have sickle cell" asks for a diagnosis. Matching bare uppercase tokens
+  as gene symbols was tried and is wrong — "do I have **OI**" escapes the guard
+  that way, and **DMD** is both a gene and Duchenne muscular dystrophy — so the
+  factual test requires the word *variant*, *allele*, *mutation* or an rsID.
+- **output** — `NO_DIAGNOSIS_RULES` is concatenated into `SYSTEM_PROMPT` at
+  import time rather than passed by callers who might forget, so it is present
+  on every path whether or not the input guard fired.
+
+**The reframe redirects, it does not refuse.** The gene–phenotype relationship
+the reader is circling is a real fact they are entitled to, so a diagnostic
+question is answered by restating what the data shows — what is associated with
+what, in whose cohort, at what strength — and then naming the limit. Refusing
+outright would be unhelpful and faintly dishonest. `tests/test_no_diagnosis.py`
+tests both directions, because over-flagging teaches people to ignore
+disclaimers just as surely as under-flagging ships one.
+
 ### Schema migrations
 
 `create_tables()` in [database/models.py](genomics_backend/database/models.py) calls a hand-rolled `_run_migrations()` — a list of idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements, each individually try/excepted. Adding a nullable column to an existing table means appending one line there, not writing an Alembic revision. This runs on every boot.
@@ -354,6 +419,23 @@ This is the product's core privacy claim, stated in the UI consent modal and in 
 **Matching happens in the browser.** `variantsInLocus()` intersects the reader's variants against the gene's GRCh37 coordinates locally, so working out which of their variants are relevant sends nothing anywhere. Only the explicit "look up what these mean" action discloses rsIDs, and the panel says so before it is clicked.
 
 `computeDnaSummary()` lives in `dna.js` beside `NOTABLE_VARIANTS` rather than in `App.jsx`. It used to be in the component while the constant had moved, unexported, into the module — so it threw a `ReferenceError` for every reader with DNA loaded, and nothing in the app surfaced it. Keep logic next to the data it reads, and note that `npm run lint` catches exactly this class of break while the test suite does not.
+
+### Uploaded documents — two paths, and which one decides both privacy and price
+
+[extract.js](frontend/src/extract.js) routes a file by `classifyFile()`, and that one function decides whether the reader's page ever leaves their machine and whether it costs anything:
+
+| Input | Path | Leaves the browser? | Cost |
+|---|---|---|---|
+| PDF with a text layer | `pdf.js`, in-browser | No | Free |
+| Photo, scan, HEIC | `POST /documents/extract` → Claude vision | Yes, to Anthropic only | One credit per page |
+
+**The upload copy is a commitment, so the two notes differ on purpose** — the PDF note says "nothing leaves your device" and the image note does not, because for images it would be false. `extract.test.js` asserts that difference; it is the kind of wording that gets "tidied" into consistency by someone who has not read this.
+
+**HEIC needs its own decoder and its own detection.** iPhone photos are HEIC, no browser paints one to a canvas, and Chrome and Firefox commonly report an empty MIME type for them — so the extension is the reliable signal, and `classifyFile` checks it. Without this the most natural way to capture a page silently fails. `heic-to` is ~751KB gzipped and `pdfjs-dist` ~127KB; both are behind dynamic `import()` and build to their own chunks, so a reader who never uploads downloads neither. Verify that after any Vite or dependency change: losing the code-split would put 751KB in the critical path for everybody.
+
+**Client-side OCR was considered and rejected.** On the material that matters — a phone photo of a rotated two-column genetics paper — it produces confident garbage, and a wrong character in `c.507G>A` silently makes it a different variant. No transcription beats a plausible wrong one, because nothing downstream can tell. That is also why `VISION_MODEL` is Sonnet rather than the Haiku used everywhere else.
+
+**Passages are selected, not sent whole.** `selectPassages()` in [documents.js](frontend/src/documents.js) is the document analogue of `selectRelevantVariants()` and exists for the same reason: a paper is far too long to send every turn. It scores by term overlap with the question and the gene under discussion, weights gene symbols and rsIDs far above ordinary words, restores reading order within each document before sending, and falls back to opening passages when nothing matches — an abstract is where a paper says what it is, and sending nothing makes the upload look broken.
 
 ### External runtime dependencies
 

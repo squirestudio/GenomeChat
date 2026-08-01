@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import App from './App.jsx'
 import AboutPage from './about.jsx'
+import { PrivacyPage, TermsPage } from './legal.jsx'
 
 /**
  * Minimal path routing, deliberately not a router.
@@ -36,5 +37,7 @@ export default function Root() {
   }, [])
 
   if (path === '/about') return <AboutPage onBack={() => navigate('/')} />
+  if (path === '/privacy') return <PrivacyPage onBack={() => navigate('/')} />
+  if (path === '/terms') return <TermsPage onBack={() => navigate('/')} />
   return <App onNavigate={navigate} />
 }

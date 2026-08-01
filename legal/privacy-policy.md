@@ -17,6 +17,10 @@ Your uploaded DNA file is read **on your device** and is never uploaded or
 stored. Only the small number of variants relevant to a question travel with
 that question so it can be answered, and they are discarded once it is.
 
+Documents you upload are treated the same way: read for the session, never
+stored, never added to any shared library. PDFs with selectable text are read
+without leaving your device at all.
+
 If you sign in, the questions you ask are stored so your history works, along
 with your email address. **If you are not signed in, we store nothing at all.**
 
@@ -40,7 +44,7 @@ from the United States and is not directed at users in the EEA or the UK — see
 "Eligibility and where MyDNA is offered" in the Terms of Use — so Article 27
 does not apply.
 
-We nonetheless honour the rights set out in section 8 for anyone who asks,
+We nonetheless honour the rights set out in section 9 for anyone who asks,
 wherever they are. If that position changes, or if we begin offering MyDNA in
 those regions, we will appoint representatives and name them here before doing
 so.
@@ -156,7 +160,50 @@ Anthropic's Commercial Terms — which govern our API access — state plainly:
 relying on their published terms rather than making a promise on their behalf,
 and those terms are at anthropic.com/legal/commercial-terms.
 
-## 4. What we do not collect
+## 4. Documents you upload
+
+You can add your own research material — a PDF of a paper, a photograph of a
+journal page — so MyDNA can read it alongside the databases and, if you have
+loaded it, your own DNA. This is handled like your DNA data, and for overlapping
+reasons: a paper about a particular condition can say as much about your health
+as a genome does, because choosing to read it suggests why.
+
+**What happens:**
+
+1. A **PDF with selectable text** is read **entirely in your browser**. The file
+   does not leave your device, and reading it costs nothing.
+2. A **photograph or scan** has no text to extract. The page image is sent to
+   **Anthropic's Claude API** to be transcribed, and is discarded immediately
+   afterwards. This is the one path where an uploaded file leaves your device,
+   and the upload screen says so before you choose a file. It uses one query
+   credit per page.
+3. The extracted text is held in your browser's session storage and is cleared
+   when you close the tab.
+4. When you ask a question, only the **passages relevant to that question** are
+   sent with it — chosen by what the question and the gene under discussion
+   actually mention, not the whole document.
+5. Nothing about your documents is **written to our database** at any point: not
+   the file, not the transcription, not the passages.
+
+**Using documents requires an account**, for the same reason DNA upload does:
+this is health information, processed on your explicit consent, and consent must
+be recorded against someone. The consent record is the same bare timestamp.
+
+**We do not build a library from what you upload.** Your documents are not
+added to any shared collection, are not shown to other users, and are not used
+to improve results for anyone else. If a feature that pools *citations* — the
+DOI or PubMed ID of a paper, which is a fact rather than the paper itself — is
+ever introduced, it will be opt-in and described here first.
+
+**Copyright.** Upload only material you have lawful access to. MyDNA reads your
+own copy with you for the length of a session; it never stores, republishes or
+redistributes it. Nothing here grants you rights in a publisher's work that you
+did not already have.
+
+**Nothing you upload is used to train any model** — the same position, and the
+same basis, as set out for DNA data above.
+
+## 5. What we do not collect
 
 - No cookies
 - No analytics or telemetry of any kind
@@ -167,13 +214,14 @@ and those terms are at anthropic.com/legal/commercial-terms.
 Your sign-in token is kept in your browser's local storage, not in a cookie,
 and is sent only to MyDNA's own API.
 
-## 5. Who else receives data
+## 6. Who else receives data
 
 We use these processors. Each receives only what it needs.
 
 | Processor | Receives | Purpose |
 |---|---|---|
-| **Anthropic** (Claude API) | Your question, the research data retrieved for it, and any relevant variants | Writing the answer |
+| **Anthropic** (Claude API) | Your question, the research data retrieved for it, any relevant variants, and relevant passages from documents you uploaded | Writing the answer |
+| **Anthropic** (Claude API) | Page images, only when you upload a photograph or scan | Transcribing it to text, then discarded |
 | **Google** | Your sign-in request | Authentication |
 | **Stripe** | Your email and payment details | Payments |
 | **Railway** | Everything stored | Hosting and database |
@@ -193,7 +241,7 @@ of those words and as defined by the CCPA/CPRA. We have never done so.
 **Disclosure required by law.** We may disclose data if legally compelled. If
 that happens we will notify you unless prohibited from doing so.
 
-## 6. International transfers
+## 7. International transfers
 
 MyDNA and all processors above are in or route through the **United States**. If
 you are in the UK, EU or Switzerland, your data is transferred outside your
@@ -213,7 +261,7 @@ hold with them, and each provides a transfer mechanism:
   Transfers rely on the 2021 Standard Contractual Clauses (Module Two), with
   the UK International Data Transfer Addendum for UK transfers.
 
-## 7. How long we keep things
+## 8. How long we keep things
 
 | Data | Retention |
 |---|---|
@@ -223,9 +271,11 @@ hold with them, and each provides a transfer mechanism:
 | Stored Anthropic API key | Until you remove it |
 | Payment records | As long as tax and accounting law requires |
 | DNA variants | Not retained. Held in your browser session only |
+| Uploaded documents and their text | Not retained. Held in your browser session only |
+| Page images sent for transcription | Not retained. Discarded once transcribed; never written to disk or logged |
 | IP addresses | Not stored by us; hosting logs follow the provider's own retention |
 
-## 8. Your rights
+## 9. Your rights
 
 Regardless of where you live, you can ask us to:
 
@@ -258,7 +308,7 @@ exercising any right.
 For anything else, contact **privacy@mydna.chat**. We will respond within 30
 days (GDPR) or 45 days (CCPA). We do not charge for this.
 
-## 9. Automated decision-making
+## 10. Automated decision-making
 
 Answers are generated by a large language model from data retrieved live from
 the sources listed above. **No decision about you is made automatically** — MyDNA
@@ -268,7 +318,7 @@ action on your behalf. Its output is information for you to read and check.
 The model can be wrong. That is why every answer names its sources and links
 back to the original records.
 
-## 10. Children
+## 11. Children
 
 MyDNA is for adults. You must be **18 or over** to use it. We do not knowingly
 collect data from anyone under 18, and we do not verify age beyond asking.
@@ -281,7 +331,7 @@ Uploading a child's genetic data — your own child's included — is not permit
 Genetic data describes a person for life, and consenting to its processing is
 not a decision to make on someone else's behalf here.
 
-## 11. Security
+## 12. Security
 
 Sign-in tokens are signed and expire. Stored API keys are encrypted at rest.
 Access to project and query records is checked against the signed-in account on
@@ -292,7 +342,7 @@ No system is perfectly secure, and we will not claim otherwise. If we discover a
 breach affecting your personal data we will notify you and the relevant
 authority as the law requires.
 
-## 12. Changes
+## 13. Changes
 
 If this policy changes materially we will update the date above and note the
 change on the site. Continuing to use MyDNA after that means you accept the

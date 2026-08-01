@@ -1,0 +1,176 @@
+name: upstream drift
+
+# The failure this exists to catch is invisible to uptime monitoring.
+#
+# In July 2026 an audit found ten of twenty sources returning nothing while
+# reporting success — an endpoint moved, a field was renamed, an identifier
+# namespace changed. Every request returned HTTP 200. Nothing errored, nothing
+# alerted, and the answers simply got thinner until somebody went looking.
+#
+# `tests/test_upstream_contracts.py` asserts against facts not in reasonable
+# doubt: BRCA1 is in the homologous-recombination repair pathways, CYP2C19
+# governs clopidogrel, cystic fibrosis leads for CFTR. Those tests are marked
+# `external` and excluded from CI because they are as flaky as the network —
+# which meant they only ran when someone thought to run them, precisely the
+# condition under which drift goes unnoticed.
+#
+# This runs them on a schedule and opens an issue when a source stops
+# answering. A weekly job that cries wolf gets muted, so a failure is retried
+# once before anything is reported: a single NCBI hiccup is not drift.
+
+on:
+  schedule:
+    # Mondays, 07:00 UTC — a working-week morning rather than a weekend, so a
+    # genuine break is seen while there is time to act on it.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    # Live APIs, some slow. Generous, but bounded.
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: genomechat
+          POSTGRES_USER: genomechat
+          POSTGRES_PASSWORD: genomechat
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U genomechat -d genomechat"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://genomechat:genomechat@localhost:5432/genomechat
+      JWT_SECRET: ci-only-not-a-real-secret
+      STRIPE_WEBHOOK_SECRET: whsec_ci_testing_secret
+      ENCRYPTION_KEY: 5NRXQ1s6mIQb6BgTPZ0jJ3vIYaMDLkbGx6vE8vG8uJc=
+      STRIPE_SECRET_KEY: sk_test_ci_placeholder
+      STRIPE_PRICE_UNLOCK: price_ci_unlock
+      STRIPE_PRICE_CREDITS: price_ci_credits
+      STRIPE_PRICE_BYOK: price_ci_byok
+      # Optional but strongly advised. Without it NCBI caps at 3 req/sec and
+      # the suite's own concurrency starts producing timeouts that look like
+      # drift. Set NCBI_API_KEY in repository secrets.
+      NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: genomics_backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Start the API
+        working-directory: genomics_backend
+        run: |
+          uvicorn main:app --host 127.0.0.1 --port 8000 --log-level warning &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/health >/dev/null && exit 0
+            sleep 1
+          done
+          echo "API did not become healthy"; exit 1
+
+      - name: Check the upstream contracts
+        id: contracts
+        working-directory: genomics_backend
+        run: |
+          set +e
+          # A single failure is more often a transient upstream than real
+          # drift, so it is retried before anything is reported. Only a
+          # repeated failure opens an issue.
+          python -m pytest -m external -q --no-header -p no:warnings \
+            > /tmp/run1.txt 2>&1
+          if [ $? -eq 0 ]; then
+            echo "outcome=pass" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "First attempt failed; retrying once in 60s."
+          sleep 60
+          python -m pytest -m external -q --no-header -p no:warnings \
+            > /tmp/run2.txt 2>&1
+          if [ $? -eq 0 ]; then
+            echo "outcome=flaky" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "outcome=fail" >> "$GITHUB_OUTPUT"
+          # Keep only the failure lines; the full log is in the run artefacts.
+          grep -E "^(FAILED|ERROR)" /tmp/run2.txt | head -40 > /tmp/summary.txt || true
+          exit 0
+
+      - name: Upload the full output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output
+          path: /tmp/run*.txt
+          if-no-files-found: ignore
+
+      - name: Note a transient failure
+        if: steps.contracts.outputs.outcome == 'flaky'
+        run: echo "::warning::External suite failed once and passed on retry — treated as transient, not drift."
+
+      - name: Open or update the drift issue
+        if: steps.contracts.outputs.outcome == 'fail'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let failures = '';
+            try { failures = fs.readFileSync('/tmp/summary.txt', 'utf8').trim(); } catch {}
+
+            const LABEL = 'upstream-drift';
+            const body = [
+              'The weekly upstream contract check failed twice in a row, so this is',
+              'unlikely to be a transient network problem.',
+              '',
+              '**These tests assert facts that are not in reasonable doubt** — BRCA1 is',
+              'in the homologous-recombination repair pathways, CYP2C19 governs',
+              'clopidogrel, cystic fibrosis leads for CFTR. A failure means an upstream',
+              'changed, not that the biology did.',
+              '',
+              'Remember the shape of this failure: sources return **HTTP 200 while giving',
+              'nothing**. Check for an empty aggregation, an `errors` array, a `warnings`',
+              'key, or a `content-type` that is not JSON — see "Upstream drift" in',
+              'CLAUDE.md for the ten ways this has happened before.',
+              '',
+              failures ? '```\n' + failures + '\n```' : '_No failure summary captured; see the run artefacts._',
+              '',
+              `[Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: LABEL,
+            });
+
+            if (existing.data.length) {
+              // One issue, appended to. A new issue every Monday for the same
+              // broken source is how a useful alert becomes noise.
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body: `Still failing as of ${new Date().toISOString().slice(0, 10)}.\n\n${body}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `Upstream drift detected — ${new Date().toISOString().slice(0, 10)}`,
+                labels: [LABEL],
+                body,
+              });
+            }
+
+      - name: Fail the run when drift is confirmed
+        if: steps.contracts.outputs.outcome == 'fail'
+        run: exit 1

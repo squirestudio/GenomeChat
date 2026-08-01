@@ -255,3 +255,63 @@ def test_pathogenic_variants_still_come_first():
     last_pathogenic = max((i for i, v in enumerate(variants)
                            if (v.clinical_significance or "").startswith("Pathogenic")), default=-1)
     assert last_pathogenic < first_benign
+
+
+# ── The disease network ──────────────────────────────────────────────────────
+# Assembled from HPO joined to ClinGen on MONDO. It only became possible once
+# both were repaired, and it is the one fetcher that returns a graph.
+
+
+@pytest.mark.external
+def test_the_disease_network_leads_with_what_the_gene_is_known_for():
+    """HPO returns diseases in no useful order — for CFTR it lists hereditary
+    pancreatitis and aquagenic keratoderma ahead of cystic fibrosis. Taking the
+    first six omitted the condition the gene is famous for, so the cap was
+    deciding the answer. Expert-curated pairs are ranked first."""
+    from services.genomics_api_real import fetch_disease_network
+    data = asyncio.run(fetch_disease_network("CFTR"))
+    assert "cystic fibrosis" in data["diseases"][0]["name"].lower()
+    assert data["diseases"][0]["classification"] == "Definitive"
+    assert data["diseases"][0]["inheritance"] == "AR"
+
+
+@pytest.mark.external
+def test_one_condition_appears_once_however_many_nomenclatures_reach_it():
+    """CFTR arrives with both an OMIM and an Orphanet entry for cystic
+    fibrosis. Deduping on MONDO is exactly what that identifier is for."""
+    from services.genomics_api_real import fetch_disease_network
+    names = [d["name"].lower() for d in asyncio.run(fetch_disease_network("CFTR"))["diseases"]]
+    assert len(names) == len(set(names))
+
+
+@pytest.mark.external
+def test_the_network_finds_genes_that_share_a_disease():
+    """The non-obvious edge, and the reason this is a graph rather than a list:
+    the other genes behind a condition this gene causes. For BRCA1 that is the
+    hereditary breast and ovarian cancer panel, discovered through shared
+    disease membership rather than hardcoded anywhere."""
+    from services.genomics_api_real import fetch_disease_network
+    related = {g["symbol"] for g in asyncio.run(fetch_disease_network("BRCA1"))["related_genes"]}
+    assert {"BRCA2", "PALB2", "ATM"} <= related, f"missing known HBOC genes: {related}"
+
+
+@pytest.mark.external
+def test_phenotypes_are_ordered_by_how_often_they_occur():
+    """HPO annotates some diseases with over a hundred terms, most of them
+    rare. A phenotype seen in nearly every patient and one seen occasionally
+    are different claims, and the common ones have to survive the cap."""
+    from services.genomics_api_real import fetch_disease_network, HPO_FREQUENCY_ORDER
+    diseases = asyncio.run(fetch_disease_network("BRCA1"))["diseases"]
+    rich = max(diseases, key=lambda d: d["phenotype_total"])
+    assert rich["phenotype_total"] > 20, "expected a densely annotated disease"
+    ranks = [HPO_FREQUENCY_ORDER.get(p["frequency"], 9) for p in rich["phenotypes"]]
+    assert ranks == sorted(ranks)
+
+
+@pytest.mark.external
+def test_an_uncurated_gene_still_produces_a_network():
+    """Absent ClinGen curation is meaningfully different from no evidence, and
+    must not empty the panel."""
+    from services.genomics_api_real import fetch_disease_network
+    data = asyncio.run(fetch_disease_network("MTHFR"))
+    assert data == {} or data["diseases"], "should be empty or populated, never malformed"

@@ -9,6 +9,7 @@ import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
 import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems } from "./response";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
+import { buildNetwork, evidenceColor } from "./network";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -1985,6 +1986,172 @@ function ClinGenPanel({ curations }) {
 // ─── Structural variants (dbVar) ──────────────────────────────────────────────
 
 /**
+ * The disease–phenotype network.
+ *
+ * Diseases on the left, phenotypes on the right, links between. A
+ * force-directed graph was the obvious choice and the wrong one: six diseases
+ * and a hundred phenotypes settle into a hairball whose only legible message
+ * is "there are many things". The finding here is which phenotypes several of
+ * a gene's diseases *share*, and a bipartite layout states that outright.
+ *
+ * Layout is in network.js and tested. This is SVG and hover state.
+ */
+function DiseaseNetworkPanel({ data, geneName }) {
+  const [focus, setFocus] = useState(null);   // {type:"disease"|"phenotype", index}
+
+  const graph = useMemo(() => buildNetwork(data), [data]);
+  if (!graph.diseases.length) return null;
+
+  const W = 680;
+  const ROW = 26;
+  const H = Math.max(graph.diseases.length, graph.phenotypes.length) * ROW + 20;
+  const LEFT = 250;         // right edge of the disease column
+  const RIGHT = W - 250;    // left edge of the phenotype column
+
+  const dY = (i) => i * ROW + (H - graph.diseases.length * ROW) / 2 + 12;
+  const pY = (i) => i * ROW + (H - graph.phenotypes.length * ROW) / 2 + 12;
+
+  const lit = (link) => {
+    if (!focus) return false;
+    return focus.type === "disease" ? link.disease === focus.index : link.phenotype === focus.index;
+  };
+  const dimmed = (kind, i) => {
+    if (!focus) return false;
+    if (focus.type === kind && focus.index === i) return false;
+    return !graph.links.some(l => lit(l) && (kind === "disease" ? l.disease === i : l.phenotype === i));
+  };
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-success) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-success) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--success-soft)" }}>Disease &amp; Phenotype Relationships</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {graph.diseases.length} conditions · {graph.phenotypes.length} features · HPO / ClinGen
+        </span>
+      </div>
+
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
+        Conditions linked to {geneName || "this gene"}, and the features they
+        produce.{graph.shared > 0 && (
+          <> <strong style={{ color: "var(--text-dim)" }}>{graph.shared} feature{graph.shared === 1 ? " appears" : "s appear"} in more than one</strong> — hover anything to isolate its connections.</>
+        )}
+      </p>
+
+      <div style={{ padding: "0.5rem 0.875rem 0", overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", minWidth: 560 }}
+          role="img" aria-label={`${graph.diseases.length} conditions linked to ${graph.phenotypes.length} clinical features`}>
+
+          {graph.links.map((l, i) => {
+            const y0 = dY(l.disease) ;
+            const y1 = pY(l.phenotype);
+            const on = lit(l);
+            const mid = (LEFT + RIGHT) / 2;
+            return (
+              <path key={i}
+                d={`M${LEFT} ${y0} C${mid} ${y0}, ${mid} ${y1}, ${RIGHT} ${y1}`}
+                fill="none"
+                stroke={l.shared ? "var(--accent)" : "var(--text-dim)"}
+                strokeWidth={on ? 1.6 : 0.8}
+                opacity={focus ? (on ? 0.85 : 0.06) : 0.1 + l.weight * 0.22} />
+            );
+          })}
+
+          {graph.diseases.map((d, i) => {
+            const y = dY(i);
+            const faded = dimmed("disease", i);
+            return (
+              <g key={d.key} style={{ cursor: "pointer" }}
+                onMouseEnter={() => setFocus({ type: "disease", index: i })}
+                onMouseLeave={() => setFocus(null)}>
+                <rect x={0} y={y - 11} width={LEFT} height={22} fill="transparent" />
+                <circle cx={LEFT - 5} cy={y} r={focus?.type === "disease" && focus.index === i ? 5 : 4}
+                  fill={evidenceColor(d.classification)} opacity={faded ? 0.25 : 1} />
+                <text x={LEFT - 14} y={y + 3.5} textAnchor="end" fontSize={10.5}
+                  fill="var(--text-muted)" opacity={faded ? 0.28 : 1}>
+                  {d.name.length > 34 ? `${d.name.slice(0, 32)}…` : d.name}
+                </text>
+                <text x={LEFT - 14} y={y + 13.5} textAnchor="end" fontSize={7.5}
+                  fill="var(--text-dimmer)" opacity={faded ? 0.25 : 1}>
+                  {[d.classification, d.inheritance, d.geneTotal ? `${d.geneTotal} genes` : null]
+                    .filter(Boolean).join(" · ") || "not curated by ClinGen"}
+                </text>
+              </g>
+            );
+          })}
+
+          {graph.phenotypes.map((p, i) => {
+            const y = pY(i);
+            const faded = dimmed("phenotype", i);
+            return (
+              <g key={p.key} style={{ cursor: "pointer" }}
+                onMouseEnter={() => setFocus({ type: "phenotype", index: i })}
+                onMouseLeave={() => setFocus(null)}>
+                <rect x={RIGHT} y={y - 10} width={W - RIGHT} height={20} fill="transparent" />
+                <circle cx={RIGHT + 5} cy={y} r={p.shared ? 4.5 : 3}
+                  fill={p.shared ? "var(--accent)" : "var(--text-dim)"} opacity={faded ? 0.25 : 1} />
+                <text x={RIGHT + 14} y={y + 3.5} fontSize={10}
+                  fill={p.shared ? "var(--text-muted)" : "var(--text-dim)"}
+                  fontWeight={p.shared ? 600 : 400} opacity={faded ? 0.28 : 1}>
+                  {p.name.length > 30 ? `${p.name.slice(0, 28)}…` : p.name}
+                  {p.shared && (
+                    <tspan fill="var(--accent)" fontSize={7.5}> ×{p.diseaseIndexes.length}</tspan>
+                  )}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      <div style={{ padding: "0.35rem 0.875rem 0.75rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 8 }}>
+          {["Definitive", "Strong", "Moderate", "Limited"].map(c => (
+            <span key={c} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: evidenceColor(c) }} />
+              <span style={{ fontSize: "0.6rem", color: "var(--text-dimmer)" }}>{c}</span>
+            </span>
+          ))}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: evidenceColor(null) }} />
+            <span style={{ fontSize: "0.6rem", color: "var(--text-dimmer)" }}>Not curated</span>
+          </span>
+        </div>
+
+        {graph.hidden > 0 && (
+          <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", margin: "0 0 8px" }}>
+            Showing the {graph.phenotypes.length} most characteristic of {graph.phenotypes.length + graph.hidden} features.
+          </p>
+        )}
+
+        {data.related_genes?.length > 0 && (
+          <div style={{ paddingTop: 8, borderTop: "1px solid rgb(var(--c-border) / 0.25)" }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: "0 0 5px", fontWeight: 600 }}>
+              Other genes behind these same conditions
+            </p>
+            <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", margin: "0 0 7px", lineHeight: 1.5 }}>
+              Found through shared disease membership, not a curated panel — these
+              are genes a clinician would often consider alongside {geneName}.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {data.related_genes.slice(0, 18).map(g => (
+                <span key={g.symbol} title={g.shared_diseases.join(" · ")}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.68rem",
+                           fontFamily: "monospace", padding: "0.2em 0.5em", borderRadius: 100,
+                           background: "rgb(var(--c-success) / 0.1)",
+                           border: "1px solid rgb(var(--c-success) / 0.25)", color: "var(--success-soft)" }}>
+                  {g.symbol}
+                  {g.count > 1 && <span style={{ fontSize: "0.58rem", opacity: 0.75 }}>×{g.count}</span>}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Structural variants, drawn to scale against the gene they affect.
  *
  * The lollipop map cannot express these: a whole-exon deletion has no single
@@ -3267,6 +3434,7 @@ function ComparisonView({ msg }) {
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
       {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} />}
       {(data.hpo?.phenotype_terms?.length > 0 || data.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={data.hpo} monarch={data.monarch} />}
+      {data.disease_network?.diseases?.length > 0 && <DiseaseNetworkPanel data={data.disease_network} geneName={gene} />}
       {data.structural_variants?.variants?.length > 0 && <StructuralVariantsPanel data={data.structural_variants} locus={data.gene_locus_grch37} geneName={gene} />}
       {data.genetic_tests?.tests?.length > 0 && <GeneticTestsPanel data={data.genetic_tests} />}
       {data.medgen?.concepts?.length > 0 && <MedGenPanel data={data.medgen} />}
@@ -3405,6 +3573,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} /> : null;
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
+    case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} /> : null;
     case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} locus={d.gene_locus_grch37} geneName={msg.target} /> : null;
     case "genetic_tests":        return d.genetic_tests?.tests?.length > 0 ? <GeneticTestsPanel data={d.genetic_tests} /> : null;
     case "medgen":               return d.medgen?.concepts?.length > 0 ? <MedGenPanel data={d.medgen} /> : null;

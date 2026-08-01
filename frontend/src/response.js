@@ -53,11 +53,12 @@ const EXPLORE_LABELS = {
   phenotypes: "Phenotypes", structural_variants: "Structural variants",
   genetic_tests: "Available clinical tests", medgen: "Linked conditions",
   full_text: "Full-text papers",
+  disease_network: "Disease & phenotype relationships",
 };
 
 const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
   "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline",
-  "structural_variants", "genetic_tests", "medgen", "full_text"];
+  "structural_variants", "genetic_tests", "medgen", "full_text", "disease_network"];
 
 /** Everything the reader can open, in one list. Items already in hand cost
  *  nothing; the rest are fetched on demand and consume a credit. */

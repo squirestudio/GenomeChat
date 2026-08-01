@@ -2037,6 +2037,170 @@ async def fetch_structural_variants(gene_symbol: str) -> dict:
         return {}
 
 
+# How many diseases to expand into their phenotypes and gene lists. Each costs
+# one request, and past half a dozen the picture stops being legible anyway.
+DISEASE_NETWORK_MAX = 6
+# Phenotypes per disease. HPO annotates some diseases with well over a hundred
+# terms, most of them rare; the frequency ordering below puts the ones that
+# actually characterise the condition first.
+DISEASE_PHENOTYPE_MAX = 14
+
+# HPO frequency vocabulary, most common first. A phenotype seen in nearly every
+# patient and one seen occasionally are very different claims, and sorting on
+# this is what keeps the common ones visible.
+HPO_FREQUENCY_ORDER = {
+    "Obligate": 0, "Very frequent": 1, "Frequent": 2,
+    "Occasional": 3, "Very rare": 4, "Excluded": 5,
+}
+
+
+async def _hpo_annotation(client: httpx.AsyncClient, curie: str) -> dict:
+    data = await _get(client, f"{HPO_ANNOTATION_BASE}/network/annotation/{curie}")
+    return data if isinstance(data, dict) else {}
+
+
+async def fetch_disease_network(gene_symbol: str) -> dict:
+    """The gene's diseases, the phenotypes those cause, and the other genes
+    behind the same conditions.
+
+    This is the one fetcher that assembles a *graph* rather than a list, and it
+    only became possible once HPO, Monarch and ClinGen were repaired. They all
+    speak MONDO, which is the join that lets a disease named by one source be
+    recognised as the same disease by another — without it this would be string
+    matching on disease names, which is how "Breast cancer" and
+    "BREAST-OVARIAN CANCER, FAMILIAL, SUSCEPTIBILITY TO, 1" become two things.
+
+    The genuinely non-obvious edge is disease -> gene: the other genes causing a
+    condition this gene causes. For BRCA1 that surfaces ATM, RAD51C and PTEN,
+    which is a real clinical grouping and not something any single-gene view
+    shows.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            gene_id = await resolve_ncbi_gene_id(gene_symbol, client)
+            if not gene_id:
+                return {}
+
+            root = await _hpo_annotation(client, f"NCBIGene:{gene_id}")
+            diseases = [d for d in (root.get("diseases") or []) if d.get("id")]
+            if not diseases:
+                return {}
+
+            # ClinGen supplies the evidence strength and inheritance mode, keyed
+            # by MONDO. Fetched once and joined, rather than per disease.
+            validity = {}
+            for curation in await fetch_clingen_validity(gene_symbol):
+                if curation.get("mondo_id"):
+                    validity[curation["mondo_id"]] = curation
+
+            # Rank before capping, or the cap decides the answer. HPO returns
+            # diseases in no useful order: for CFTR it lists hereditary
+            # pancreatitis and aquagenic keratoderma ahead of cystic fibrosis,
+            # so taking the first six omitted the condition the gene is known
+            # for. Expert-curated gene-disease pairs come first, strongest
+            # evidence leading, and everything else keeps its original order
+            # behind them.
+            def rank(disease):
+                curated = validity.get(disease.get("mondoId"))
+                if not curated:
+                    return (1, 99)
+                try:
+                    return (0, CLINGEN_VALIDITY_ORDER.index(curated["classification"]))
+                except ValueError:
+                    return (0, 98)
+
+            diseases.sort(key=rank)
+
+            # One condition reaches HPO through several nomenclatures — CFTR
+            # arrives with both an OMIM and an Orphanet entry for cystic
+            # fibrosis, which is exactly the duplication MONDO exists to
+            # resolve. Dedupe on it, keeping the higher-ranked entry, and fall
+            # back to the name where no MONDO id is offered.
+            seen_disease = set()
+            unique = []
+            for d in diseases:
+                key = d.get("mondoId") or (d.get("name") or "").strip().lower()
+                if not key or key in seen_disease:
+                    continue
+                seen_disease.add(key)
+                unique.append(d)
+            diseases = unique
+
+            expanded = await asyncio.gather(
+                *[_hpo_annotation(client, d["id"]) for d in diseases[:DISEASE_NETWORK_MAX]],
+                return_exceptions=True,
+            )
+
+            out_diseases = []
+            gene_hits: dict[str, list[str]] = {}
+
+            for disease, detail in zip(diseases[:DISEASE_NETWORK_MAX], expanded):
+                if isinstance(detail, Exception):
+                    detail = {}
+                mondo = disease.get("mondoId")
+                curated = validity.get(mondo) or {}
+
+                phenotypes = []
+                for category, terms in (detail.get("categories") or {}).items():
+                    for term in terms or []:
+                        if not term.get("id"):
+                            continue
+                        frequency = ((term.get("metadata") or {}).get("frequency") or "").strip()
+                        phenotypes.append({
+                            "id": term["id"],
+                            "name": term.get("name") or term["id"],
+                            "category": category,
+                            "frequency": frequency or None,
+                        })
+                phenotypes.sort(key=lambda p: (
+                    HPO_FREQUENCY_ORDER.get(p["frequency"], 9), p["name"],
+                ))
+
+                others = []
+                for g in (detail.get("genes") or []):
+                    symbol = (g.get("name") or "").strip()
+                    if not symbol or symbol.upper() == gene_symbol.upper():
+                        continue
+                    others.append(symbol)
+                    gene_hits.setdefault(symbol, []).append(
+                        disease.get("name") or disease["id"]
+                    )
+
+                out_diseases.append({
+                    "id": disease["id"],
+                    "mondo_id": mondo,
+                    "name": disease.get("name") or disease["id"],
+                    "description": (detail.get("disease") or {}).get("description"),
+                    # Present only where ClinGen has curated this gene-disease
+                    # pair; absent is meaningfully different from "no evidence".
+                    "classification": curated.get("classification"),
+                    "inheritance": curated.get("moi"),
+                    "phenotypes": phenotypes[:DISEASE_PHENOTYPE_MAX],
+                    "phenotype_total": len(phenotypes),
+                    "genes": sorted(others)[:20],
+                    "gene_total": len(others),
+                    "url": f"https://hpo.jax.org/browse/disease/{disease['id']}",
+                })
+
+            related = [
+                {"symbol": symbol, "shared_diseases": names, "count": len(names)}
+                for symbol, names in gene_hits.items()
+            ]
+            related.sort(key=lambda g: (-g["count"], g["symbol"]))
+
+            if not out_diseases:
+                return {}
+            return {
+                "gene": gene_symbol,
+                "diseases": out_diseases,
+                "related_genes": related[:24],
+                "source": "HPO / ClinGen",
+            }
+    except Exception as e:
+        logger.warning(f"Disease network fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
 async def fetch_medgen_concepts(gene_symbol: str) -> dict:
     """Curated medical-genetics concepts linked to a gene, from MedGen.
 
@@ -2154,6 +2318,7 @@ OPTIONAL_SECTIONS = {
     "genetic_tests":        "Available clinical tests",
     "medgen":               "Medical genetics concepts",
     "full_text":            "Open-access full-text papers",
+    "disease_network":      "Disease & phenotype relationships",
 }
 
 # Sections whose fetcher returns a dict rather than a list. Getting this wrong
@@ -2162,6 +2327,7 @@ OPTIONAL_SECTIONS = {
 DICT_SECTIONS = {
     "omim", "pharmgkb", "cancer_mutations",
     "structural_variants", "genetic_tests", "medgen", "full_text",
+    "disease_network",
 }
 
 # Sources fetched by this module but not offered to readers.
@@ -2234,6 +2400,7 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "genetic_tests": fetch_genetic_tests,
         "medgen": fetch_medgen_concepts,
         "full_text": fetch_pmc_articles,
+        "disease_network": fetch_disease_network,
     }
     fn = simple.get(section)
     if not fn:
@@ -2264,7 +2431,7 @@ SECTION_SOURCE = {
     "pharmgkb": "ClinPGx", "cancer_mutations": "COSMIC/GDC", "clingen": "ClinGen",
     "publication_timeline": "PubMed", "gwas": "GWAS Catalog", "phenotypes": "HPO",
     "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
-    "full_text": "PMC",
+    "full_text": "PMC", "disease_network": "HPO / ClinGen",
 }
 
 

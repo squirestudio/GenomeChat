@@ -26,10 +26,10 @@ Details below, including the parts that are less flattering.
 
 ## 1. Who is responsible
 
-MyDNA ("we", "us") is operated by **Red Wolf Agency, a sole proprietorship of
-Benjamin Kenneth Brown**, [MAILING ADDRESS], Tennessee, United States. For
+MyDNA ("we", "us") is operated by **Benjamin Kenneth Brown, trading as Squire Studios**, a sole proprietorship,
+[MAILING ADDRESS], Tennessee, United States. For
 questions about this policy or to exercise any right described here, contact
-**info@redwolfagency.co**.
+**privacy@mydna.chat**.
 
 We have not appointed a Data Protection Officer. Our processing does not meet
 the Article 37 thresholds that require one — we are a single-person operation
@@ -255,7 +255,7 @@ exercising any right.
   active subscription, cancel it in Stripe as well — deleting the account
   removes our record of it but does not stop billing.
 
-For anything else, contact **info@redwolfagency.co**. We will respond within 30
+For anything else, contact **privacy@mydna.chat**. We will respond within 30
 days (GDPR) or 45 days (CCPA). We do not charge for this.
 
 ## 9. Automated decision-making
@@ -274,7 +274,7 @@ MyDNA is for adults. You must be **18 or over** to use it. We do not knowingly
 collect data from anyone under 18, and we do not verify age beyond asking.
 
 If you believe someone under 18 has used MyDNA, contact
-**info@redwolfagency.co** and we will delete the records without requiring you
+**privacy@mydna.chat** and we will delete the records without requiring you
 to prove anything.
 
 Uploading a child's genetic data — your own child's included — is not permitted.

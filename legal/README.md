@@ -14,8 +14,8 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 | Item | Decision |
 |---|---|
-| Controller | **Red Wolf Agency, a sole proprietorship of Benjamin Kenneth Brown**, Tennessee. See "Entity" below — the mailing address is deliberately unset |
-| Contact | **info@redwolfagency.co** |
+| Controller | **Benjamin Kenneth Brown, trading as Squire Studios**, a sole proprietorship, Tennessee. See "Entity" below |
+| Contact | **privacy@mydna.chat** — *not yet created; see blockers* |
 | Governing law | Tennessee |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
 | Refund window | 14 days |
@@ -30,11 +30,26 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 ## Entity — the position as of 31 July 2026
 
-Squire Studios is a DBA. Red Wolf Agency is a sole proprietorship. **Neither is
-a separate legal entity**, so both resolve to Benjamin Kenneth Brown, and there
-is no inconsistency between accounts to reconcile — there was never a second
-party to be inconsistent with. The Railway DPA was signed by the correct legal
-person regardless of which account name it sits under.
+Squire Studios is an informal trading name. Red Wolf Agency is a sole
+proprietorship. **Neither is a separate legal entity**, so both resolve to
+Benjamin Kenneth Brown, and there is no inconsistency between accounts to
+reconcile — there was never a second party to be inconsistent with. The Railway
+DPA was signed by the correct legal person regardless of which account name it
+sits under, and switching the published name does not affect it.
+
+**MyDNA is published under Squire Studios**, which is the lab where products
+ship (Tik Attack Toe, SudoSwap); Red Wolf Agency is the client-work side and is
+expected to act as MyDNA's marketing agency later. The distinction carries no
+legal weight while both are the same person, but it decides the name that ends
+up in archived pages and shared links, and it matches the accounts that already
+exist — GitHub, email and the rest are Squire Studios already, so this aligns
+the paperwork to reality rather than the reverse.
+
+Because Squire Studios is *informal* rather than a registered assumed name, the
+documents read "Benjamin Kenneth Brown, trading as Squire Studios". A controller
+must be identifiable as a legal person, and naming an unregistered trading name
+alone would not do that. If it is ever registered as an assumed name in TN, the
+phrasing can shorten.
 
 The consequence is that **there is currently no liability shield**. A claim
 arising from MyDNA is a claim against personal assets. That is an ordinary
@@ -44,18 +59,26 @@ terms allocate risk well; they cannot absorb it.
 
 Recommended, in order:
 
-1. **A PO box or registered agent.** A sole proprietorship's address is a home
-   address, and the privacy policy publishes it permanently to an audience
-   explicitly invited to read it. The address is left as `[MAILING ADDRESS]`
-   rather than filled with a home address. **Both documents are unpublishable
-   until it is set.**
-2. **A Tennessee LLC**, before the legal pages go live — publishing terms is the
+1. **A PO box, CMRA or registered agent.** A sole proprietorship's address is a
+   home address, and the privacy policy publishes it permanently to an audience
+   explicitly invited to read it. Left as `[MAILING ADDRESS]` rather than filled
+   with a residence. **Both documents are unpublishable until it is set.**
+   A CMRA is sufficient for these documents — Railway's own address in the DPA
+   we signed is a PMB — but it cannot accept service of process, and if an LLC
+   follows within months a registered agent service covers the same need plus
+   the registered office and service of process for similar money.
+2. **`privacy@mydna.chat` must exist.** The documents name it as the route for
+   exercising data rights, and a policy describing rights with a dead address is
+   worse than one describing none. `info@redwolfagency.co` is a working fallback
+   if another mailbox is unwelcome — it is a one-word change, and the only cost
+   is that a Red Wolf address under a Squire Studios product reads as an error.
+3. **A Tennessee LLC**, before the legal pages go live — publishing terms is the
    point at which the operation is visibly a business.
-3. **A separate bank account** for it, or a single-member LLC can be pierced for
+4. **A separate bank account** for it, or a single-member LLC can be pierced for
    commingling and the protection is illusory.
-4. **Then** move Stripe and Railway, and re-execute the Railway DPA with
+5. **Then** move Stripe and Railway, and re-execute the Railway DPA with
    Exhibit B completed.
-5. Tech E&O insurance is worth pricing alongside the LLC; for a solo operator it
+6. Tech E&O insurance is worth pricing alongside the LLC; for a solo operator it
    is often the more practical protection, and they complement each other.
 
 Renaming the GitHub organisation, the email addresses or anything in the code

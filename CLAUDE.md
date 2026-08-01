@@ -10,10 +10,12 @@ This repo is developed from more than one machine via `origin`. Claude Code sess
 
 **Open, in priority order:**
 
-1. **A mailing address that is not a home address.** [legal/privacy-policy.md](legal/privacy-policy.md) reads `[MAILING ADDRESS]` on purpose — Red Wolf Agency is a sole proprietorship, so its address is a residence, and a privacy policy publishes it permanently to an audience explicitly invited to read it. **Both legal documents are unpublishable until this is set.**
+1. **A mailing address that is not a home address**, and **`privacy@mydna.chat` actually existing**. [legal/privacy-policy.md](legal/privacy-policy.md) reads `[MAILING ADDRESS]` on purpose: this is a sole proprietorship, so its address is a residence, and a privacy policy publishes it permanently to an audience explicitly invited to read it. The email is the route for exercising data rights, and naming a dead one is worse than naming none. **Both legal documents are unpublishable until both are set.** A CMRA suffices for the address; a registered agent is the better buy if an LLC follows within months.
 2. **Wire `/privacy` and `/terms`** as real routes once (1) is done — same pattern as `/about` in [root.jsx](frontend/src/root.jsx) — plus footer links beside "About MyDNA".
 3. **An FAQ page**, agreed and deferred. Same pattern again. It is where the expectation-setting questions belong so `/about` stays a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own).
 4. **A Tennessee LLC** — recommended, not a blocker. There is no liability shield today; see the entity note in [legal/README.md](legal/README.md).
+
+**MyDNA publishes under Squire Studios** — the lab where products ship, alongside Tik Attack Toe and SudoSwap. Red Wolf Agency is the client-work side and is expected to be MyDNA's marketing agency later. Both are the same legal person (Benjamin Kenneth Brown), so the choice carries no legal weight; it decides the name in archived pages and shared links, and it matches the accounts that already exist. Squire Studios is an *informal* trading name rather than a registered assumed name, which is why the documents read "Benjamin Kenneth Brown, trading as Squire Studios" — a controller must be identifiable as a legal person.
 
 **Legal drafts live in [legal/](legal/)** and are written from an audit of what the code actually does, not from a template. `legal/README.md` is the decision log — read it before changing anything in this area, because several product behaviours exist to satisfy specific clauses.
 

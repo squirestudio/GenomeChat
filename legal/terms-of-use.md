@@ -9,8 +9,8 @@
 
 ## 1. Agreement
 
-These terms are between you and **Red Wolf Agency, a sole proprietorship of
-Benjamin Kenneth Brown** ("MyDNA", "we"). By using mydna.chat you accept
+These terms are between you and **Benjamin Kenneth Brown, trading as Squire Studios**, a sole proprietorship
+("MyDNA", "we"). By using mydna.chat you accept
 them. If you do not, please do not use the service.
 
 ## 2. What MyDNA is
@@ -194,4 +194,4 @@ revised date. Continuing to use MyDNA after that means you accept them.
 
 ## 17. Contact
 
-**info@redwolfagency.co**
+**privacy@mydna.chat**

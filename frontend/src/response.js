@@ -44,6 +44,54 @@ const PROSE_PRIMARY = ["overview", "keyfindings"];
    Adding a section there means adding it to both of these: a key missing from
    EXPLORE_LABELS is reported to the reader by its raw name, and one missing
    from ALL_SECTION_KEYS never renders at all on an unstaged response. */
+/* Nineteen ungrouped cards after every query is a wall, and the good ones —
+   the disease network, the variant map — get lost beside "Medical genetics
+   concepts". Grouping is by the question a reader is asking, not by which
+   database happens to answer it: someone wondering "what could this cause"
+   should not have to know that ClinGen, dbVar and GTR are different
+   institutions. Order runs from clinical consequence outward to mechanism and
+   evidence, because that is roughly the order people care. */
+const EXPLORE_GROUPS = [
+  { key: "answer",    label: "In this answer" },
+  { key: "clinical",  label: "What it means clinically" },
+  { key: "mechanism", label: "How the gene works" },
+  { key: "treatment", label: "Treatment & response" },
+  { key: "evidence",  label: "Research & evidence" },
+];
+
+const SECTION_GROUP = {
+  // Already in hand, free — variants and the maps built from them.
+  variants: "answer", domainmap: "answer", popfreq: "answer",
+
+  disease_network: "clinical", clingen: "clinical", omim: "clinical",
+  phenotypes: "clinical", medgen: "clinical",
+  structural_variants: "clinical", genetic_tests: "clinical",
+
+  pathways: "mechanism", interactions: "mechanism", expression: "mechanism",
+
+  drugs: "treatment", pharmgkb: "treatment",
+
+  gwas: "evidence", cancer_mutations: "evidence",
+  publication_timeline: "evidence", full_text: "evidence",
+};
+
+/** Which group an item belongs to. Prose the model wrote is always "answer";
+ *  anything unrecognised falls to evidence rather than vanishing. */
+function groupFor(item) {
+  if (!item) return "evidence";
+  if (String(item.key).startsWith("prose:")) return "answer";
+  return SECTION_GROUP[item.key] || "evidence";
+}
+
+/** Items arranged into groups, preserving order and dropping empty groups. */
+function groupExploreItems(items) {
+  const byKey = new Map(EXPLORE_GROUPS.map(g => [g.key, { ...g, items: [] }]));
+  for (const item of items || []) {
+    (byKey.get(groupFor(item)) || byKey.get("evidence")).items.push(item);
+  }
+  return [...byKey.values()].filter(g => g.items.length > 0);
+}
+
 const EXPLORE_LABELS = {
   pathways: "Biological pathways", expression: "Tissue expression",
   interactions: "Protein interactions", drugs: "Drugs & clinical trials",
@@ -53,7 +101,7 @@ const EXPLORE_LABELS = {
   phenotypes: "Phenotypes", structural_variants: "Structural variants",
   genetic_tests: "Available clinical tests", medgen: "Linked conditions",
   full_text: "Full-text papers",
-  disease_network: "Disease & phenotype relationships",
+  disease_network: "Diseases, phenotypes & related genes",
 };
 
 const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
@@ -93,4 +141,7 @@ function buildExploreItems(msg) {
   }
   return items;
 }
-export { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems };
+export {
+  splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS,
+  buildExploreItems, groupExploreItems, groupFor, EXPLORE_GROUPS, SECTION_GROUP,
+};

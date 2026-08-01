@@ -7,9 +7,10 @@ import {
 } from "./dna";
 import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
-import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems } from "./response";
+import { splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems } from "./response";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
+import { comparePopulations, pictogramScale } from "./frequency";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -1461,8 +1462,14 @@ function ExploreFurther({ items, opened, onLoadSection, onAsk, sectionState }) {
           {remaining.length} available{costCount > 0 ? ` · ${costCount} use a credit — only if data is found` : ""}
         </span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
-        {remaining.map(it => {
+      {groupExploreItems(remaining).map(group => (
+      <div key={group.key} style={{ marginBottom: 12 }}>
+        <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
+                    color: "var(--text-faintest)", margin: "0 0 6px" }}>
+          {group.label}
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+        {group.items.map(it => {
           const key = `${idx}:${it.key}`;
           const busy = !!loading[key];
           const failed = !!errors[key];
@@ -1507,7 +1514,9 @@ function ExploreFurther({ items, opened, onLoadSection, onAsk, sectionState }) {
             </button>
           );
         })}
+        </div>
       </div>
+      ))}
     </div>
   );
 }
@@ -1834,33 +1843,103 @@ const POP_COLORS = {
   sas: "#ec4899", mid: "#14b8a6",
 };
 
+/**
+ * How common a variant is, drawn so the number means something.
+ *
+ * These frequencies sit around 0.001. As a bar chart that is a row of bars all
+ * pinned at zero, inviting comparison of lengths that are visually identical —
+ * the chart took up space and said nothing.
+ *
+ * Two things carry it instead. "1 in 830" is a figure people can repeat. And a
+ * grid where one dot in a thousand is filled shows rarity as a picture rather
+ * than a decimal. Bars remain, but only to compare populations *against each
+ * other*, which is the one comparison honest at this scale.
+ */
 function PopulationFrequencyChart({ populations }) {
-  if (!populations?.length) return null;
-  const max = Math.max(...populations.map(p => p.allele_frequency));
+  const [selected, setSelected] = useState(0);
+  const { rows, spread } = useMemo(() => comparePopulations(populations), [populations]);
+  if (!rows.length) return null;
+
+  const active = rows[Math.min(selected, rows.length - 1)];
+  const grid = pictogramScale(active.frequency);
+  // Wide enough that the filled dots are findable, short enough to scan.
+  const cols = grid ? (grid.total > 1000 ? 100 : grid.total > 100 ? 50 : 10) : 0;
+  const dotsShown = grid ? Math.min(grid.total, 2000) : 0;
+  const filledShown = grid ? Math.max(1, Math.round((grid.filled / grid.total) * dotsShown)) : 0;
 
   return (
-    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-indigo) / 0.15)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-indigo) / 0.1)" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet-faint)" }}>Population Frequencies</span>
-        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>gnomAD r4 · aggregated AF by ancestry</span>
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.18)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>How Common Is This?</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>gnomAD · {rows.length} populations</span>
       </div>
-      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
-        {populations.map((pop) => {
-          const pct = max > 0 ? (pop.allele_frequency / max) * 100 : 0;
-          const color = POP_COLORS[pop.population_id] || "#6366f1";
-          const afDisplay = pop.allele_frequency === 0 ? "0"
-            : pop.allele_frequency < 0.0001 ? pop.allele_frequency.toExponential(2)
-            : pop.allele_frequency.toFixed(5);
-          return (
-            <div key={pop.population_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: "0.68rem", color: "var(--text-dim)", width: 160, flexShrink: 0, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pop.population}</span>
-              <div style={{ flex: 1, height: 14, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3, opacity: 0.8, transition: "width 0.5s ease", minWidth: pct > 0 ? 2 : 0 }} />
-              </div>
-              <span style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", width: 70, textAlign: "right", flexShrink: 0, fontFamily: "monospace" }}>{afDisplay}</span>
-            </div>
-          );
-        })}
+
+      <div style={{ padding: "0.85rem 0.875rem 0", textAlign: "center" }}>
+        <p style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--accent)", margin: 0, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+          {active.phrase}
+        </p>
+        <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", margin: "3px 0 0" }}>
+          people of {active.name} ancestry carry a variant in this gene
+        </p>
+      </div>
+
+      {grid && (
+        <div style={{ padding: "0.75rem 0.875rem 0" }}>
+          <svg viewBox={`0 0 ${cols * 3} ${Math.ceil(dotsShown / cols) * 3}`} width="100%"
+            role="img" aria-label={`${active.phrase} people of ${active.name} ancestry`}
+            style={{ display: "block", maxHeight: 140 }}>
+            {Array.from({ length: dotsShown }, (_, i) => {
+              const on = i < filledShown;
+              return (
+                <circle key={i} cx={(i % cols) * 3 + 1.5} cy={Math.floor(i / cols) * 3 + 1.5}
+                  r={on ? 1.3 : 0.85}
+                  fill={on ? "var(--accent)" : "var(--text-dim)"}
+                  opacity={on ? 1 : 0.22} />
+              );
+            })}
+          </svg>
+          <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", textAlign: "center", margin: "5px 0 0" }}>
+            Each dot is one person. {dotsShown < grid.total
+              ? `Shown to scale — the real figure is ${active.phrase.toLowerCase()}.`
+              : `${filledShown} highlighted of ${dotsShown.toLocaleString()}.`}
+          </p>
+        </div>
+      )}
+
+      <div style={{ padding: "0.85rem 0.875rem 0.75rem" }}>
+        <p style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-faintest)", margin: "0 0 6px" }}>
+          By ancestry {spread && <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>· {spread}× between highest and lowest</span>}
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {rows.map((r, i) => {
+            const on = i === Math.min(selected, rows.length - 1);
+            return (
+              <button key={r.id} onClick={() => setSelected(i)}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.28rem 0.45rem",
+                         borderRadius: 6, cursor: "pointer", textAlign: "left", width: "100%",
+                         background: on ? "rgb(var(--c-accent) / 0.12)" : "transparent",
+                         border: `1px solid ${on ? "rgb(var(--c-accent) / 0.3)" : "transparent"}` }}>
+                <span style={{ fontSize: "0.66rem", color: on ? "var(--accent)" : "var(--text-dim)", width: 116, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {r.name}
+                </span>
+                {/* Relative to the highest — the only comparison a bar can make
+                    honestly when every absolute value rounds to zero. */}
+                <span style={{ flex: 1, height: 5, borderRadius: 3, background: "rgb(var(--c-surface) / 0.7)", overflow: "hidden", minWidth: 40 }}>
+                  <span style={{ display: "block", height: "100%", width: `${Math.max(2, r.relative * 100)}%`,
+                                 background: on ? "var(--accent)" : "rgb(var(--c-accent) / 0.45)", borderRadius: 3 }} />
+                </span>
+                <span style={{ fontSize: "0.63rem", color: on ? "var(--text-muted)" : "var(--text-dimmer)", width: 74, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                  {r.phrase}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", margin: "7px 0 0", lineHeight: 1.5 }}>
+          Bars compare populations with each other, not against the whole
+          population — at these frequencies an absolute bar would be invisible.
+          Carrying a variant is not the same as having a condition.
+        </p>
       </div>
     </div>
   );

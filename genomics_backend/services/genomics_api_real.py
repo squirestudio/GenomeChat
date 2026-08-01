@@ -2188,11 +2188,21 @@ async def fetch_disease_network(gene_symbol: str) -> dict:
             ]
             related.sort(key=lambda g: (-g["count"], g["symbol"]))
 
+            # Conditions beyond the ones expanded above. Named but not detailed,
+            # so consolidating this section with the old phenotypes panel does
+            # not quietly narrow what a reader is told exists.
+            also = [
+                {"id": d["id"], "name": d.get("name") or d["id"], "mondo_id": d.get("mondoId")}
+                for d in diseases[DISEASE_NETWORK_MAX:]
+            ]
+
             if not out_diseases:
                 return {}
             return {
                 "gene": gene_symbol,
                 "diseases": out_diseases,
+                "also_linked": also[:20],
+                "disease_total": len(diseases),
                 "related_genes": related[:24],
                 "source": "HPO / ClinGen",
             }
@@ -2313,12 +2323,11 @@ OPTIONAL_SECTIONS = {
     "clingen":              "ClinGen gene-disease validity",
     "publication_timeline": "Publication trend",
     "gwas":                 "GWAS trait associations",
-    "phenotypes":           "Phenotypes (HPO & Monarch)",
     "structural_variants":  "Structural variants (deletions & duplications)",
     "genetic_tests":        "Available clinical tests",
     "medgen":               "Medical genetics concepts",
     "full_text":            "Open-access full-text papers",
-    "disease_network":      "Disease & phenotype relationships",
+    "disease_network":      "Diseases, phenotypes & related genes",
 }
 
 # Sections whose fetcher returns a dict rather than a list. Getting this wrong
@@ -2347,7 +2356,7 @@ DICT_SECTIONS = {
 # the `simple` dispatch map inside fetch_gene_section. The frontend is left
 # untouched on purpose — its panel and section key still exist so that answers
 # already stored in the database, which contain OMIM data, keep replaying.
-DISCONNECTED_SECTIONS = {"omim"}
+DISCONNECTED_SECTIONS = {"omim", "phenotypes"}
 
 
 def _safe(val):
@@ -2376,13 +2385,12 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
             ensembl_id = (info or {}).get("id", "")
         return {"drugs": _safe(await fetch_open_targets_drugs(ensembl_id)) or []}
 
-    if section == "phenotypes":
-        hpo, monarch = await asyncio.gather(
-            fetch_hpo_terms(gene_symbol),
-            fetch_monarch_associations(gene_symbol),
-            return_exceptions=True,
-        )
-        return {"hpo": _safe(hpo) or {}, "monarch": _safe(monarch) or {}}
+    # "phenotypes" is deliberately unreachable: it drew on the same HPO data
+    # that `disease_network` now presents organised by disease, so offering
+    # both charged twice for one body of evidence. fetch_hpo_terms and
+    # fetch_monarch_associations remain, tested, for whenever they are wanted
+    # again; the frontend panel is likewise left in place so stored answers
+    # containing hpo/monarch data still replay.
 
     simple = {
         "pathways": fetch_reactome_pathways,

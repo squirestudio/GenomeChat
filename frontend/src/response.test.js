@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS } from "./response";
+import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS, groupExploreItems, groupFor, SECTION_GROUP } from "./response";
 
 describe("splitProseSections", () => {
   const answer = [
@@ -138,5 +138,67 @@ describe("section registries stay in step", () => {
       expect(EXPLORE_LABELS[k]).toBeTruthy();
       expect(ALL_SECTION_KEYS).toContain(k);
     }
+  });
+});
+
+describe("grouping the Explore further cards", () => {
+  /* Nineteen ungrouped cards is a wall, and grouping is by the question a
+     reader is asking rather than by which institution answers it. */
+  it("puts a clinical question under the clinical heading", () => {
+    expect(groupFor({ key: "disease_network" })).toBe("clinical");
+    expect(groupFor({ key: "genetic_tests" })).toBe("clinical");
+    expect(groupFor({ key: "structural_variants" })).toBe("clinical");
+  });
+
+  it("separates mechanism from treatment from evidence", () => {
+    expect(groupFor({ key: "pathways" })).toBe("mechanism");
+    expect(groupFor({ key: "drugs" })).toBe("treatment");
+    expect(groupFor({ key: "pharmgkb" })).toBe("treatment");
+    expect(groupFor({ key: "full_text" })).toBe("evidence");
+  });
+
+  it("treats prose the model already wrote as part of the answer", () => {
+    expect(groupFor({ key: "prose:Clinical Significance" })).toBe("answer");
+    expect(groupFor({ key: "variants" })).toBe("answer");
+  });
+
+  it("files an unrecognised section rather than losing it", () => {
+    /* A section added to the backend but not to SECTION_GROUP must still
+       reach the reader — silently disappearing is the worse failure. */
+    expect(groupFor({ key: "something_new" })).toBe("evidence");
+    expect(groupFor(null)).toBe("evidence");
+  });
+
+  it("every section the app can render has a group", () => {
+    const ungrouped = ALL_SECTION_KEYS.filter(k => !SECTION_GROUP[k]);
+    expect(ungrouped).toEqual([]);
+  });
+
+  it("drops groups with nothing in them", () => {
+    const groups = groupExploreItems([{ key: "pathways" }, { key: "interactions" }]);
+    expect(groups.map(g => g.key)).toEqual(["mechanism"]);
+  });
+
+  it("keeps every item, and keeps their order within a group", () => {
+    const items = [
+      { key: "drugs" }, { key: "disease_network" }, { key: "pharmgkb" },
+      { key: "clingen" }, { key: "gwas" },
+    ];
+    const groups = groupExploreItems(items);
+    expect(groups.flatMap(g => g.items).length).toBe(items.length);
+    const clinical = groups.find(g => g.key === "clinical");
+    expect(clinical.items.map(i => i.key)).toEqual(["disease_network", "clingen"]);
+  });
+
+  it("orders groups from clinical consequence outward", () => {
+    const groups = groupExploreItems([
+      { key: "full_text" }, { key: "drugs" }, { key: "pathways" }, { key: "clingen" },
+    ]);
+    expect(groups.map(g => g.key)).toEqual(["clinical", "mechanism", "treatment", "evidence"]);
+  });
+
+  it("is safe on nothing", () => {
+    expect(groupExploreItems([])).toEqual([]);
+    expect(groupExploreItems(null)).toEqual([]);
   });
 });

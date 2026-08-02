@@ -960,7 +960,7 @@ const TOUR_KEY = "mydna_tour_seen";
 const TOUR_STEPS = [
   {
     target: null,          // centred, no anchor — the opening card
-    title: "Ask Your DNA Anything",
+    title: "Ask your DNA Anything",
     body: "MyDNA answers questions about genes and conditions using 23 public research databases, and shows you where every answer came from. Two minutes and you'll know your way around.",
   },
   {
@@ -5885,7 +5885,7 @@ export default function App({ onNavigate }) {
                 <BrandMark size={28} />
                 <div>
                   <p style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text)", margin: 0, letterSpacing: "-0.01em" }}>MyDNA</p>
-                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0 }}>Genomics research · Powered by Claude AI</p>
+                  <p className="gc-header-subtitle" style={{ fontSize: "0.7rem", color: "var(--text-faintest)", margin: 0 }}>Ask your DNA Anything</p>
                 </div>
               </div>
               {/* Desktop-only actions */}

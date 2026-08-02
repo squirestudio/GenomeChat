@@ -131,7 +131,7 @@ handles a dropped payload by saying so and offering to ask again.
 ```bash
 cd genomics_backend
 python -m pytest -m "not external"   # 214 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
-python -m pytest                     # all 274, adds the ones hitting real APIs
+python -m pytest                     # all 277, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -169,7 +169,7 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **23 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **24 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
@@ -201,6 +201,12 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 **The answer cache is keyed on the answer's shape, not just the question.** It keyed on the question alone, so the first reader's settings decided everyone's answer for 24 hours — asking for a technical explanation returned whatever plain reply happened to be cached, with nothing to indicate it. `response_detail` had that bug silently from the day the cache was added; `reading_level` would have inherited it. Any new field that changes what the model writes has to go into `cache_key` in the same commit.
 
 **Four panels were rendering less than they were given, found by diffing the pipeline JSON against the frontend's property reads.** `disease_network.also_linked` is the one that mattered: consolidating `phenotypes` into that panel was justified on the grounds that nothing a reader is told exists would be lost, and `also_linked` — conditions with no phenotype annotations, which the diagram therefore cannot draw — was fetched and never shown, so the justification was true of the data and false of the page. Also restored: `disease_total`, ClinGen's `classified_on` (a Definitive call from 2015 and one from last year are different claims), and the GWAS `risk_frequency` (a strong association with something 2% of people carry reads nothing like one with something 60% carry). **That diff is worth re-running whenever a fetcher gains a field** — the frontend fails silently and identically whether a key is absent or misspelled.
+
+**Ensembl VEP rides with `/dna/annotate` rather than being its own section.** dbSNP says where a variant is and what has been reported about it; VEP says what it is predicted to *do* — consequence type plus SIFT and PolyPhen. Both are triggered by the same explicit "look up what these mean" action, so pairing them adds no disclosure the reader has not already agreed to, and it means one wait instead of two. They run in a `gather` with `return_exceptions=True` so VEP being down cannot lose the dbSNP answer.
+
+**The score travels with the label.** SIFT and PolyPhen disagree with each other regularly, and a "deleterious" at 0.04 is a much weaker claim than one at 0.00 — showing only the word overstates the weaker one. The panel labels the whole row "predicted:" for the same reason: these are algorithms' opinions, not findings, and the copy says so.
+
+**Two sources remain unwired, and the reason is memory rather than access.** Both were verified reachable: GenCC's submissions export is a 26 MB TSV and Orphanet's gene product is a 22 MB XML (`en_product6.xml` — their REST API exposes only `rd-cross-referencing`, so the gene associations are bulk-only). Each would need fetching, parsing into a gene-keyed index, and holding in memory on a box that also runs everything else, and both are *incremental* over what is already connected — ClinGen already gives gene-disease validity and the disease network already gives rare-disease links. Worth doing behind one shared bulk-index mechanism if the value case firms up; not worth 50 MB of resident dictionaries before then.
 
 **Four sources were added after the original nineteen, and two of them are core on purpose.** `plain_summary` (MedlinePlus Genetics) and `constraint` (gnomAD) ride along in `run_gene_pipeline` rather than being offered as sections, because their job is to be **in the prompt**, not only on the page.
 

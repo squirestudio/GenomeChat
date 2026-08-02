@@ -3377,11 +3377,37 @@ function MyVariantsPanel({ dnaData, locus, gene }) {
               <span style={{ fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700, color: "var(--accent)", flexShrink: 0, minWidth: 30 }}>{h.genotype}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {a ? (
-                  <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {[a.consequences?.[0]?.replace(/_/g, " "),
-                      a.maf != null ? `${(a.maf * 100).toFixed(1)}% population` : null,
-                     ].filter(Boolean).join(" · ") || "no annotation"}
-                  </p>
+                  <>
+                    <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {[a.prediction?.consequence || a.consequences?.[0]?.replace(/_/g, " "),
+                        a.maf != null ? `${(a.maf * 100).toFixed(1)}% population` : null,
+                       ].filter(Boolean).join(" · ") || "no annotation"}
+                    </p>
+                    {/* Predictions, marked as predictions. SIFT and PolyPhen
+                        are algorithms disagreeing with each other as often as
+                        not, so the score rides along with the label — a
+                        "deleterious" at 0.04 and one at 0.00 are not the same
+                        strength of claim, and showing only the word overstates
+                        the weaker one. */}
+                    {(a.prediction?.sift || a.prediction?.polyphen) && (
+                      <p style={{ fontSize: "0.6rem", color: "var(--text-faintest)", marginTop: 1, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ opacity: 0.8 }}>predicted:</span>
+                        {a.prediction.sift && (
+                          <span style={{ color: a.prediction.sift === "deleterious" ? "var(--warning)" : "var(--text-faintest)" }}
+                            title={`SIFT ${a.prediction.sift}${a.prediction.sift_score != null ? ` (score ${a.prediction.sift_score})` : ""} — an algorithm's estimate of whether this amino-acid change is tolerated, not a clinical finding`}>
+                            SIFT {a.prediction.sift}
+                            {a.prediction.sift_score != null && <span style={{ opacity: 0.7 }}> {a.prediction.sift_score}</span>}
+                          </span>
+                        )}
+                        {a.prediction.polyphen && (
+                          <span style={{ color: a.prediction.polyphen.startsWith("probably") ? "var(--warning)" : "var(--text-faintest)" }}
+                            title={`PolyPhen ${a.prediction.polyphen}${a.prediction.polyphen_score != null ? ` (score ${a.prediction.polyphen_score})` : ""} — a second algorithm, which often disagrees with SIFT`}>
+                            PolyPhen {a.prediction.polyphen.replace(/_/g, " ")}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", fontFamily: "monospace" }}>chr{h.chromosome}:{h.position}</p>
                 )}
@@ -3408,14 +3434,14 @@ function MyVariantsPanel({ dnaData, locus, gene }) {
         {!annotations && (
           <button onClick={annotate} disabled={loading}
             style={{ width: "100%", padding: "0.45rem", borderRadius: 8, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.3)", color: "var(--accent)", cursor: loading ? "default" : "pointer", fontSize: "0.68rem", opacity: loading ? 0.6 : 1 }}>
-            {loading ? "Looking up…" : "Look up what these mean (dbSNP)"}
+            {loading ? "Looking up…" : "Look up what these mean (dbSNP + VEP)"}
           </button>
         )}
         {error && <p style={{ fontSize: "0.65rem", color: "var(--danger)", margin: "6px 0 0" }}>{error}</p>}
         <p style={{ fontSize: "0.61rem", color: "var(--text-faintest)", margin: "6px 0 0", lineHeight: 1.5 }}>
           {annotations
-            ? "Annotations from NCBI dbSNP. Carrying a variant is not a diagnosis — significance depends on context a raw file cannot supply."
-            : "Matched on your device — nothing from your file has been sent. Looking these up sends only these rsIDs to NCBI."}
+            ? "Annotations from NCBI dbSNP; predictions from Ensembl VEP. SIFT and PolyPhen are algorithms estimating whether a protein change is tolerated — they disagree with each other regularly and neither is a clinical finding. Carrying a variant is not a diagnosis."
+            : "Matched on your device — nothing from your file has been sent. Looking these up sends only these rsIDs, to NCBI and Ensembl."}
         </p>
       </div>
     </div>

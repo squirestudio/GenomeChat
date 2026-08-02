@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
-from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
+from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, fetch_vep_predictions, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup, transcribe_pages
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
@@ -700,15 +700,34 @@ async def dna_annotate(request: Request, current_user: Optional[User] = Depends(
     except Exception:
         raise HTTPException(status_code=400, detail="Expected a list of rsIDs")
 
+    # dbSNP says where a variant is and what has been reported about it; VEP
+    # says what it is predicted to do to the protein. Both are triggered by the
+    # same explicit action, so pairing them adds no disclosure the reader has
+    # not already agreed to — and running them together means one wait rather
+    # than two. VEP failing must not lose the dbSNP answer, hence the gather.
     try:
-        annotations = await fetch_dbsnp_annotations(body.rsids)
+        annotations, predictions = await asyncio.gather(
+            fetch_dbsnp_annotations(body.rsids),
+            fetch_vep_predictions(body.rsids),
+            return_exceptions=True,
+        )
+        if isinstance(annotations, Exception):
+            raise annotations
+        if isinstance(predictions, Exception):
+            logger.warning("VEP unavailable for this batch: %s", predictions)
+            predictions = {}
     except Exception as e:
         # Note the deliberate absence of the rsIDs from this message.
         logger.error(f"dbSNP annotation failed for {len(body.rsids)} variants: {e}")
         raise HTTPException(status_code=502, detail="Could not reach dbSNP")
 
+    for rsid, pred in (predictions or {}).items():
+        annotations.setdefault(rsid, {})["prediction"] = pred
+
     return {"annotations": annotations, "requested": len(body.rsids),
-            "resolved": len(annotations), "source": "dbSNP"}
+            "resolved": len(annotations),
+            "predicted": len(predictions or {}),
+            "source": "dbSNP + Ensembl VEP"}
 
 
 class DocumentExtractRequest(BaseModel):

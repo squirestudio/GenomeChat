@@ -110,3 +110,37 @@ def test_panels_report_clinical_use_not_just_association():
     assert panels, "PanelApp returned nothing for BRCA1"
     assert any(p["diagnostic"] for p in panels)
     assert panels[0]["diagnostic"], "diagnostic-grade panels must sort first"
+
+
+# ── Ensembl VEP ──────────────────────────────────────────────────────────────
+
+@pytest.mark.external
+def test_vep_predicts_a_known_damaging_variant():
+    """rs6025 is Factor V Leiden — a missense change in F5 that SIFT and
+    PolyPhen both call damaging. If this comes back tolerated, either the
+    transcript selection broke or the fields moved."""
+    import asyncio
+    from services.genomics_api_real import fetch_vep_predictions
+    got = asyncio.run(fetch_vep_predictions(["rs6025"]))["rs6025"]
+    assert got["gene"] == "F5"
+    assert "missense" in got["consequence"]
+    assert got["sift"] == "deleterious"
+
+
+@pytest.mark.external
+def test_vep_keeps_the_score_next_to_the_label():
+    """A 'deleterious' at 0.04 and one at 0.00 are not the same claim, and the
+    panel shows both — so the score has to survive the mapping."""
+    import asyncio
+    from services.genomics_api_real import fetch_vep_predictions
+    got = asyncio.run(fetch_vep_predictions(["rs6025"]))["rs6025"]
+    assert got["sift_score"] is not None
+
+
+@pytest.mark.external
+def test_vep_ignores_input_that_is_not_an_rsid():
+    """Callers pass whatever the reader's file contained. Anything that is not
+    an rsID must be dropped before the request rather than sent."""
+    import asyncio
+    from services.genomics_api_real import fetch_vep_predictions
+    assert asyncio.run(fetch_vep_predictions(["not-an-rsid", "", "chr1:12345"])) == {}

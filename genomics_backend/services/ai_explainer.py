@@ -19,7 +19,15 @@ When analyzing genomics data, structure your response using these sections (use 
 [What these variants or genes mean for health and disease]
 
 ## Population Genetics
-[If population allele frequency data is provided: compare frequencies across ancestry groups, explain what higher AF in a specific population means for carrier risk, note any founder effects or population-specific enrichment. Be specific with numbers when available.]
+[If population allele frequency data is provided: explain what the differences
+between ancestry groups MEAN — carrier risk, founder effects, population-specific
+enrichment, and how much the spread does or does not matter clinically.
+
+**Do not reproduce the frequencies as a table or a list.** A dot chart of the
+same numbers renders directly above this paragraph, so a table here shows the
+reader the same data twice and says nothing the picture has not already said.
+Cite individual figures inline where they support a point — "roughly twice as
+common in X as in Y" — and spend the space on interpretation instead.]
 
 ## Gene-Disease Relationships
 [How this gene/these genes connect to diseases and biological mechanisms]

@@ -3019,3 +3019,78 @@ async def resolve_gene_symbol(symbol: str) -> dict:
     except Exception as e:
         logger.warning(f"HGNC symbol resolution failed for {symbol}: {e}")
         return {}
+
+
+# ── Ensembl VEP ───────────────────────────────────────────────────────────────
+
+VEP_BATCH = 180   # Ensembl's POST id endpoint accepts 200; leave headroom
+
+
+async def fetch_vep_predictions(rsids: list[str]) -> dict:
+    """What a variant is predicted to do to the protein, per rsID.
+
+    dbSNP says where a variant is and what has been reported about it. VEP says
+    what it is predicted to *do* — the consequence type, and whether SIFT and
+    PolyPhen think the amino-acid change is tolerated. For rs6025 that is
+    "missense, SIFT deleterious, PolyPhen probably damaging", which is a
+    different and more useful statement than "this position is polymorphic".
+
+    Deliberately paired with the dbSNP annotation rather than run on its own:
+    both are triggered by the same explicit "look up what these mean" action,
+    so this adds no new disclosure. **The rsIDs are the reader's own, and are
+    kept out of the log here for the same reason they are in `/dna/annotate`.**
+
+    Predictions are opinions from algorithms, not findings. `sift`/`polyphen`
+    carry the label and the score so the caller can show both — a "deleterious"
+    at 0.04 and one at 0.00 are not the same strength of claim, and collapsing
+    them to a word overstates the weaker one.
+    """
+    clean = []
+    for r in rsids:
+        t = str(r).strip().lower()
+        if t.startswith("rs") and t[2:].isdigit():
+            clean.append(t)
+    if not clean:
+        return {}
+
+    out: dict[str, dict] = {}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            for i in range(0, len(clean), VEP_BATCH):
+                batch = clean[i:i + VEP_BATCH]
+                r = await client.post(
+                    f"{ENSEMBL_BASE}/vep/human/id",
+                    json={"ids": batch},
+                    headers={**HEADERS, "Content-Type": "application/json", "Accept": "application/json"},
+                    timeout=TIMEOUT,
+                )
+                if r.status_code != 200:
+                    logger.warning("VEP returned %s for %d rsIDs", r.status_code, len(batch))
+                    continue
+                for entry in r.json() or []:
+                    rsid = (entry.get("input") or "").strip().lower()
+                    if not rsid:
+                        continue
+                    # The canonical transcript is the one a report would quote;
+                    # falling back to whichever carries a prediction avoids
+                    # returning "no prediction" when one exists on a secondary
+                    # transcript.
+                    tcs = entry.get("transcript_consequences") or []
+                    pick = next((t for t in tcs if t.get("canonical")), None) \
+                        or next((t for t in tcs if t.get("sift_prediction") or t.get("polyphen_prediction")), None) \
+                        or (tcs[0] if tcs else {})
+                    out[rsid] = {
+                        "consequence": (entry.get("most_severe_consequence") or "").replace("_", " "),
+                        "gene": pick.get("gene_symbol"),
+                        "hgvsp": pick.get("hgvsp"),
+                        "sift": pick.get("sift_prediction"),
+                        "sift_score": pick.get("sift_score"),
+                        "polyphen": pick.get("polyphen_prediction"),
+                        "polyphen_score": pick.get("polyphen_score"),
+                        "source": "Ensembl VEP",
+                    }
+    except Exception as e:
+        # Note the deliberate absence of the rsIDs from this message.
+        logger.warning(f"VEP lookup failed for {len(clean)} variants: {e}")
+        return out
+    return out

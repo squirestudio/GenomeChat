@@ -130,8 +130,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 214 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
-python -m pytest                     # all 277, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 219 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
+python -m pytest                     # all 288, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -169,7 +169,7 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **24 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **25 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
@@ -206,7 +206,15 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 
 **The score travels with the label.** SIFT and PolyPhen disagree with each other regularly, and a "deleterious" at 0.04 is a much weaker claim than one at 0.00 — showing only the word overstates the weaker one. The panel labels the whole row "predicted:" for the same reason: these are algorithms' opinions, not findings, and the copy says so.
 
-**GenCC was measured and the measurement says connect it.** I had called it incremental over ClinGen. That was an assumption, and it is wrong. Against our own `fetch_clingen_validity` on five genes:
+**GenCC is connected, and leads with disagreement.** `fetch_gencc_validity` groups assertions by disease and sorts by how far apart the curators are, not by how strong the consensus is — a split verdict is the more informative thing, because it tells a reader the science is unsettled and no single source will ever volunteer that. `consensus` is the *strongest* verdict on offer, never an average: averaging evidence grades would invent a classification nobody submitted.
+
+**It arrives as a file, so [bulk_index.py](genomics_backend/services/bulk_index.py) exists.** A lazily-built, gene-keyed index with a lock so a cold process serving three requests starts one download rather than three, a five-minute cooldown after failure so an outage is not amplified, and the same degrade-to-empty contract as every fetcher. Orphanet's gene product would reuse it unchanged.
+
+**Two numbers worth keeping.** The download is 26 MB but the resident cost is **7.7 MB RSS** — the export is thirty columns and five are kept, and the repeated ones (nineteen submitters, nine classifications across thirty thousand rows) are interned. Beware `tracemalloc` here: it reported 140 MB because it counts transient parse allocations the allocator has not returned to the OS. RSS is the number that matters and it is an order of magnitude smaller.
+
+**It is warmed in the lifespan**, because building it costs ~28s and otherwise the first reader to open the panel on a cold process pays all of it and concludes the app is broken. `_warm_bulk_indexes` is fire-and-forget so a failure cannot stop the API starting. **Note the trap that cost a crash loop:** `lifespan` carries `@asynccontextmanager`, and inserting a new function directly above it moves the decorator onto the wrong function — `create_task` then receives a context manager and startup dies on every boot.
+
+**The original measurement, kept because it justified the build.** I had called it incremental over ClinGen. That was an assumption, and it is wrong. Against our own `fetch_clingen_validity` on five genes:
 
 | Gene | ClinGen diseases | GenCC diseases | New |
 |---|---|---|---|

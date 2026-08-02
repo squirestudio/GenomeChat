@@ -269,6 +269,17 @@ async def _startup_diagnostics() -> None:
         logger.warning(f"Startup diagnostics failed (ignored): {e}")
 
 
+async def _warm_bulk_indexes() -> None:
+    """Build the downloaded reference indexes before anyone asks for them."""
+    from services.genomics_api_real import fetch_gencc_validity
+    try:
+        # Any gene will do; the call builds the whole index as a side effect.
+        await fetch_gencc_validity("BRCA1")
+        logger.info("Bulk indexes warmed")
+    except Exception as e:
+        logger.warning("Bulk index warm-up failed, will rebuild on demand: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting MyDNA API...")
@@ -276,8 +287,15 @@ async def lifespan(app: FastAPI):
     # Fire and forget — the app is ready now; diagnostics land in the log when
     # they land. Held in a local so the task is not garbage collected.
     diagnostics = asyncio.create_task(_startup_diagnostics())
+    # GenCC arrives as a 26 MB download that takes ~20s to fetch and parse.
+    # Built at boot so no reader ever waits for it: the alternative is that
+    # whoever opens the panel first on a cold process pays the whole cost and
+    # concludes the app is broken. Fire and forget — a failure here must not
+    # stop the API starting, and the index degrades to empty on its own.
+    warm = asyncio.create_task(_warm_bulk_indexes())
     yield
     diagnostics.cancel()
+    warm.cancel()
     logger.info("Shutting down.")
 
 

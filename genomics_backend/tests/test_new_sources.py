@@ -144,3 +144,92 @@ def test_vep_ignores_input_that_is_not_an_rsid():
     import asyncio
     from services.genomics_api_real import fetch_vep_predictions
     assert asyncio.run(fetch_vep_predictions(["not-an-rsid", "", "chr1:12345"])) == {}
+
+
+# ── GenCC ────────────────────────────────────────────────────────────────────
+
+def test_gencc_is_registered_like_any_other_section():
+    from services.genomics_api_real import OPTIONAL_SECTIONS, SECTION_SOURCE, DICT_SECTIONS
+    assert "gencc" in OPTIONAL_SECTIONS
+    assert SECTION_SOURCE["gencc"] == "GenCC"
+    assert "gencc" not in DICT_SECTIONS, "it returns a list"
+
+
+def test_the_strength_ladder_runs_strongest_to_weakest():
+    """Spread is measured as distance along this ladder, so its order decides
+    which disagreements are called interesting. Definitive against Strong is
+    curators haggling; Definitive against Refuted is the field genuinely split."""
+    from services.genomics_api_real import GENCC_STRENGTH
+    assert GENCC_STRENGTH[0] == "Definitive"
+    assert GENCC_STRENGTH[-1] == "Refuted Evidence"
+    assert GENCC_STRENGTH.index("Strong") < GENCC_STRENGTH.index("Moderate")
+    assert GENCC_STRENGTH.index("Moderate") < GENCC_STRENGTH.index("Disputed Evidence")
+
+
+def test_a_failed_download_leaves_the_index_empty_rather_than_raising():
+    """Same contract as every fetcher: an unreachable source returns nothing and
+    the answer is still well-formed. A missing index must never fail a query."""
+    import asyncio
+    from services.bulk_index import BulkIndex
+    idx = BulkIndex("broken", "https://127.0.0.1:9/nope.tsv", lambda t: {"X": [1]})
+    assert asyncio.run(idx.get("X")) == []
+
+
+def test_the_index_keeps_only_the_columns_it_needs():
+    """The export is thirty columns; retaining all of them is the difference
+    between a few megabytes resident and tens."""
+    from services.bulk_index import index_tsv_by
+    tsv = "gene_symbol\tdisease_title\tjunk\nBRCA1\tbreast cancer\tdiscard me\n"
+    got = index_tsv_by(tsv, "gene_symbol", ("disease_title",))
+    assert got["BRCA1"] == [{"disease_title": "breast cancer"}]
+
+
+def test_repeated_values_are_interned():
+    """Nineteen submitters across thirty thousand rows: without interning the
+    index holds thirty thousand copies of the same handful of strings."""
+    from services.bulk_index import index_tsv_by
+    tsv = "g\tsubmitter\n" + "".join(f"GENE{i}\tClinGen\n" for i in range(50))
+    got = index_tsv_by(tsv, "g", ("submitter",))
+    values = [rows[0]["submitter"] for rows in got.values()]
+    assert all(v is values[0] for v in values), "the same string object should be reused"
+
+
+@pytest.mark.external
+def test_gencc_leads_with_disagreement():
+    """The ordering is the feature. COL1A1 has several disputed gene-disease
+    pairs, and they must sort above the agreed ones however strong those are."""
+    import asyncio
+    from services.genomics_api_real import fetch_gencc_validity
+    got = asyncio.run(fetch_gencc_validity("COL1A1"))
+    assert got, "GenCC returned nothing for COL1A1"
+    disputed = [i for i, e in enumerate(got) if e["disputed"]]
+    agreed = [i for i, e in enumerate(got) if not e["disputed"]]
+    assert disputed, "COL1A1 has curator disagreement; none was reported"
+    if agreed:
+        assert max(disputed) < min(agreed), "disputed entries must lead"
+
+
+@pytest.mark.external
+def test_gencc_is_broader_than_clingen_alone():
+    """The measurement that justified building this: ClinGen is 12% of GenCC's
+    assertions, and COL1A1 goes from a handful of diseases to a dozen. If this
+    ever stops holding, the panel has lost its reason to exist."""
+    import asyncio
+    from services.genomics_api_real import fetch_clingen_validity, fetch_gencc_validity
+
+    async def both():
+        return await asyncio.gather(fetch_clingen_validity("COL1A1"), fetch_gencc_validity("COL1A1"))
+    clingen, gencc = asyncio.run(both())
+    assert len(gencc) > len(clingen or [])
+
+
+@pytest.mark.external
+def test_consensus_is_the_strongest_verdict_not_an_average():
+    """Averaging evidence grades would invent a classification nobody submitted."""
+    import asyncio
+    from services.genomics_api_real import GENCC_STRENGTH, fetch_gencc_validity
+    for e in asyncio.run(fetch_gencc_validity("COL1A1")):
+        ranks = [GENCC_STRENGTH.index(v["classification"]) for v in e["verdicts"]
+                 if v["classification"] in GENCC_STRENGTH]
+        if ranks:
+            assert GENCC_STRENGTH.index(e["consensus"]) == min(ranks)

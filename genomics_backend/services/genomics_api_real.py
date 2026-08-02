@@ -10,6 +10,8 @@ import time
 from typing import Optional
 from models import VariantResult, GeneResult
 
+from services.bulk_index import BulkIndex, index_tsv_by
+
 logger = logging.getLogger(__name__)
 
 ENSEMBL_BASE = "https://rest.ensembl.org"
@@ -2368,6 +2370,7 @@ OPTIONAL_SECTIONS = {
     "medgen":               "Medical genetics concepts",
     "full_text":            "Open-access full-text papers",
     "disease_network":      "Diseases, phenotypes & related genes",
+    "gencc":                "Curator agreement & disagreement",
     "clinical_trials":      "Clinical trials naming this gene",
     "panels":               "Diagnostic gene panels (NHS)",
 }
@@ -2456,6 +2459,7 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "medgen": fetch_medgen_concepts,
         "full_text": fetch_pmc_articles,
         "disease_network": fetch_disease_network,
+        "gencc": fetch_gencc_validity,
         "clinical_trials": fetch_clinical_trials,
         "panels": fetch_gene_panels,
     }
@@ -2490,6 +2494,7 @@ SECTION_SOURCE = {
     "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
     "full_text": "PMC", "disease_network": "HPO / ClinGen",
     "clinical_trials": "ClinicalTrials.gov", "panels": "Genomics England PanelApp",
+    "gencc": "GenCC",
 }
 
 
@@ -3094,3 +3099,89 @@ async def fetch_vep_predictions(rsids: list[str]) -> dict:
         logger.warning(f"VEP lookup failed for {len(clean)} variants: {e}")
         return out
     return out
+
+
+# ── GenCC ─────────────────────────────────────────────────────────────────────
+
+GENCC_URL = "https://search.thegencc.org/download/action/submissions-export-tsv"
+
+# Strongest to weakest. The distance between two verdicts is what makes a
+# disagreement interesting: Definitive against Strong is curators haggling over
+# a shade, Definitive against Refuted is the field genuinely split.
+GENCC_STRENGTH = [
+    "Definitive", "Strong", "Moderate", "Supportive", "Limited",
+    "Animal Model Only", "No Known Disease Relationship",
+    "Disputed Evidence", "Refuted Evidence",
+]
+_STRENGTH_RANK = {name: i for i, name in enumerate(GENCC_STRENGTH)}
+
+_gencc_index = BulkIndex(
+    "GenCC",
+    GENCC_URL,
+    lambda text: index_tsv_by(
+        text, "gene_symbol",
+        ("disease_title", "classification_title", "submitter_title", "moi_title"),
+    ),
+)
+
+
+def _rank(label: str) -> int:
+    return _STRENGTH_RANK.get(label, len(GENCC_STRENGTH))
+
+
+async def fetch_gencc_validity(gene_symbol: str) -> list[dict]:
+    """Every curator's verdict on this gene, and where they disagree.
+
+    ClinGen answers "is this gene–disease link real?" with one voice. GenCC
+    collects nineteen, and they routinely differ — COL1A1 and Caffey disease is
+    Definitive, Strong, Moderate *and* Supportive depending on who you ask.
+    ClinGen is 12% of GenCC's assertions, so showing only ClinGen both narrows
+    the coverage and hides the argument.
+
+    **Disagreement leads.** Rows are ordered by how far apart the curators are,
+    not by how strong the consensus is, because a split verdict is the more
+    informative thing: it tells a reader the science is unsettled, which no
+    single source will ever say. Agreement sorts below, strongest first.
+
+    `consensus` is the *strongest* verdict on offer rather than an average.
+    Averaging evidence classifications would invent a number nobody submitted,
+    and the spread is right there to be read instead.
+    """
+    rows = await _gencc_index.get(gene_symbol)
+    if not rows:
+        return []
+
+    by_disease: dict[str, list] = {}
+    for r in rows:
+        disease = r.get("disease_title")
+        if disease:
+            by_disease.setdefault(disease, []).append(r)
+
+    out = []
+    for disease, entries in by_disease.items():
+        verdicts = []
+        seen = set()
+        for e in sorted(entries, key=lambda x: _rank(x.get("classification_title", ""))):
+            label = e.get("classification_title") or "Unrated"
+            submitter = e.get("submitter_title") or "Unknown"
+            if (label, submitter) in seen:
+                continue
+            seen.add((label, submitter))
+            verdicts.append({"classification": label, "submitter": submitter,
+                             "moi": e.get("moi_title") or None})
+        labels = [v["classification"] for v in verdicts]
+        distinct = sorted(set(labels), key=_rank)
+        spread = _rank(distinct[-1]) - _rank(distinct[0]) if len(distinct) > 1 else 0
+        out.append({
+            "disease": disease,
+            "consensus": distinct[0],
+            "disputed": len(distinct) > 1,
+            "spread": spread,
+            "verdicts": verdicts[:10],
+            "submitter_count": len({v["submitter"] for v in verdicts}),
+            "moi": next((v["moi"] for v in verdicts if v["moi"]), None),
+        })
+
+    # Widest disagreement first; then, among the agreed, the strongest.
+    out.sort(key=lambda d: (-d["spread"], _rank(d["consensus"]), d["disease"]))
+    return out[:20]

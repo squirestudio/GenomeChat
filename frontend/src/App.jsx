@@ -1753,6 +1753,117 @@ function ExternalArrow() {
   );
 }
 
+/**
+ * What the curators actually think — including where they disagree.
+ *
+ * ClinGen answers "is this gene–disease link real?" with one voice. GenCC
+ * collects nineteen, and they routinely differ: COL1A1 and Caffey disease is
+ * Definitive, Strong and Moderate depending on who you ask. ClinGen is 12% of
+ * GenCC's assertions, so showing only ClinGen both narrows the coverage and
+ * hides the argument.
+ *
+ * **Disagreement leads.** Rows are ordered by how far apart the curators are,
+ * not by how strong the consensus is, because a split verdict is the more
+ * informative thing — it tells a reader the science is unsettled, which no
+ * single source will ever volunteer. That honesty is the point of the panel.
+ */
+const GENCC_STYLE = {
+  "Definitive": { bg: "rgb(var(--c-success) / 0.35)", color: "var(--success-soft)" },
+  "Strong": { bg: "rgb(var(--c-success) / 0.22)", color: "var(--success-soft)" },
+  "Moderate": { bg: "rgb(var(--c-accent) / 0.28)", color: "var(--accent-soft)" },
+  "Supportive": { bg: "rgb(var(--c-accent) / 0.18)", color: "var(--accent-soft)" },
+  "Limited": { bg: "rgb(var(--c-warning) / 0.28)", color: "var(--warning-soft)" },
+  "Disputed Evidence": { bg: "rgb(var(--c-danger) / 0.22)", color: "var(--danger)" },
+  "Refuted Evidence": { bg: "rgb(var(--c-danger) / 0.3)", color: "var(--danger)" },
+};
+const gcStyle = (c) => GENCC_STYLE[c] || { bg: "rgb(var(--c-surface) / 0.6)", color: "var(--text-dimmer)" };
+
+function GenCCPanel({ entries, gene }) {
+  const [open, setOpen] = useState(() => new Set());
+  if (!entries?.length) return null;
+  const disputed = entries.filter(e => e.disputed);
+
+  const toggle = (i) => setOpen(prev => {
+    const next = new Set(prev);
+    next.has(i) ? next.delete(i) : next.add(i);
+    return next;
+  });
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-border) / 0.2)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>Curator Agreement</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {disputed.length > 0 ? `${disputed.length} disputed of ${entries.length} · ` : ""}GenCC
+        </span>
+      </div>
+
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.55, margin: 0 }}>
+        Independent groups grade how well established each gene–disease link is.
+        They often disagree, and <strong style={{ color: "var(--text-muted)" }}>the
+        disagreement is shown first</strong> — a split verdict says the science
+        is unsettled, which a single source will never tell you.
+      </p>
+
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {entries.map((e, i) => {
+          const isOpen = open.has(i);
+          const distinct = [...new Set(e.verdicts.map(v => v.classification))];
+          return (
+            <div key={i} style={{
+              background: "rgb(var(--c-surface) / 0.3)", borderRadius: 8,
+              border: `1px solid ${e.disputed ? "rgb(var(--c-warning) / 0.35)" : "rgb(var(--c-border) / 0.25)"}`,
+            }}>
+              <button onClick={() => toggle(i)} aria-expanded={isOpen}
+                style={{ width: "100%", textAlign: "left", background: "none", border: "none",
+                         padding: "0.5rem 0.65rem", cursor: "pointer", display: "flex", gap: 9, alignItems: "flex-start" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.4 }}>{e.disease}</p>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
+                    {distinct.map(c => {
+                      const st = gcStyle(c);
+                      return (
+                        <span key={c} style={{ fontSize: "0.6rem", padding: "0.14em 0.45em", borderRadius: 4, background: st.bg, color: st.color, whiteSpace: "nowrap" }}>{c}</span>
+                      );
+                    })}
+                    <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>
+                      {e.submitter_count} {e.submitter_count === 1 ? "curator" : "curators"}
+                      {e.moi ? ` · ${e.moi}` : ""}
+                    </span>
+                  </div>
+                </div>
+                <span style={{ fontSize: "0.62rem", color: e.disputed ? "var(--warning)" : "var(--text-faintest)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                  {e.disputed ? "disagree" : "agreed"}
+                </span>
+              </button>
+
+              {isOpen && (
+                <div style={{ padding: "0 0.65rem 0.6rem", display: "flex", flexDirection: "column", gap: 3 }}>
+                  {e.verdicts.map((v, k) => {
+                    const st = gcStyle(v.classification);
+                    return (
+                      <div key={k} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "0.68rem" }}>
+                        <span style={{ fontSize: "0.6rem", padding: "0.12em 0.4em", borderRadius: 4, background: st.bg, color: st.color, minWidth: 76, textAlign: "center", flexShrink: 0 }}>
+                          {v.classification}
+                        </span>
+                        <span style={{ color: "var(--text-faint)" }}>{v.submitter}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", lineHeight: 1.5, marginTop: 2 }}>
+          Grades describe how strong the <em>evidence</em> for the {gene}–disease
+          link is, not how severe the condition is or how likely you are to have it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function ClinicalTrialsPanel({ trials }) {
   const [showClosed, setShowClosed] = useState(false);
   if (!trials?.length) return null;
@@ -4635,6 +4746,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings, onGene }) {
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
     case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} onGene={onGene} /> : null;
+    case "gencc":                return d.gencc?.length ? <GenCCPanel entries={d.gencc} gene={msg.target} /> : null;
     case "clinical_trials":      return d.clinical_trials?.length ? <ClinicalTrialsPanel trials={d.clinical_trials} /> : null;
     case "panels":               return d.panels?.length ? <GenePanelsPanel panels={d.panels} /> : null;
     case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} locus={d.gene_locus_grch37} geneName={msg.target} /> : null;

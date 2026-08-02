@@ -206,7 +206,23 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 
 **The score travels with the label.** SIFT and PolyPhen disagree with each other regularly, and a "deleterious" at 0.04 is a much weaker claim than one at 0.00 — showing only the word overstates the weaker one. The panel labels the whole row "predicted:" for the same reason: these are algorithms' opinions, not findings, and the copy says so.
 
-**Two sources remain unwired, and the reason is memory rather than access.** Both were verified reachable: GenCC's submissions export is a 26 MB TSV and Orphanet's gene product is a 22 MB XML (`en_product6.xml` — their REST API exposes only `rd-cross-referencing`, so the gene associations are bulk-only). Each would need fetching, parsing into a gene-keyed index, and holding in memory on a box that also runs everything else, and both are *incremental* over what is already connected — ClinGen already gives gene-disease validity and the disease network already gives rare-disease links. Worth doing behind one shared bulk-index mechanism if the value case firms up; not worth 50 MB of resident dictionaries before then.
+**GenCC was measured and the measurement says connect it.** I had called it incremental over ClinGen. That was an assumption, and it is wrong. Against our own `fetch_clingen_validity` on five genes:
+
+| Gene | ClinGen diseases | GenCC diseases | New |
+|---|---|---|---|
+| COL1A1 | 3 | 12 | **+9** |
+| SCN1A | 4 | 12 | **+8** |
+| RYR1 | 2 | 10 | **+8** |
+| BRCA1 | 2 | 6 | **+4** |
+| F5 | 2 | 3 | +1 |
+
+ClinGen is 3,653 of GenCC's 30,410 assertions — **12%**. The other 88% come from Labcorp/Invitae, PanelApp Australia, Orphanet, Ambry, G2P and eleven more.
+
+**And the more interesting finding is disagreement.** Curators routinely reach different verdicts on the same gene–disease pair, and showing only ClinGen's hides that: COL1A1–Caffey disease is *Definitive vs Moderate vs Strong vs Supportive* across four submitters. Four or five disputed pairs per gene is typical. A panel that showed the spread would be saying something no single source can, and would be honest about how settled the science actually is. That is the reason to build it, more than the coverage.
+
+Cost is a 26 MB TSV parsed into a gene-keyed index and held resident, which is why it wants one shared bulk-index mechanism rather than a bespoke loader — Orphanet would use the same.
+
+**Orphanet remains unwired, and the reason is memory rather than access.** Verified reachable, and CC-BY 4.0 with commercial use permitted — the licence is declared inline in every API response. Their REST API exposes only `rd-cross-referencing`, so gene–disease associations are bulk-only (`en_product6.xml`, ~22 MB) and need a cached index rather than a call. Rare-disease gene links are already covered by HPO, Monarch and ClinGen, so this one genuinely is incremental. Categorised under "Licensed and available, not connected" in [legal/data-source-licensing.md](legal/data-source-licensing.md) — available when something wants it, blocked by nothing.
 
 **Four sources were added after the original nineteen, and two of them are core on purpose.** `plain_summary` (MedlinePlus Genetics) and `constraint` (gnomAD) ride along in `run_gene_pipeline` rather than being offered as sections, because their job is to be **in the prompt**, not only on the page.
 

@@ -84,6 +84,29 @@ each answer's source list.
 
 ---
 
+## Licensed and available, not connected
+
+Sources whose terms permit use and whose data has been checked, held back on
+product grounds rather than legal ones. Recorded so the licensing question is
+not re-researched each time one comes up, and separated from the disconnected
+list above because nothing here is blocked — connecting any of them is a
+decision, not a negotiation.
+
+**None of these appear in the footer, on `/about`, or in the privacy policy's
+list of databases.** Those lists describe what MyDNA actually queries; naming a
+source it does not contact would be a false claim in one case and a false
+disclosure in the other.
+
+| Source | Licence | Why not connected |
+|---|---|---|
+| **Orphanet** (Orphadata) | **CC-BY 4.0** — attribution only, commercial use permitted; the licence is declared inline in every API response | Their REST API exposes only `rd-cross-referencing`; gene–disease associations are bulk-only (`en_product6.xml`, ~22 MB), so it needs a cached index rather than a call. Rare-disease gene links are already covered by HPO, Monarch and ClinGen. Available when something specific wants it |
+| **GenCC** | Open, attribution requested | Reachable as a 26 MB TSV. **Held pending a decision, not on merit — the measurement below says it earns its place.** See the note in CLAUDE.md |
+| **PharmVar** | Free, registration required | Returns 401 without credentials. It is the star-allele authority, which is exactly the gap where ClinPGx annotations cannot be matched against a genotyping array — worth registering for when star alleles matter |
+| **AlphaMissense** | **CC BY-NC-SA 4.0** — non-commercial | Would need permission from DeepMind for a paid product. Listed here rather than under "disconnected" because it was never connected; the restriction is the same shape as OMIM's |
+| **Human Protein Atlas** | CC BY-SA | The share-alike is the problem, not the attribution. Would need reading before use |
+
+---
+
 ## Standing obligations
 
 - **Attribution stays.** Several of the above require it, and every source list

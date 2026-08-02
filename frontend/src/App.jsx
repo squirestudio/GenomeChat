@@ -942,6 +942,182 @@ function Section({ label, hint, children }) {
  *  tries to load a DNA file. The DNA case is not a paywall and must not read
  *  like one: it exists because processing genetic data requires consent that
  *  can be evidenced, and consent is recorded against an account. */
+/**
+ * The first-run tour.
+ *
+ * Anchored to real elements by `data-tour` attribute rather than by coordinates
+ * or refs threaded through the tree — the targets live in five different
+ * components, and a ref for each would mean touching all of them and keeping
+ * the wiring correct forever. A missing target is skipped rather than drawn in
+ * the wrong place, so deleting a button breaks nothing.
+ *
+ * Skippable from every step, and it never returns once seen or dismissed. A
+ * tutorial that reappears is worse than none: the second showing is pure
+ * friction, and the reader has already decided.
+ */
+const TOUR_KEY = "mydna_tour_seen";
+
+const TOUR_STEPS = [
+  {
+    target: null,          // centred, no anchor — the opening card
+    title: "Ask Your DNA Anything",
+    body: "MyDNA answers questions about genes and conditions using 23 public research databases, and shows you where every answer came from. Two minutes and you'll know your way around.",
+  },
+  {
+    target: "input",
+    title: "Start with a plain question",
+    body: "“What is hypotonia?”, “BRCA1 variants”, “genes associated with ataxia”. No special syntax — write it the way you'd say it.",
+  },
+  {
+    target: "dna",
+    title: "Bring your own DNA — optional",
+    body: "A 23andMe, AncestryDNA or VCF file is read in your browser and never uploaded. It lets MyDNA tell you which findings involve variants you actually carry.",
+  },
+  {
+    target: "documents",
+    title: "Add your own reading",
+    body: "Upload a paper you're working through and MyDNA will read it alongside the databases. Like your DNA, it's held for this session only and never stored.",
+  },
+  {
+    target: "language",
+    title: "Plain English, or clinical",
+    body: "Answers default to plain language with terms explained as they appear. Switch to Clinical in Settings for unglossed terminology — same findings, different wording.",
+  },
+];
+
+function useTourTarget(name) {
+  const [rect, setRect] = useState(null);
+  useEffect(() => {
+    // Unanchored steps clear the rectangle on the next frame for the same
+    // reason the measurement is deferred — a synchronous setState inside an
+    // effect cascades a render.
+    if (!name) {
+      const clear = requestAnimationFrame(() => setRect(null));
+      return () => cancelAnimationFrame(clear);
+    }
+    const measure = () => {
+      const el = document.querySelector(`[data-tour="${name}"]`);
+      setRect(el ? el.getBoundingClientRect() : null);
+    };
+    // Deferred rather than called inline: setting state synchronously inside an
+    // effect triggers a cascading render, and the layout is not settled on the
+    // first frame anyway.
+    const first = requestAnimationFrame(measure);
+    // Re-measure on anything that can move the anchor. A tooltip pinned to a
+    // stale rectangle points at empty space, which is worse than not pointing.
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    const t = setTimeout(measure, 60);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      clearTimeout(t);
+      cancelAnimationFrame(first);
+    };
+  }, [name]);
+  return rect;
+}
+
+function WelcomeTour({ onClose }) {
+  const [step, setStep] = useState(0);
+  const current = TOUR_STEPS[step];
+  const rect = useTourTarget(current?.target);
+  const last = step === TOUR_STEPS.length - 1;
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowRight" || e.key === "Enter") setStep(s => Math.min(s + 1, TOUR_STEPS.length - 1));
+      if (e.key === "ArrowLeft") setStep(s => Math.max(s - 1, 0));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // An anchored step whose element is not on screen — the DNA button is hidden
+  // on narrow layouts — falls back to the centred card rather than pointing at
+  // nothing.
+  const anchored = current.target && rect && rect.width > 0;
+  const PAD = 8;
+  const card = { width: 320 };
+  if (anchored) {
+    const below = rect.bottom + 14;
+    const wouldOverflow = below + 190 > window.innerHeight;
+    card.top = wouldOverflow ? Math.max(12, rect.top - 190) : below;
+    card.left = Math.min(
+      Math.max(12, rect.left + rect.width / 2 - 160),
+      Math.max(12, window.innerWidth - 332)
+    );
+    card.pointsUp = !wouldOverflow;
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 2000 }}>
+      {/* Four panels rather than one translucent sheet with a hole: a real
+          cut-out keeps the highlighted control at full contrast, where a
+          semi-transparent overlay would dim the very thing being pointed at. */}
+      {anchored ? (
+        <>
+          <div onClick={onClose} style={{ position: "fixed", left: 0, top: 0, right: 0, height: Math.max(0, rect.top - PAD), background: "rgb(var(--c-shadow) / 0.62)" }} />
+          <div onClick={onClose} style={{ position: "fixed", left: 0, top: rect.bottom + PAD, right: 0, bottom: 0, background: "rgb(var(--c-shadow) / 0.62)" }} />
+          <div onClick={onClose} style={{ position: "fixed", left: 0, top: Math.max(0, rect.top - PAD), width: Math.max(0, rect.left - PAD), height: rect.height + PAD * 2, background: "rgb(var(--c-shadow) / 0.62)" }} />
+          <div onClick={onClose} style={{ position: "fixed", left: rect.right + PAD, top: Math.max(0, rect.top - PAD), right: 0, height: rect.height + PAD * 2, background: "rgb(var(--c-shadow) / 0.62)" }} />
+          <div style={{ position: "fixed", left: rect.left - PAD, top: rect.top - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2,
+                        border: "2px solid var(--accent)", borderRadius: 12, pointerEvents: "none",
+                        boxShadow: "0 0 0 3px rgb(var(--c-accent) / 0.22)" }} />
+        </>
+      ) : (
+        <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgb(var(--c-shadow) / 0.66)" }} />
+      )}
+
+      <div style={{
+        position: "fixed", zIndex: 2001,
+        ...(anchored
+          ? { top: card.top, left: card.left, width: card.width }
+          : { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 380, maxWidth: "calc(100vw - 2rem)" }),
+        background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-accent) / 0.3)",
+        borderRadius: 14, padding: "1.1rem 1.2rem",
+        boxShadow: "0 24px 60px rgb(var(--c-shadow) / 0.55)",
+      }}>
+        {!anchored && step === 0 && (
+          <img src="/logo-stacked.png" alt="" width="112" style={{ display: "block", height: "auto", margin: "0 auto 0.9rem" }} />
+        )}
+        <p style={{ fontSize: anchored ? "0.88rem" : "1.15rem", fontWeight: 700, color: "var(--text)", margin: 0, textAlign: anchored ? "left" : "center", letterSpacing: anchored ? 0 : "-0.01em" }}>
+          {current.title}
+        </p>
+        <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", lineHeight: 1.6, margin: "0.5rem 0 0", textAlign: anchored ? "left" : "center" }}>
+          {current.body}
+        </p>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: "1rem" }}>
+          <div style={{ display: "flex", gap: 5 }}>
+            {TOUR_STEPS.map((_, i) => (
+              <span key={i} style={{ width: 6, height: 6, borderRadius: "50%",
+                background: i === step ? "var(--accent)" : "rgb(var(--c-border) / 0.7)" }} />
+            ))}
+          </div>
+          <button onClick={onClose}
+            style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-dimmer)", fontSize: "0.74rem", cursor: "pointer", padding: "0.3rem 0.1rem" }}>
+            {last ? "Close" : "Skip"}
+          </button>
+          {!last && (
+            <button onClick={() => setStep(s => s + 1)}
+              style={{ padding: "0.4rem 0.9rem", borderRadius: 8, background: "var(--accent-deep)", border: "none", color: "white", fontSize: "0.76rem", fontWeight: 600, cursor: "pointer" }}>
+              {step === 0 ? "Show me" : "Next"}
+            </button>
+          )}
+          {last && (
+            <button onClick={onClose}
+              style={{ padding: "0.4rem 0.9rem", borderRadius: 8, background: "var(--accent-deep)", border: "none", color: "white", fontSize: "0.76rem", fontWeight: 600, cursor: "pointer" }}>
+              Start asking
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SignInGateModal({ onClose, reason = "queries" }) {
   const dna = reason === "dna";
   const docs = reason === "documents";
@@ -4761,6 +4937,15 @@ export default function App({ onNavigate }) {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [documents, setDocuments] = useState(() => loadDocsFromSession());
   const [showDocModal, setShowDocModal] = useState(false);
+  // First run only. A tutorial that reappears is worse than none — the second
+  // showing is pure friction and the reader has already decided.
+  const [showTour, setShowTour] = useState(() => {
+    try { return !localStorage.getItem("mydna_tour_seen"); } catch { return false; }
+  });
+  const dismissTour = useCallback(() => {
+    setShowTour(false);
+    try { localStorage.setItem("mydna_tour_seen", "1"); } catch { /* private mode; it may reappear */ }
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settings, setSettings] = useState(() => loadSettings());
   const [showSettings, setShowSettings] = useState(false);
@@ -5626,6 +5811,8 @@ export default function App({ onNavigate }) {
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "var(--bg)", color: "var(--text-secondary)", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
+        {showTour && <WelcomeTour onClose={dismissTour} />}
+
         {showSignInGate && <SignInGateModal reason={showSignInGate} onClose={() => setShowSignInGate(false)} />}
         {showUpgrade && <UpgradeModal currentUser={currentUser} blocked={showUpgrade === "blocked"} onClose={() => setShowUpgrade(false)} onOpenSettings={() => { setShowUpgrade(false); setShowSettings(true); }} />}
         {paymentToast && (() => {
@@ -5709,6 +5896,7 @@ export default function App({ onNavigate }) {
                   </button>
                 )}
                 <button
+                  data-tour="dna"
                   onClick={() => dnaData ? updateDnaData(null) : requestDnaUpload()}
                   style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                   title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
@@ -5716,6 +5904,7 @@ export default function App({ onNavigate }) {
                   {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
                 </button>
                 <button
+                  data-tour="documents"
                   onClick={() => documents.length ? updateDocuments([]) : requestDocUpload()}
                   style={{ fontSize: "0.72rem", color: documents.length ? "var(--violet)" : "var(--text-dim)", background: documents.length ? "rgb(var(--c-violet) / 0.08)" : "none", border: `1px solid ${documents.length ? "rgb(var(--c-violet) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                   title={documents.length ? "Remove documents from this session" : "Add your own papers to read alongside the data"}
@@ -5736,7 +5925,7 @@ export default function App({ onNavigate }) {
                     </button>
                     {showUserMenu && (
                       <div style={{ position: "absolute", top: 34, right: 0, background: "var(--border-solid)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 8, minWidth: 148, zIndex: 100, overflow: "hidden", boxShadow: "0 8px 24px rgb(var(--c-shadow) / 0.4)" }}>
-                        <button onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
+                        <button data-tour="language" onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "0.55rem 0.85rem", fontSize: "0.78rem", color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}
                           onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-border) / 0.5)"}
                           onMouseLeave={e => e.currentTarget.style.background = "none"}>
@@ -5925,6 +6114,7 @@ export default function App({ onNavigate }) {
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgb(var(--c-surface) / 0.55)", border: "1px solid rgb(var(--c-border) / 0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
                 <textarea
                   ref={inputRef}
+                  data-tour="input"
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
@@ -5944,7 +6134,7 @@ export default function App({ onNavigate }) {
                 </button>
               </div>
               <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 8 }}>
-                Ensembl · ClinVar · gnomAD · UniProt · PubMed · Claude AI
+                Ensembl · ClinVar · gnomAD · MedlinePlus · PanelApp · ClinicalTrials.gov · Claude AI
               </p>
               {/* Attribution above the rule, navigation below it. Without the
                   divider the two read as a single list, which is the same

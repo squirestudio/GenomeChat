@@ -18,6 +18,7 @@ const SOURCES = [
   "ClinVar", "Ensembl", "gnomAD", "UniProt", "AlphaFold", "dbSNP", "dbVar",
   "ClinGen", "MedGen", "GTR", "HPO", "Monarch", "Reactome", "GTEx",
   "STRING", "Open Targets", "GWAS Catalog", "ClinPGx", "NCI GDC", "PubMed", "PMC",
+  "MedlinePlus", "PanelApp", "ClinicalTrials.gov", "HGNC",
 ];
 
 function Section({ title, children }) {

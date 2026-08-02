@@ -37,6 +37,7 @@ MONARCH_BASE = "https://api-v3.monarchinitiative.org/v3/api"
 MEDLINEPLUS_BASE = "https://medlineplus.gov/download/genetics"
 CTGOV_BASE = "https://clinicaltrials.gov/api/v2"
 PANELAPP_BASE = "https://panelapp.genomicsengland.co.uk/api/v1"
+HGNC_BASE = "https://rest.genenames.org"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -2539,6 +2540,24 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
     def safe(val):
         return val if not isinstance(val, Exception) else None
 
+    # An empty Ensembl lookup is usually a renamed symbol rather than a bad one.
+    # Only then is HGNC consulted, so the common path pays nothing for it.
+    renamed = None
+    if not safe(ensembl_info):
+        resolved = await resolve_gene_symbol(gene_symbol)
+        if resolved.get("symbol") and resolved["symbol"].upper() != gene_symbol.upper():
+            renamed = {"from": gene_symbol, "to": resolved["symbol"], "name": resolved.get("name")}
+            logger.info("Resolved retired symbol %s -> %s via HGNC", gene_symbol, resolved["symbol"])
+            gene_symbol = resolved["symbol"]
+            ensembl_info, variants, frequencies, uniprot_info, pub_count = await asyncio.gather(
+                lookup_gene_ensembl(gene_symbol),
+                fetch_clinvar_variants(gene_symbol),
+                fetch_gnomad_frequencies(gene_symbol, population),
+                fetch_uniprot_info(gene_symbol),
+                fetch_pubmed_count(gene_symbol),
+                return_exceptions=True,
+            )
+
     results = []
     variant_list = safe(variants) or []
     freq_list = safe(frequencies) or []
@@ -2614,10 +2633,13 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
         "_uniprot_accession": accession,
         "_ensembl_id": ensembl_id,
         "gene_symbol": gene_symbol,
+        # Set when the reader used a retired name, so the answer can say so.
+        "renamed_symbol": renamed,
     }
     core_sources = list(filter(None, [
         "AlphaFold" if structure.get("alphafold") else None,
         "MedlinePlus" if plain else None,
+        "HGNC" if renamed else None,
         "gnomAD constraint" if constraint else None,
         "Ensembl" if ensembl_safe else None,
         "ClinVar" if variant_list else None,
@@ -2948,3 +2970,52 @@ async def fetch_gene_panels(gene_symbol: str) -> list[dict]:
     except Exception as e:
         logger.warning(f"PanelApp fetch failed for {gene_symbol}: {e}")
         return []
+
+
+# ── HGNC ──────────────────────────────────────────────────────────────────────
+
+async def resolve_gene_symbol(symbol: str) -> dict:
+    """Turn whatever the reader typed into the symbol the databases use.
+
+    Gene symbols get renamed, and the old ones stay in circulation for decades
+    — in textbooks, in clinic letters, and above all in the papers people
+    upload here. `PARK2` was renamed `PRKN`, `MLL` became `KMT2A`, `FAM58A`
+    became `CCNQ`. Every one of those returns nothing from Ensembl and ClinVar,
+    so the reader gets an empty answer for a gene that plainly exists, with no
+    hint that the name is the problem.
+
+    Called only when the primary lookup has already come back empty, so it
+    costs nothing on the common path.
+
+    Returns `{symbol, renamed_from, name, aliases}`, or `{}` when HGNC has never
+    heard of it either — which is the honest answer to a typo.
+    """
+    query = (symbol or "").strip().upper()
+    if not query:
+        return {}
+    headers = {**HEADERS, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            # Exact symbol first: if it is current, there is nothing to resolve.
+            r = await client.get(f"{HGNC_BASE}/fetch/symbol/{query}", headers=headers, timeout=TIMEOUT)
+            docs = (r.json().get("response", {}).get("docs") or []) if r.status_code == 200 else []
+            if docs:
+                d = docs[0]
+                return {"symbol": d.get("symbol"), "renamed_from": None,
+                        "name": d.get("name"), "aliases": d.get("alias_symbol") or []}
+
+            # Then withdrawn names, then aliases. Order matters: a withdrawn
+            # symbol has exactly one successor, while an alias can be shared,
+            # so the rename is the more confident answer of the two.
+            for path in (f"/search/prev_symbol/{query}", f"/search/alias_symbol/{query}"):
+                r = await client.get(f"{HGNC_BASE}{path}", headers=headers, timeout=TIMEOUT)
+                if r.status_code != 200:
+                    continue
+                found = r.json().get("response", {}).get("docs") or []
+                if len(found) == 1:
+                    return {"symbol": found[0].get("symbol"), "renamed_from": query,
+                            "name": found[0].get("name"), "aliases": []}
+        return {}
+    except Exception as e:
+        logger.warning(f"HGNC symbol resolution failed for {symbol}: {e}")
+        return {}

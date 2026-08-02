@@ -70,6 +70,10 @@ each answer's source list.
 | **UniProt** | CC-BY 4.0 |
 | **AlphaFold** (EMBL-EBI/DeepMind) | CC-BY 4.0 |
 | **Reactome** | CC0 |
+| **MedlinePlus Genetics** (NLM) | US Government work, public domain. NLM asks that content not be presented so as to imply NLM endorsement — so it is quoted and attributed, never rebranded |
+| **ClinicalTrials.gov** (NLM) | US Government work, public domain. Listings are informational; presenting one as a recommendation would misrepresent it |
+| **Genomics England PanelApp** | Open, no commercial restriction; attribution requested. Panels are NHS clinical policy, so they are reproduced as-is rather than reinterpreted |
+| **HGNC** (genenames.org) | Free for all uses, no restriction; citation requested |
 | **GTEx** | Open access summary data unrestricted |
 | **STRING** | CC-BY 4.0 |
 | **Open Targets** | CC0 for the platform data |

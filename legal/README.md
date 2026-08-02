@@ -14,7 +14,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 | Item | Decision |
 |---|---|
-| Controller | **Benjamin Kenneth Brown, trading as Squire Studio**, a sole proprietorship, Tennessee. See "Entity" below |
+| Controller | **Ben Brown, trading as Squire Studio**, a sole proprietorship, Tennessee. See "Entity" and "How the name shortens" below |
 | Contact | **privacy@mydna.chat** — live, forwarding verified 1 Aug 2026. DMARC `p=reject` set |
 | Governing law | Tennessee |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
@@ -32,7 +32,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 
 Squire Studio is an informal trading name. Red Wolf Agency is a sole
 proprietorship. **Neither is a separate legal entity**, so both resolve to
-Benjamin Kenneth Brown, and there is no inconsistency between accounts to
+one legal person, Benjamin Kenneth Brown, and there is no inconsistency between accounts to
 reconcile — there was never a second party to be inconsistent with. The Railway
 DPA was signed by the correct legal person regardless of which account name it
 sits under, and switching the published name does not affect it.
@@ -46,10 +46,40 @@ exist — GitHub, email and the rest are Squire Studio already, so this aligns
 the paperwork to reality rather than the reverse.
 
 Because Squire Studio is *informal* rather than a registered assumed name, the
-documents read "Benjamin Kenneth Brown, trading as Squire Studio". A controller
-must be identifiable as a legal person, and naming an unregistered trading name
-alone would not do that. If it is ever registered as an assumed name in TN, the
-phrasing can shorten.
+documents name a person as well: **"Ben Brown, trading as Squire Studio"**. A
+controller must be identifiable as a legal person, and an unregistered trading
+name alone identifies nobody.
+
+### How the name shortens
+
+The published documents say "Ben Brown", not the full legal name, decided
+1 Aug 2026. Nothing requires a middle name — the obligation is that the
+controller be *identifiable*, not that every given name appear — and "Ben" is
+the form he is known by, corroborated by the domain registration and by
+privacy@mydna.chat. Initials were considered and rejected: on a privacy policy
+specifically, an obscured identity works against the one job that line has.
+
+The site footer names no person at all, only Squire Studio. It never needed to
+— the controller is identified in section 1 of both documents, and the footer
+was belt-and-braces.
+
+Two steps remain, and both shorten it further:
+
+1. **Register the assumed name** with the county register of deeds (Tennessee
+   routes sole proprietors to the county, not the Secretary of State). Cheap,
+   and arguably overdue on its own terms since trading under an unregistered
+   assumed name is a technical problem in its own right. Once it is a public
+   record, "Squire Studio" resolves to a person through a searchable filing and
+   the documents can lead with the studio name.
+2. **Form the LLC** — see "Entity" above. An LLC *is* a legal person, so the
+   controller becomes the company and no personal name appears on the site at
+   all. This is the real answer: the naming preference and the missing
+   liability shield have the same fix.
+
+**Whichever happens, re-paper Railway and Stripe in the same pass.** The
+Railway DPA is executed by the individual and the Stripe account name reaches
+customers' bank statements; a policy naming an entity that neither document
+knows about is exactly the inconsistency flagged under "Railway" below.
 
 The consequence is that **there is currently no liability shield**. A claim
 arising from MyDNA is a claim against personal assets. That is an ordinary

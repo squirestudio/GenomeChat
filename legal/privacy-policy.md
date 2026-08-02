@@ -30,7 +30,7 @@ Details below, including the parts that are less flattering.
 
 ## 1. Who is responsible
 
-MyDNA ("we", "us") is operated by **Benjamin Kenneth Brown, trading as Squire Studio**, a sole proprietorship,
+MyDNA ("we", "us") is operated by **Ben Brown, trading as Squire Studio**, a sole proprietorship,
 [MAILING ADDRESS], Tennessee, United States. For
 questions about this policy or to exercise any right described here, contact
 **privacy@mydna.chat**.

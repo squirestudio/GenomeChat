@@ -9,7 +9,7 @@
 
 ## 1. Agreement
 
-These terms are between you and **Benjamin Kenneth Brown, trading as Squire Studio**, a sole proprietorship
+These terms are between you and **Ben Brown, trading as Squire Studio**, a sole proprietorship
 ("MyDNA", "we"). By using mydna.chat you accept
 them. If you do not, please do not use the service.
 

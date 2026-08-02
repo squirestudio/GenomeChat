@@ -64,9 +64,8 @@ function LegalPage({ markdown, onBack }) {
           marginTop: "2.5rem", paddingTop: "1.25rem",
           borderTop: "1px solid var(--border-solid)",
         }}>
-          MyDNA is published by Benjamin Kenneth Brown, trading as Squire Studio.
-          It is an educational research tool, not a medical service, and it does
-          not diagnose.
+          MyDNA is published by Squire Studio. It is an educational research
+          tool, not a medical service, and it does not diagnose.
         </p>
       </div>
     </div>

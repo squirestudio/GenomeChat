@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS, groupExploreItems, groupFor, SECTION_GROUP, proseLayout, noResultsFor } from "./response";
+import { splitProseSections, buildExploreItems, EXPLORE_LABELS, ALL_SECTION_KEYS, groupExploreItems, groupFor, SECTION_GROUP, proseLayout, noResultsFor, suggestedQueries, withoutQuerySection, fallbackQueries } from "./response";
 
 describe("splitProseSections", () => {
   const answer = [
@@ -270,5 +270,117 @@ describe("noResultsFor", () => {
   it("is safe on nothing", () => {
     expect(noResultsFor(null)).toBeNull();
     expect(noResultsFor({})).toBeNull();
+  });
+});
+
+describe("suggestedQueries", () => {
+  const answer = (body) => `## Overview\nStuff.\n\n## Explore next\n${body}`;
+
+  it("pulls runnable queries out of the section", () => {
+    expect(suggestedQueries(answer("- COL1A1 pathogenic variants\n- TMEM38B\n")))
+      .toEqual(["COL1A1 pathogenic variants", "TMEM38B"]);
+  });
+
+  it("drops questions addressed to the reader, which MyDNA cannot answer", () => {
+    // The whole reason this exists. Older answers are full of these, because
+    // the prompt did not say who was being asked, and a button that sends
+    // "Do you have a family history of X" to a genomics pipeline is worse
+    // than no button.
+    const md = answer([
+      "- Are you currently taking clopidogrel, or statins?",
+      "- Do you have a family history of early-onset cardiovascular disease?",
+      "- CYP2C19 pharmacogenomics",
+    ].join("\n"));
+    expect(suggestedQueries(md)).toEqual(["CYP2C19 pharmacogenomics"]);
+  });
+
+  it("still reads the old heading, so stored answers keep their suggestions", () => {
+    const md = "## Suggested Follow-up Queries\n1. APOE variants\n2. genes associated with ataxia";
+    expect(suggestedQueries(md)).toEqual(["APOE variants", "genes associated with ataxia"]);
+  });
+
+  it("strips bullets, numbering, bold and trailing punctuation", () => {
+    expect(suggestedQueries(answer("- **BRCA1** variants.\n2) compare BRCA1 and BRCA2\n")))
+      .toEqual(["BRCA1 variants", "compare BRCA1 and BRCA2"]);
+  });
+
+  it("de-duplicates and caps the list", () => {
+    const many = Array.from({ length: 12 }, (_, i) => `- query number ${i % 3}`).join("\n");
+    expect(suggestedQueries(answer(many))).toHaveLength(3);
+  });
+
+  it("is empty when there is no such section", () => {
+    expect(suggestedQueries("## Overview\nJust prose.")).toEqual([]);
+    expect(suggestedQueries("")).toEqual([]);
+    expect(suggestedQueries(undefined)).toEqual([]);
+  });
+});
+
+describe("withoutQuerySection", () => {
+  const md = "## Overview\nStuff.\n\n## Explore next\n- BRCA1 variants\n";
+
+  it("removes the section so suggestions do not render twice", () => {
+    const out = withoutQuerySection(md);
+    expect(out).toContain("## Overview");
+    expect(out).not.toContain("Explore next");
+    expect(out).not.toContain("BRCA1 variants");
+  });
+
+  it("keeps sections that follow it", () => {
+    const out = withoutQuerySection(md + "\n## Worth knowing\nFamily history matters.");
+    expect(out).toContain("Worth knowing");
+    expect(out).not.toContain("BRCA1 variants");
+  });
+
+  it("leaves an answer without one untouched", () => {
+    expect(withoutQuerySection("## Overview\nStuff.")).toBe("## Overview\nStuff.");
+  });
+});
+
+describe("the query section is not also offered as prose", () => {
+  it("stays out of Explore further, or the same suggestions appear twice", () => {
+    const msg = { content: "## Overview\nx\n\n## Explore next\n- BRCA1 variants", data: {} };
+    const labels = buildExploreItems(msg).map(i => i.label);
+    expect(labels).not.toContain("Explore next");
+  });
+});
+
+describe("fallbackQueries", () => {
+  it("uses the backend's own follow-ups for a disease answer", () => {
+    const msg = { data: { pending_sections: [{ ask: "SOD1 variants" }, { ask: "MEF2C variants" }] } };
+    expect(fallbackQueries(msg)).toEqual(["SOD1 variants", "MEF2C variants"]);
+  });
+
+  it("builds runnable queries from a gene answer's own data", () => {
+    const msg = {
+      query_type: "gene_query", target: "BRCA1",
+      data: {
+        gene_info: { symbol: "BRCA1" },
+        disease_network: { diseases: [{ name: "hereditary breast cancer" }] },
+        interactions: [{ gene: "PALB2" }],
+        pharmgkb: [{}],
+      },
+    };
+    expect(fallbackQueries(msg)).toEqual([
+      "genes associated with hereditary breast cancer",
+      "compare BRCA1 and PALB2",
+      "BRCA1 pharmacogenomics",
+    ]);
+  });
+
+  it("never suggests comparing a gene with itself", () => {
+    const msg = { query_type: "gene_query", target: "BRCA1",
+      data: { gene_info: { symbol: "BRCA1" }, interactions: [{ gene: "BRCA1" }] } };
+    expect(fallbackQueries(msg)).toEqual([]);
+  });
+
+  it("respects the limit and de-duplicates", () => {
+    const msg = { data: { pending_sections: Array.from({ length: 9 }, () => ({ ask: "X variants" })) } };
+    expect(fallbackQueries(msg)).toEqual(["X variants"]);
+  });
+
+  it("is safe on an answer with no data", () => {
+    expect(fallbackQueries({})).toEqual([]);
+    expect(fallbackQueries(null)).toEqual([]);
   });
 });

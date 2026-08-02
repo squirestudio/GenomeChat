@@ -38,6 +38,103 @@ const norm = t => (t || "").toLowerCase().replace(/[^a-z]/g, "");
 // Shown inline, in this order, before the reader chooses anything.
 const PROSE_PRIMARY = ["overview", "keyfindings"];
 
+/* The section the model writes runnable queries into. Rendered as buttons
+   rather than prose, so it must not also appear as an Explore-further card or
+   the same suggestions show up twice.
+
+   "suggestedfollowupqueries" is the old heading, kept because stored answers
+   replay from `queries.results` and a reader opening a month-old chat should
+   still get their suggestions. Those older ones are questions addressed to the
+   reader rather than queries — the prompt was ambiguous about who was being
+   asked — so `suggestedQueries` filters them out rather than offering a button
+   that sends "Do you have a family history of X" to a genomics pipeline. */
+const QUERY_SECTIONS = ["explorenext", "suggestedfollowupqueries"];
+
+/** A line that MyDNA can actually look up, as opposed to a question for the
+ *  reader. Anything second-person is the latter. */
+function isRunnableQuery(line) {
+  const s = (line || "").trim();
+  if (s.length < 3 || s.length > 120) return false;
+  if (/^(do|does|did|are|is|was|were|have|has|had|will|would|should|can|could)\b/i.test(s)) return false;
+  if (/\b(you|your|yours|yourself)\b/i.test(s)) return false;
+  return true;
+}
+
+/** The runnable queries an answer suggests, in order, de-duplicated. */
+function suggestedQueries(content) {
+  const { sections } = splitProseSections(content);
+  const section = sections.find(sx => QUERY_SECTIONS.includes(norm(sx.title)));
+  if (!section) return [];
+
+  const seen = new Set();
+  const out = [];
+  for (const raw of section.body.split("\n")) {
+    const line = raw
+      .replace(/^\s*[-*•]\s+/, "")      // markdown bullet
+      .replace(/^\s*\d+[.)]\s+/, "")    // numbered list
+      .replace(/\*\*/g, "")             // the model bolds gene names everywhere
+      .replace(/[.?]+$/, "")
+      .trim();
+    if (!isRunnableQuery(line)) continue;
+    const key = line.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/**
+ * Queries built from the answer's own data, when the model wrote none.
+ *
+ * "Explore next" is the last section the model writes, so it is the first
+ * casualty when a long answer meets the token ceiling — the reader ends up with
+ * no suggestions precisely on the richest answers, which are the ones most
+ * worth following. These are derived from the pipeline result instead, so they
+ * cost nothing, cannot be truncated, and are runnable by construction.
+ *
+ * Deliberately generic. This is a floor, not a replacement: the model's
+ * suggestions read the room in a way a template cannot, and are preferred
+ * whenever they exist.
+ */
+function fallbackQueries(msg, limit = 4) {
+  const d = msg?.data || {};
+  const out = [];
+  const push = (q) => { if (q && !out.includes(q) && out.length < limit) out.push(q); };
+
+  // A disease answer already carries its own follow-ups from the backend.
+  for (const p of d.pending_sections || []) if (p.ask) push(p.ask);
+
+  const gene = d.gene_info?.symbol || (msg?.query_type === "gene_query" ? msg.target : null);
+  if (gene) {
+    for (const dis of (d.disease_network?.diseases || []).slice(0, 2)) {
+      const name = dis?.name || dis?.label;
+      if (name) push(`genes associated with ${name}`);
+    }
+    for (const partner of (d.interactions || []).slice(0, 2)) {
+      const sym = partner?.gene || partner?.symbol;
+      if (sym && sym !== gene) push(`compare ${gene} and ${sym}`);
+    }
+    if ((d.pharmgkb || []).length) push(`${gene} pharmacogenomics`);
+  }
+  return out;
+}
+
+/** The answer with its query section removed, for rendering the prose. */
+function withoutQuerySection(content) {
+  if (!content) return content;
+  const lines = String(content).split("\n");
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    const m = /^##\s+(.*)$/.exec(line);
+    if (m) skipping = QUERY_SECTIONS.includes(norm(m[1]));
+    if (!skipping) out.push(line);
+  }
+  return out.join("\n").trimEnd();
+}
+
 /**
  * How an answer's prose should be laid out.
  *
@@ -53,10 +150,13 @@ const PROSE_PRIMARY = ["overview", "keyfindings"];
  * definition, a query that fell to the conversational path — renders whole.
  */
 function proseLayout(msg) {
-  const { lead, sections } = splitProseSections(msg?.content);
-  if (!msg?.data) return { mode: "whole", lead: "", overview: null, findings: null };
+  const body = withoutQuerySection(msg?.content);
+  const { lead, sections } = splitProseSections(body);
+  // `body` is what renders: the query section becomes buttons, so leaving it in
+  // the prose would show every suggestion twice.
+  if (!msg?.data) return { mode: "whole", body, lead: "", overview: null, findings: null };
   const pick = name => sections.find(sx => norm(sx.title) === name) || null;
-  return { mode: "split", lead, overview: pick("overview"), findings: pick("keyfindings") };
+  return { mode: "split", body, lead, overview: pick("overview"), findings: pick("keyfindings") };
 }
 
 /**
@@ -156,6 +256,7 @@ function buildExploreItems(msg) {
   const { sections } = splitProseSections(msg.content);
   for (const sx of sections) {
     if (PROSE_PRIMARY.includes(norm(sx.title))) continue;
+    if (QUERY_SECTIONS.includes(norm(sx.title))) continue;   // rendered as buttons
     items.push({ key: `prose:${sx.title}`, label: sx.title, source: "In this answer", instant: true });
   }
 
@@ -182,5 +283,6 @@ function buildExploreItems(msg) {
 export {
   splitProseSections, norm, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS,
   buildExploreItems, groupExploreItems, groupFor, EXPLORE_GROUPS, SECTION_GROUP,
-  proseLayout, noResultsFor,
+  proseLayout, noResultsFor, suggestedQueries, withoutQuerySection,
+  isRunnableQuery, QUERY_SECTIONS, fallbackQueries,
 };

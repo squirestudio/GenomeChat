@@ -7,7 +7,8 @@ import {
 } from "./dna";
 import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
-import { splitProseSections, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems, proseLayout, noResultsFor } from "./response";
+import { splitProseSections, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems, proseLayout, noResultsFor, suggestedQueries, fallbackQueries } from "./response";
+import { genesInData } from "./genes";
 import { makeDocument, documentsForRequest, saveDocsToSession, loadDocsFromSession, documentsSummary } from "./documents";
 import { classifyFile, needsVision, extractText } from "./extract";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
@@ -4005,7 +4006,50 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
 
 
 
-function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, onAsk, sectionState }) {
+/**
+ * Runnable queries the answer suggested, as buttons.
+ *
+ * These send, unlike inline gene names, because a chip under a heading called
+ * "Explore next" is a deliberate act rather than something you brush past while
+ * scrolling. The cost is stated on the row for the same reason Explore further
+ * states it: one click is a much easier way to spend twenty free queries than
+ * typing is, and finding that out afterwards is how a freemium product loses
+ * someone's trust.
+ */
+function SuggestedQueries({ queries, onAsk }) {
+  if (!queries.length || !onAsk) return null;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)", margin: 0 }}>
+          Explore next
+        </p>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {queries.length} {queries.length === 1 ? "query" : "queries"} · each uses a credit
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+        {queries.map(q => (
+          <button key={q} type="button" onClick={() => onAsk(q)}
+            style={{
+              fontSize: "0.76rem", textAlign: "left", lineHeight: 1.4,
+              padding: "0.4rem 0.7rem", borderRadius: 999,
+              background: "rgb(var(--c-accent) / 0.08)",
+              border: "1px solid rgb(var(--c-accent) / 0.3)",
+              color: "var(--accent)", cursor: "pointer", transition: "background 0.15s",
+            }}>
+            {q}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, onAsk, onGene, sectionState }) {
+  // Data-backed symbols are certain; linkifyGenes falls back to shape for
+  // genes that arrived in prose, such as one read out of an uploaded paper.
+  const gene = onGene ? { known: genesInData(msg.data), onPick: onGene } : null;
   if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
@@ -4027,17 +4071,17 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             shown up front: the reader chooses what to open from Explore further,
             rather than receiving every dataset at once. */}
         {(() => {
-          const { mode, lead, overview, findings } = proseLayout(msg);
+          const { mode, body, lead, overview, findings } = proseLayout(msg);
 
           // No pipeline data means no Explore further menu to hold the rest of
           // the answer, so splitting it would discard everything that is not
           // Overview or Key Findings. See proseLayout in response.js.
-          if (mode === "whole") return <Markdown content={msg.content} />;
+          if (mode === "whole") return <Markdown content={body} gene={gene} />;
 
           return (
             <>
-              {lead && <Markdown content={lead} />}
-              {overview && <Markdown content={`## ${overview.title}\n${overview.body}`} />}
+              {lead && <Markdown content={lead} gene={gene} />}
+              {overview && <Markdown content={`## ${overview.title}\n${overview.body}`} gene={gene} />}
 
               {msg.data?.alphafold?.pdb_url && (
                 <ProteinViewer
@@ -4049,7 +4093,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
                 />
               )}
 
-              {findings && <Markdown content={`## ${findings.title}\n${findings.body}`} />}
+              {findings && <Markdown content={`## ${findings.title}\n${findings.body}`} gene={gene} />}
 
               {/* Sits high, and is free: it is the reader's own data, matched
                   against this gene in the browser. Nothing was fetched to
@@ -4143,6 +4187,14 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             {" "}— no credits used.
           </p>
         )}
+
+        {/* The model's own suggestions read the context far better than a
+            template can, so they win. The data-derived set is a floor for
+            when a long answer hit the token ceiling before writing any. */}
+        <SuggestedQueries onAsk={onAsk}
+          queries={msg.streaming ? [] : (suggestedQueries(msg.content).length
+            ? suggestedQueries(msg.content)
+            : fallbackQueries(msg))} />
 
         {/* 5. everything else, chosen by the reader */}
         {!msg.streaming && msg.data && (
@@ -4383,6 +4435,24 @@ export default function App({ onNavigate }) {
     if (!currentUser) { setShowSignInGate("documents"); return; }
     setShowDocModal(true);
   }, [currentUser]);
+
+  /** Put a gene symbol in the input rather than sending it.
+   *
+   *  Deliberate: inline text is the easiest thing on the page to hit by
+   *  accident, and a query costs a credit with no undo. Prefilling keeps the
+   *  momentum, costs nothing on a misclick, and leaves room to refine the
+   *  symbol into a real question before spending. */
+  const prefillQuery = useCallback((gene) => {
+    setInput(gene);
+    const el = inputRef.current;
+    if (el) {
+      el.focus();
+      // Caret to the end, so typing continues the query instead of prepending.
+      requestAnimationFrame(() => {
+        try { el.setSelectionRange(el.value.length, el.value.length); } catch { /* not a text input */ }
+      });
+    }
+  }, []);
 
   const updateDocuments = useCallback((docs) => {
     setDocuments(docs);
@@ -5455,7 +5525,7 @@ export default function App({ onNavigate }) {
                   const isAnchor = i === messages.map(m => m.role).lastIndexOf("user");
                   return msg.role === "user"
                     ? <div key={i} ref={isAnchor ? latestTurnRef : null} style={{ scrollMarginTop: "1rem" }}><UserMessage content={msg.content} /></div>
-                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant, label) => loadSection(i, sec, instant, label)} onToggleSection={sec => toggleSection(i, sec)} onAsk={q => sendMessage(q)} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
+                    : <AssistantMessage key={i} msg={msg} dnaData={dnaData} settings={settings} onLoadSection={(sec, instant, label) => loadSection(i, sec, instant, label)} onToggleSection={sec => toggleSection(i, sec)} onAsk={q => sendMessage(q)} onGene={prefillQuery} sectionState={{ loading: loadingSections, errors: sectionErrors, idx: i }} />;
                 })}
                 {loading && <TypingIndicator stage={streamStage} />}
                 <div ref={bottomRef} />

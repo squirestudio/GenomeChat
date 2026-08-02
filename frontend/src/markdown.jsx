@@ -10,24 +10,58 @@
  * tables, bold, code, links — is small and known.
  */
 import { parseTable, isNumeric } from "./table";
+import { linkifyGenes } from "./genes";
 
-function renderInline(text) {
+/**
+ * Gene symbols as buttons that put the symbol in the input box.
+ *
+ * Prefill rather than send: inline words are the easiest thing on the page to
+ * hit by accident, especially when selecting text on a phone, and a query costs
+ * a credit. Prefilling keeps the momentum without the misclick, and lets the
+ * reader turn "COL1A1" into "COL1A1 pathogenic variants" before spending.
+ *
+ * Applied to every text run including the inside of **bold**, because the
+ * explanation prompt asks for gene names in bold, so that is where most of them
+ * are.
+ */
+function withGenes(text, key, gene) {
+  if (!gene?.onPick) return text;
+  const parts = linkifyGenes(text, gene.known);
+  if (parts.length === 1 && typeof parts[0] === "string") return text;
+  return parts.map((part, n) =>
+    typeof part === "string" ? part : (
+      <button
+        key={`${key}-g${n}`}
+        type="button"
+        onClick={() => gene.onPick(part.gene)}
+        title={`Ask about ${part.gene}`}
+        style={{
+          font: "inherit", color: "var(--accent)", background: "none",
+          border: "none", borderBottom: "1px dashed rgb(var(--c-accent) / 0.45)",
+          padding: 0, cursor: "pointer",
+        }}
+      >{part.gene}</button>
+    )
+  );
+}
+
+function renderInline(text, gene) {
   const parts = [];
   const re = /(\*\*(.+?)\*\*|`(.+?)`|\*(.+?)\*)/g;
   let last = 0, m;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[2]) parts.push(<strong key={m.index} style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{m[2]}</strong>);
+    if (m.index > last) parts.push(withGenes(text.slice(last, m.index), `t${m.index}`, gene));
+    if (m[2]) parts.push(<strong key={m.index} style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{withGenes(m[2], `b${m.index}`, gene)}</strong>);
     else if (m[3]) parts.push(<code key={m.index} style={{ fontFamily: "monospace", fontSize: "0.78em", background: "var(--border-solid)", color: "var(--accent-soft)", padding: "0.1em 0.35em", borderRadius: 3 }}>{m[3]}</code>);
-    else if (m[4]) parts.push(<em key={m.index} style={{ color: "var(--text-muted)" }}>{m[4]}</em>);
+    else if (m[4]) parts.push(<em key={m.index} style={{ color: "var(--text-muted)" }}>{withGenes(m[4], `e${m.index}`, gene)}</em>);
     last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push(text.slice(last));
+  if (last < text.length) parts.push(withGenes(text.slice(last), `t${last}`, gene));
   return parts;
 }
 
 
-function Markdown({ content }) {
+function Markdown({ content, gene }) {
   if (!content) return null;
   const lines = content.split("\n");
   const elements = [];
@@ -39,25 +73,25 @@ function Markdown({ content }) {
       // for it, so every answer began with a literal "#" on the page.
       elements.push(
         <h1 key={i} style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)", margin: "0 0 0.5rem", lineHeight: 1.35 }}>
-          {renderInline(line.slice(2))}
+          {renderInline(line.slice(2), gene)}
         </h1>
       );
     } else if (line.startsWith("## ")) {
       elements.push(
         <h2 key={i} style={{ fontSize: "0.875rem", fontWeight: 700, color: "var(--text)", margin: "1.25rem 0 0.5rem", paddingBottom: "0.375rem", borderBottom: "1px solid var(--border-solid)" }}>
-          {renderInline(line.slice(3))}
+          {renderInline(line.slice(3), gene)}
         </h2>
       );
     } else if (line.startsWith("### ")) {
       elements.push(
         <h3 key={i} style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", margin: "0.875rem 0 0.25rem" }}>
-          {renderInline(line.slice(4))}
+          {renderInline(line.slice(4), gene)}
         </h3>
       );
     } else if (line.startsWith("- ") || line.startsWith("• ")) {
       const items = [];
       while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("• "))) {
-        items.push(<li key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].slice(2))}</li>);
+        items.push(<li key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].slice(2), gene)}</li>);
         i++;
       }
       elements.push(<ul key={`ul${i}`} style={{ paddingLeft: "1.25rem", listStyle: "disc", margin: "0.5rem 0" }}>{items}</ul>);
@@ -79,7 +113,7 @@ function Markdown({ content }) {
                     textAlign: t.align[c] || "left", padding: "0.35rem 0.6rem",
                     borderBottom: "1px solid rgb(var(--c-border) / 0.5)",
                     color: "var(--text-muted)", fontWeight: 700, whiteSpace: "nowrap",
-                  }}>{renderInline(h)}</th>
+                  }}>{renderInline(h, gene)}</th>
                 ))}
               </tr>
             </thead>
@@ -95,7 +129,7 @@ function Markdown({ content }) {
                       padding: "0.35rem 0.6rem", color: "var(--text-faint)",
                       borderBottom: "1px solid rgb(var(--c-border) / 0.2)",
                       lineHeight: 1.5,
-                    }}>{renderInline(cell)}</td>
+                    }}>{renderInline(cell, gene)}</td>
                   ))}
                 </tr>
               ))}
@@ -110,7 +144,7 @@ function Markdown({ content }) {
       // exactly why they were missing: the renderer only ever saw chat answers.
       const items = [];
       while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
-        items.push(<li key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].replace(/^\d+\.\s/, ""))}</li>);
+        items.push(<li key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.65, marginBottom: "0.2rem" }}>{renderInline(lines[i].replace(/^\d+\.\s/, ""), gene)}</li>);
         i++;
       }
       elements.push(<ol key={`ol${i}`} style={{ paddingLeft: "1.35rem", listStyle: "decimal", margin: "0.5rem 0" }}>{items}</ol>);
@@ -120,7 +154,7 @@ function Markdown({ content }) {
     } else if (line.trim() === "") {
       elements.push(<div key={i} style={{ height: "0.375rem" }} />);
     } else {
-      elements.push(<p key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.7, margin: "0.25rem 0" }}>{renderInline(line)}</p>);
+      elements.push(<p key={i} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.7, margin: "0.25rem 0" }}>{renderInline(line, gene)}</p>);
     }
     i++;
   }

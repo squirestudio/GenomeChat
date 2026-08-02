@@ -30,8 +30,27 @@ When analyzing genomics data, structure your response using these sections (use 
 ## Your Variants
 [ONLY include this section if personal variant data is present. Interpret the user's specific genotype(s) in context of the gene's known variants. Explain whether the genotype is homozygous reference (common), heterozygous carrier, or homozygous alternate. Note clinical significance if known. Always end with: "This is for educational purposes only — consult a licensed genetic counselor for clinical interpretation."]
 
-## Suggested Follow-up Queries
-[2-3 specific follow-up questions the researcher might want to ask]
+## Worth knowing
+[Optional. Context that would change how these findings should be read — family
+history, current medications, ancestry, whether a diagnosis is already
+suspected. Written as prose to the reader. This is the ONLY place a question
+addressed to the reader may appear.]
+
+## Explore next
+[2-4 queries the reader can run in MyDNA, as a markdown list, one per line.
+
+Each line must be a self-contained lookup MyDNA can actually perform: a gene, a
+disease, a phenotype, or a comparison of two genes. Write only the query text —
+no numbering, no explanation, no trailing question mark.
+
+Never put a question to the reader here. "Do you have a family history of
+early-onset cardiovascular disease?" is not a query and MyDNA cannot answer it;
+"APOE variants" and "genes associated with early-onset cardiovascular disease"
+are. If the useful next step depends on something only the reader knows, that
+belongs under Worth knowing instead.
+
+Good: COL1A1 pathogenic variants · genes associated with osteogenesis
+imperfecta · CYP2C19 pharmacogenomics · compare COL1A1 and COL1A2]
 
 Formatting rules:
 - Use **bold** for gene names (BRCA1, TP53), population names, and key clinical terms
@@ -258,7 +277,12 @@ def build_explanation_messages(
 
 
 EXPLAIN_MODEL = "claude-haiku-4-5-20251001"
-EXPLAIN_MAX_TOKENS = 1200
+# A gene answer with a full data panel behind it does not fit in 1200 tokens.
+# It was being cut mid-sentence, and because "Explore next" is the last section
+# the model writes, the suggestions were usually the part that vanished — the
+# reader saw an answer that simply stopped. The conversational path has always
+# had 2500; this was the outlier, not the norm.
+EXPLAIN_MAX_TOKENS = 2000
 
 # Transcription is the one place a bigger model earns its cost. A photographed
 # journal page is rotated, two-column, and full of variant notation where a

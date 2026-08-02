@@ -150,3 +150,26 @@ describe("rankAssociations", () => {
     expect(rankAssociations(null).measurements).toEqual([]);
   });
 });
+
+describe("risk allele frequency", () => {
+  // Fetched from the GWAS Catalog and previously dropped in the mapper, so the
+  // panel could not tell a common risk allele from a rare one. A strong
+  // association with something 2% of people carry reads very differently from
+  // one with something 60% carry.
+  const hit = (extra) => ({ trait: "breast carcinoma", rsid: "rs1", p_value: 1e-20, ...extra });
+  const first = (h) => rankAssociations([h]).conditions[0];
+
+  it("carries the frequency through", () => {
+    expect(first(hit({ risk_frequency: 0.42 })).riskFrequency).toBeCloseTo(0.42);
+  });
+
+  it("is null when the study did not report one, rather than zero", () => {
+    // Zero would render as "0%", which is a claim the data does not make.
+    expect(first(hit({})).riskFrequency).toBeNull();
+    expect(first(hit({ risk_frequency: null })).riskFrequency).toBeNull();
+  });
+
+  it("keeps a genuine zero distinct from absent", () => {
+    expect(first(hit({ risk_frequency: 0 })).riskFrequency).toBe(0);
+  });
+});

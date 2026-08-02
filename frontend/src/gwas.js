@@ -107,6 +107,11 @@ function rankAssociations(hits, { limit = 10 } = {}) {
       negLog: negLogP(h.p_value),
       pText: formatP(h.p_value),
       riskAllele: h.risk_allele || null,
+      // How common the risk allele is. Without it a reader cannot tell whether
+      // an association describes something they are likely to carry or a rare
+      // variant — the same distinction the population panel exists to make.
+      // Fetched from the GWAS Catalog and previously discarded here.
+      riskFrequency: typeof h.risk_frequency === "number" ? h.risk_frequency : null,
       ...effectPhrase(h),
     }))
     .filter(r => r.negLog !== null);

@@ -58,7 +58,11 @@ class ChatRequest(BaseModel):
     # licence to hold a publisher's text, and does not need one to help someone
     # read their own lawful copy. Bounded for the same token-spend reason.
     personal_documents: Optional[list[dict]] = Field(default=None, max_length=10)
-    response_detail: Optional[str] = "standard"     # concise | standard | detailed
+    response_detail: Optional[str] = "standard"     # concise | standard | detailed (how much)
+    # How hard the words are, which is a different axis from how much is said.
+    # Defaults to plain: most readers are here about their own health, not to
+    # review a paper, and the previous prompt aimed at "a research scientist".
+    reading_level: Optional[str] = "plain"          # plain | standard | technical
     staged: bool = True                             # core data first; sections on demand
     user_api_key: Optional[str] = None              # user-supplied Anthropic key; never logged or stored
 
@@ -465,7 +469,14 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                 consume_query(u, stream_db, has_working_key=has_working_key)
 
         try:
-            cached = cache.get(body.message)
+            # Keyed on the answer's shape as well as the question. The cache
+            # used to key on the question alone, so the first reader's settings
+            # decided everyone's answer for 24 hours: asking for a technical
+            # explanation returned whatever plain-language reply happened to be
+            # cached, with no way to tell. Same bug for response_detail, which
+            # had it silently since the cache was added.
+            cache_key = f"{body.message}|{body.response_detail}|{body.reading_level}"
+            cached = cache.get(cache_key)
             if cached:
                 # A cached answer is still an answer. The cache exists to save
                 # upstream calls, not to make questions free — and since it is
@@ -490,6 +501,7 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                     response_detail=body.response_detail,
                     user_api_key=user_api_key,
                     personal_documents=body.personal_documents,
+                    reading_level=body.reading_level,
                 ):
                     parts.append(chunk)
                     yield _sse("token", {"text": chunk})
@@ -529,6 +541,7 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                 response_detail=body.response_detail,
                 user_api_key=user_api_key,
                 personal_documents=body.personal_documents,
+                reading_level=body.reading_level,
             ):
                 parts.append(chunk)
                 yield _sse("token", {"text": chunk})
@@ -570,7 +583,7 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                     if save_db is not stream_db:
                         save_db.close()
 
-            cache.set(body.message, {**stored, "query_id": query_id})
+            cache.set(cache_key, {**stored, "query_id": query_id})
             yield _sse("done", {"query_id": query_id, "cached": False})
 
         except Exception as e:

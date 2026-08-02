@@ -105,7 +105,7 @@ Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` read
 **Frontend tests live beside the code they cover and run on every push.**
 
 ```bash
-cd frontend && npm test          # 376 checks, ~0.5s
+cd frontend && npm test          # 379 checks, ~0.5s
 ```
 
 They cover pure logic, not component rendering: DNA parsing, SSE framing, plan
@@ -130,8 +130,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 196 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
-python -m pytest                     # all 251, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 208 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
+python -m pytest                     # all 263, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -195,6 +195,12 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 **Splitting an answer's prose is only safe when Explore further exists to catch the rest.** `AssistantMessage` renders Overview and Key Findings inline and leaves every other `##` section to the Explore-further menu — but that menu is gated on `msg.data`, and an answer that never ran the pipeline has none. Splitting one therefore did not defer the other sections, it **deleted** them: the backend streamed a complete reply and the reader saw its first line. `proseLayout()` in [response.js](frontend/src/response.js) now returns `mode: "whole"` whenever `msg.data` is absent, and everything data-less renders entire. This was the visible half of the hypotonia bug and it degraded *every* conversational follow-up, not just misrouted queries. If you ever gate Explore further on something else, revisit `proseLayout` in the same commit.
 
 **An empty answer has to say it is empty.** `noResultsFor()` fires only for a disease query whose gene list is empty — deliberately never for a gene query, since a gene with no ClinVar variants still has pathways, expression and interactions, and claiming "no results" there would be false. Before it existed, a genuine miss and a routing failure rendered identically, so neither the reader nor we could tell them apart.
+
+**Reading level is a separate axis from detail, and the default is plain.** `response_detail` is how much is said; `reading_level` is how hard the words are. They were conflated, and the base prompt asked for prose "accessible to a research scientist" — which is who it wrote for, so a reader looking up their own gene met "ablate" and "penetrance" unglossed. `READING_LEVEL_INSTRUCTIONS` in [ai_explainer.py](genomics_backend/services/ai_explainer.py) has plain/standard/technical, plain is the default, and the instruction is explicit that only the *language* simplifies — rounding a number or dropping a caveat to shorten a sentence would be simplifying the finding.
+
+**The answer cache is keyed on the answer's shape, not just the question.** It keyed on the question alone, so the first reader's settings decided everyone's answer for 24 hours — asking for a technical explanation returned whatever plain reply happened to be cached, with nothing to indicate it. `response_detail` had that bug silently from the day the cache was added; `reading_level` would have inherited it. Any new field that changes what the model writes has to go into `cache_key` in the same commit.
+
+**Four panels were rendering less than they were given, found by diffing the pipeline JSON against the frontend's property reads.** `disease_network.also_linked` is the one that mattered: consolidating `phenotypes` into that panel was justified on the grounds that nothing a reader is told exists would be lost, and `also_linked` — conditions with no phenotype annotations, which the diagram therefore cannot draw — was fetched and never shown, so the justification was true of the data and false of the page. Also restored: `disease_total`, ClinGen's `classified_on` (a Definitive call from 2015 and one from last year are different claims), and the GWAS `risk_frequency` (a strong association with something 2% of people carry reads nothing like one with something 60% carry). **That diff is worth re-running whenever a fetcher gains a field** — the frontend fails silently and identically whether a key is absent or misspelled.
 
 **Sending the reader to an external site is a last resort, not a default.** The pharmacogenomics panel was the worst case and is worth keeping as the example. Each row showed an evidence level and a drug name; everything that made the row *mean* something — which genotype, and what happens to someone carrying it — was behind a link to ClinPGx. Two things were wrong with that. The interpretations **were already being fetched and silently discarded**: the backend sent `phenotypes` (a list) and the panel read `ann.phenotype` (singular), so the field was always undefined and the trip out was never necessary. And ClinPGx is a single-page app that returns HTTP 200 and *then* renders an error for some accessions, so the trip out did not reliably work either — the same "a 200 is not success" lesson as the upstream-drift table, one layer up.
 

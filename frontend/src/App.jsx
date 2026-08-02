@@ -76,7 +76,8 @@ const SETTINGS_KEY = "genomechat_settings";
 const DEFAULT_SETTINGS = {
   theme: "light",              // light | dark | system — light is the default brand look
   fontSize: "medium",          // small | medium | large
-  responseDetail: "standard",  // concise | standard | detailed
+  responseDetail: "standard",  // concise | standard | detailed — how much is said
+  readingLevel: "plain",       // plain | standard | technical — how hard the words are
   variantDefault: "collapsed", // collapsed | expanded
   defaultSort: "default",      // default | pathogenic_first | frequency
   apiKey: "",                  // optional user-supplied Anthropic key
@@ -576,6 +577,22 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
               {settings.responseDetail === "concise" && "Shorter summaries focused on key findings only."}
               {settings.responseDetail === "standard" && "Balanced explanations with clinical context and follow-up suggestions."}
               {settings.responseDetail === "detailed" && "In-depth analysis including population genetics, mechanisms, and research context."}
+            </p>
+          </Section>
+
+          {/* Reading level is a different axis from detail. Someone wanting a
+              short answer and a clinician wanting a short answer need the same
+              length and very different words — conflating them is why answers
+              used "ablate" at every setting. Plain is the default because most
+              readers are here about their own health. */}
+          <Section label="Reading Level" hint="How technical the language is — separate from how much is said">
+            <SettingSegment value={settings.readingLevel}
+              options={[{ value: "plain", label: "Plain" }, { value: "standard", label: "Standard" }, { value: "technical", label: "Technical" }]}
+              onChange={v => set("readingLevel", v)} />
+            <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
+              {settings.readingLevel === "plain" && "Everyday words, short sentences, technical terms defined as they appear. The facts are unchanged — only the language is simpler."}
+              {settings.readingLevel === "standard" && "Written for a curious adult. Some terminology, explained the first time it is used."}
+              {settings.readingLevel === "technical" && "Standard clinical and molecular terminology, unglossed. For clinicians and researchers."}
             </p>
           </Section>
 
@@ -2327,9 +2344,14 @@ function ClinGenPanel({ curations }) {
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: "0.73rem", color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.disease}</p>
-                  {(c.moi || c.gcep) && (
+                  {(c.moi || c.gcep || c.classified_on) && (
                     <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2 }}>
-                      {[c.moi, c.gcep].filter(Boolean).join(" · ")}
+                      {/* The date matters: gene-disease validity is
+                          re-curated as evidence accumulates, so a Definitive
+                          call from 2015 and one from last year carry different
+                          weight. It was fetched and never shown. */}
+                      {[c.moi, c.gcep, c.classified_on && `classified ${c.classified_on}`]
+                        .filter(Boolean).join(" · ")}
                     </p>
                   )}
                 </div>
@@ -2488,6 +2510,40 @@ function DiseaseNetworkPanel({ data, geneName }) {
           <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", margin: "0 0 8px" }}>
             Showing the {graph.phenotypes.length} most characteristic of {graph.phenotypes.length + graph.hidden} features.
           </p>
+        )}
+
+        {/* `also_linked` is the reason consolidating `phenotypes` into this
+            panel was defensible: the argument was that nothing a reader is told
+            exists would be lost. It was being fetched and never rendered, so
+            the argument was true of the data and false of the page. These are
+            conditions linked to the gene that carry no phenotype annotations,
+            so the diagram above cannot show them — which is exactly why they
+            need naming rather than dropping. */}
+        {data.also_linked?.length > 0 && (
+          <div style={{ paddingTop: 8, marginBottom: 8, borderTop: "1px solid rgb(var(--c-border) / 0.25)" }}>
+            <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: "0 0 4px", fontWeight: 600 }}>
+              Also linked to {geneName}
+              {data.disease_total > 0 && (
+                <span style={{ fontWeight: 400, color: "var(--text-faintest)" }}>
+                  {" "}· {data.disease_total} conditions in total
+                </span>
+              )}
+            </p>
+            <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", margin: "0 0 6px", lineHeight: 1.5 }}>
+              Recorded against this gene but with no phenotype features annotated,
+              so they cannot appear in the map above.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {data.also_linked.slice(0, 12).map((d, i) => (
+                <span key={d.id || i} title={d.id || undefined}
+                  style={{ fontSize: "0.66rem", padding: "0.2rem 0.55rem", borderRadius: 100,
+                           background: "rgb(var(--c-surface) / 0.5)",
+                           border: "1px solid rgb(var(--c-border) / 0.3)", color: "var(--text-faint)" }}>
+                  {d.name}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
 
         {data.related_genes?.length > 0 && (
@@ -2990,6 +3046,17 @@ function GWASPanel({ gwas, geneName }) {
         </span>
         <span style={{ fontSize: "0.62rem", color: "var(--text-dim)", width: 68, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
           {a.pText}
+        </span>
+        {/* How common the risk allele is. A strong association with something
+            2% of people carry and one with something 60% carry read very
+            differently, and without this the reader cannot tell them apart.
+            Fetched from the GWAS Catalog and previously dropped in gwas.js. */}
+        <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)", width: 52, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}
+          title={a.riskFrequency !== null && a.riskFrequency !== undefined
+            ? `Risk allele ${a.riskAllele || ""} carried by ${(a.riskFrequency * 100).toFixed(0)}% of the study population`
+            : "Risk allele frequency not reported"}>
+          {a.riskFrequency !== null && a.riskFrequency !== undefined
+            ? `${(a.riskFrequency * 100).toFixed(0)}%` : "—"}
         </span>
         {/* Direction survives the unit problem — raises and lowers mean the
             same thing whatever was measured. The magnitude never leaves its
@@ -4880,6 +4947,7 @@ export default function App({ onNavigate }) {
         // Passages are chosen against this question, not sent wholesale — the
         // same budgeting problem as the variant file, for the same reason.
         personal_documents: documentsForRequest(documents, msg),
+        reading_level: settings.readingLevel,
       });
 
       const r = await fetch(`${API}/chat/stream`, {

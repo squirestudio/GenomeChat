@@ -55,7 +55,17 @@ imperfecta · CYP2C19 pharmacogenomics · compare COL1A1 and COL1A2]
 Formatting rules:
 - Use **bold** for gene names (BRCA1, TP53), population names, and key clinical terms
 - Use bullet points for lists
-- Be scientifically precise but accessible to a research scientist
+- Be scientifically precise and write for an intelligent adult who is not a
+  geneticist. Most readers are here about their own health or a family
+  member's, not to review a paper
+- Prefer the ordinary word. "Removes" or "switches off" rather than "ablates",
+  "how likely a variant is to actually cause the condition" rather than a bare
+  "penetrance", "changes one amino acid" rather than an unglossed "missense"
+- When a technical term is genuinely the right one, use it and define it in the
+  same sentence the first time. Precision is not the enemy; unexplained
+  precision is
+- Never use a Latin or Greek term where an English one exists, and never use an
+  abbreviation you have not expanded once
 - When population frequency data is present, always include a Population Genetics section and directly compare the groups mentioned in the query
 - If a user asks about specific population comparisons (e.g. South Asian vs Non-Finnish European), address it directly using the AF data provided
 - If data is limited, say so honestly
@@ -180,6 +190,27 @@ def _format_disease_data(data: dict) -> str:
     return "\n".join(lines)
 
 
+# Reading level and detail are different axes and were being conflated. Detail
+# is how much to say; this is how hard the words are. A researcher wanting a
+# short answer and a worried parent wanting a short answer need the same length
+# and very different language.
+READING_LEVEL_INSTRUCTIONS = {
+    "plain": (
+        "Write for someone with no biology background. Short sentences. Everyday "
+        "words. If a technical term is unavoidable, define it immediately in "
+        "plain language, in the same sentence. Explain what something means for a "
+        "person before explaining the mechanism. Do not simplify the facts — "
+        "simplify only the language, and never round a number or drop a caveat to "
+        "make a sentence easier."
+    ),
+    "standard": "",   # the base prompt, already aimed at a non-specialist adult
+    "technical": (
+        "The reader is a clinician or researcher. Use standard terminology "
+        "without glossing it, keep the molecular detail, and include effect "
+        "sizes, inheritance patterns and evidence levels precisely."
+    ),
+}
+
 DETAIL_INSTRUCTIONS = {
     "concise": "Be brief. Respond in 3-5 bullet points maximum. Skip population genetics and research context sections. Lead with the single most important clinical finding.",
     "standard": "",  # default prompt, no override
@@ -225,6 +256,7 @@ def build_explanation_messages(
     personal_variants: list = None,
     response_detail: str = "standard",
     personal_documents: list = None,
+    reading_level: str = "plain",
 ) -> list:
     """Build the message list for an explanation. Shared by the streaming and
     non-streaming paths so both send byte-identical prompts."""
@@ -263,6 +295,10 @@ def build_explanation_messages(
     detail_note = DETAIL_INSTRUCTIONS.get(response_detail or "standard", "")
     if detail_note:
         user_content += f"\n\nINSTRUCTION: {detail_note}"
+
+    level_note = READING_LEVEL_INSTRUCTIONS.get(reading_level or "plain", "")
+    if level_note:
+        user_content += f"\n\nLANGUAGE: {level_note}"
 
     # The input-side guard, last so it is the most recent thing the model reads.
     # Its job is to redirect a diagnostic question to the data relationship
@@ -341,6 +377,7 @@ async def explain_results(
     response_detail: str = "standard",
     user_api_key: str = None,
     personal_documents: list = None,
+    reading_level: str = "plain",
 ) -> str:
     settings = get_settings()
     api_key = user_api_key or settings.anthropic_api_key
@@ -349,7 +386,7 @@ async def explain_results(
 
     messages = build_explanation_messages(
         query, query_type, data, conversation_history, personal_variants, response_detail,
-        personal_documents=personal_documents,
+        personal_documents=personal_documents, reading_level=reading_level,
     )
     # AsyncAnthropic: the sync client blocks the event loop for the whole
     # generation, which stalls every other request on the server.
@@ -376,6 +413,7 @@ async def stream_explanation(
     response_detail: str = "standard",
     user_api_key: str = None,
     personal_documents: list = None,
+    reading_level: str = "plain",
 ):
     """Yield the explanation in chunks as the model produces it."""
     settings = get_settings()
@@ -386,7 +424,7 @@ async def stream_explanation(
 
     messages = build_explanation_messages(
         query, query_type, data, conversation_history, personal_variants, response_detail,
-        personal_documents=personal_documents,
+        personal_documents=personal_documents, reading_level=reading_level,
     )
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
@@ -410,6 +448,7 @@ async def stream_followup(
     response_detail: str = "standard",
     user_api_key: str = None,
     personal_documents: list = None,
+    reading_level: str = "plain",
 ):
     """Streaming counterpart of answer_followup."""
     settings = get_settings()
@@ -419,7 +458,8 @@ async def stream_followup(
         return
 
     messages = build_followup_messages(question, conversation_history, personal_variants,
-                                       response_detail, personal_documents=personal_documents)
+                                       response_detail, personal_documents=personal_documents,
+                                       reading_level=reading_level)
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
         async with client.messages.stream(
@@ -498,7 +538,8 @@ async def explain_comparison(
 
 
 def build_followup_messages(question: str, conversation_history: list, personal_variants: list = None,
-                            response_detail: str = "standard", personal_documents: list = None) -> list:
+                            response_detail: str = "standard", personal_documents: list = None,
+                            reading_level: str = "plain") -> list:
     """Shared by the streaming and non-streaming follow-up paths."""
     messages = list((conversation_history or [])[-12:])
 
@@ -518,6 +559,10 @@ def build_followup_messages(question: str, conversation_history: list, personal_
     if detail_note:
         content += f"\n\nINSTRUCTION: {detail_note}"
 
+    level_note = READING_LEVEL_INSTRUCTIONS.get(reading_level or "plain", "")
+    if level_note:
+        content += f"\n\nLANGUAGE: {level_note}"
+
     # Follow-ups need the input guard as much as pipeline answers do — arguably
     # more, since "so do I have it?" is exactly the shape of a follow-up.
     directive = reframe_directive(detect_diagnostic_intent(question))
@@ -530,14 +575,15 @@ def build_followup_messages(question: str, conversation_history: list, personal_
 
 async def answer_followup(question: str, conversation_history: list, personal_variants: list = None,
                           response_detail: str = "standard", user_api_key: str = None,
-                          personal_documents: list = None) -> str:
+                          personal_documents: list = None, reading_level: str = "plain") -> str:
     settings = get_settings()
     api_key = user_api_key or settings.anthropic_api_key
     if not api_key:
         return "Configure an Anthropic API key to enable AI responses."
 
     messages = build_followup_messages(question, conversation_history, personal_variants,
-                                       response_detail, personal_documents=personal_documents)
+                                       response_detail, personal_documents=personal_documents,
+                                       reading_level=reading_level)
     client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
         response = await client.messages.create(

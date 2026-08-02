@@ -202,6 +202,9 @@ const SECTION_GROUP = {
   variants: "answer", domainmap: "answer", popfreq: "answer",
 
   disease_network: "clinical", clingen: "clinical", omim: "clinical",
+  // A panel a health service actually runs, and a trial you could actually
+  // join, are both "what does this mean for a patient" rather than evidence.
+  panels: "clinical", clinical_trials: "treatment",
   phenotypes: "clinical", medgen: "clinical",
   structural_variants: "clinical", genetic_tests: "clinical",
 
@@ -240,11 +243,13 @@ const EXPLORE_LABELS = {
   genetic_tests: "Available clinical tests", medgen: "Linked conditions",
   full_text: "Full-text papers",
   disease_network: "Diseases, phenotypes & related genes",
+  clinical_trials: "Clinical trials", panels: "Diagnostic gene panels",
 };
 
 const ALL_SECTION_KEYS = ["variants", "domainmap", "pathways", "expression", "interactions",
   "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline",
-  "structural_variants", "genetic_tests", "medgen", "full_text", "disease_network"];
+  "structural_variants", "genetic_tests", "medgen", "full_text", "disease_network",
+  "clinical_trials", "panels"];
 
 /** Everything the reader can open, in one list. Items already in hand cost
  *  nothing; the rest are fetched on demand and consume a credit. */

@@ -1528,7 +1528,161 @@ function AboutNudge({ onOpen, onDismiss }) {
   );
 }
 
-function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
+/**
+ * Trials that name this gene, recruiting first.
+ *
+ * The only section pointing at something a reader can act on, so it is ordered
+ * by whether enrolment is open rather than by relevance — a completed 2011
+ * trial and one recruiting this month are not the same information, and mixing
+ * them buries the useful half.
+ */
+function ClinicalTrialsPanel({ trials }) {
+  const [showClosed, setShowClosed] = useState(false);
+  if (!trials?.length) return null;
+  const open = trials.filter(t => t.recruiting);
+  const closed = trials.filter(t => !t.recruiting);
+  const shown = showClosed ? trials : (open.length ? open : trials.slice(0, 5));
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-border) / 0.2)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>Clinical Trials</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {open.length > 0 ? `${open.length} recruiting · ` : ""}{trials.length} total · ClinicalTrials.gov
+        </span>
+      </div>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {shown.map(t => (
+          <a key={t.nct_id} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: `1px solid ${t.recruiting ? "rgb(var(--c-success) / 0.3)" : "rgb(var(--c-border) / 0.25)"}`, borderRadius: 8 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 3 }}>
+                <span style={{ fontSize: "0.62rem", padding: "0.15em 0.5em", borderRadius: 4, whiteSpace: "nowrap",
+                  background: t.recruiting ? "rgb(var(--c-success) / 0.3)" : "rgb(var(--c-surface) / 0.6)",
+                  color: t.recruiting ? "var(--success-soft)" : "var(--text-dimmer)" }}>{t.status}</span>
+                {t.phase && <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>{t.phase}</span>}
+                {t.enrollment ? <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)" }}>{t.enrollment.toLocaleString()} participants</span> : null}
+                <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", fontFamily: "monospace", marginLeft: "auto" }}>{t.nct_id}</span>
+              </div>
+              <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.45 }}>{t.title}</p>
+              {t.conditions?.length > 0 && (
+                <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 2 }}>{t.conditions.join(" · ")}</p>
+              )}
+            </div>
+          </a>
+        ))}
+        {closed.length > 0 && open.length > 0 && (
+          <button onClick={() => setShowClosed(v => !v)}
+            style={{ alignSelf: "flex-start", fontSize: "0.66rem", background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: "2px 0" }}>
+            {showClosed ? "Show only recruiting" : `Show ${closed.length} closed or completed`}
+          </button>
+        )}
+        <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", lineHeight: 1.5, marginTop: 2 }}>
+          Listing a trial is not a recommendation, and eligibility is decided by
+          the study team. Talk to your clinician before contacting one.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Which diagnostic panels a health service actually runs this gene on.
+ *
+ * Distinct from ClinVar and ClinGen, and the distinction is the point: ClinVar
+ * says a variant was observed, ClinGen says a gene–disease link is valid, and
+ * PanelApp says the NHS tests this gene for that condition today. Amber and red
+ * entries are kept rather than filtered, because "considered and not adopted"
+ * is a real answer to "is this gene used clinically".
+ */
+const PANEL_CONF_STYLE = {
+  Green: { bg: "rgb(var(--c-success) / 0.3)", color: "var(--success-soft)" },
+  Amber: { bg: "rgb(var(--c-warning) / 0.3)", color: "var(--warning-soft)" },
+  Red:   { bg: "rgb(var(--c-danger) / 0.25)", color: "var(--danger)" },
+};
+
+function GenePanelsPanel({ panels }) {
+  if (!panels?.length) return null;
+  const green = panels.filter(p => p.diagnostic).length;
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-border) / 0.2)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>Diagnostic Gene Panels</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {green} diagnostic-grade of {panels.length} · Genomics England PanelApp
+        </span>
+      </div>
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.5, margin: 0 }}>
+        Panels the NHS runs for specific conditions. <strong style={{ color: "var(--success-soft)" }}>Green</strong> means
+        diagnostic-grade and reportable; amber and red were reviewed and not adopted, which is
+        itself an answer about how established the link is.
+      </p>
+      <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 5 }}>
+        {panels.map((p, i) => {
+          const st = PANEL_CONF_STYLE[p.confidence] || PANEL_CONF_STYLE.Red;
+          const inner = (
+            <div style={{ padding: "0.45rem 0.6rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", gap: 9, alignItems: "flex-start" }}>
+              <span style={{ fontSize: "0.6rem", padding: "0.15em 0.5em", borderRadius: 4, background: st.bg, color: st.color, flexShrink: 0, whiteSpace: "nowrap" }}>{p.confidence}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.4 }}>{p.panel}</p>
+                {(p.moi || p.phenotypes?.length > 0) && (
+                  <p style={{ fontSize: "0.62rem", color: "var(--text-dimmer)", marginTop: 2 }}>
+                    {[p.moi, p.phenotypes?.[0]].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+          return p.url
+            ? <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>{inner}</a>
+            : <div key={i}>{inner}</div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The NLM's plain-language description of the gene.
+ *
+ * Sits above the model's answer on purpose. Every other source here describes a
+ * gene to someone who already knows what a gene is; this one was written for
+ * patients, by a public health library, and it is the only text on the page
+ * that is both authoritative and plain. Attributed rather than paraphrased —
+ * the value is that these are MedlinePlus's words and not ours.
+ */
+function PlainSummaryPanel({ plain }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!plain?.summary) return null;
+  const full = plain.summary;
+  const isLong = full.length > 420;
+  const shown = expanded || !isLong ? full : `${full.slice(0, 400).trimEnd()}…`;
+
+  return (
+    <div style={{ marginTop: "0.75rem", marginBottom: "0.25rem", padding: "0.7rem 0.85rem", borderRadius: 10,
+                  background: "rgb(var(--c-surface) / 0.35)", borderLeft: "3px solid rgb(var(--c-accent) / 0.45)" }}>
+      <p style={{ fontSize: "0.64rem", color: "var(--text-dimmer)", fontWeight: 600, marginBottom: 4 }}>
+        In plain language
+      </p>
+      {shown.split("\n\n").map((para, i) => (
+        <p key={i} style={{ fontSize: "0.8rem", color: "var(--text-faint)", lineHeight: 1.6, marginBottom: 6 }}>{para}</p>
+      ))}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+        {isLong && (
+          <button onClick={() => setExpanded(v => !v)}
+            style={{ fontSize: "0.66rem", background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0 }}>
+            {expanded ? "Show less" : "Read more"}
+          </button>
+        )}
+        <a href={plain.url} target="_blank" rel="noreferrer"
+          style={{ fontSize: "0.63rem", color: "var(--text-faintest)", textDecoration: "none", marginLeft: "auto" }}>
+          MedlinePlus Genetics · U.S. National Library of Medicine ↗
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function GeneInfoBanner({ geneInfo, proteinInfo, pubCount, constraint }) {
   const [expanded, setExpanded] = useState(false);
   if (!geneInfo) return null;
   // UniProt function summaries run to a paragraph and carry the citations, so
@@ -1547,6 +1701,24 @@ function GeneInfoBanner({ geneInfo, proteinInfo, pubCount }) {
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           {geneInfo.chromosome && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)" }}>Chr {geneInfo.chromosome}</p>}
           {pubCount > 0 && <p style={{ fontSize: "0.72rem", color: "var(--text-dimmer)", marginTop: 3 }}>{pubCount.toLocaleString()} publications</p>}
+          {/* Constraint belongs beside the gene's identity, not in a panel
+              below: it reframes every variant on the page. "Pathogenic" in a
+              gene the population cannot afford to break is a different claim
+              from the same word in one that tolerates loss freely. LOEUF is
+              shown rather than pLI because pLI saturates at 1 for anything
+              even moderately constrained, while LOEUF stays continuous —
+              gnomAD's own recommendation. */}
+          {constraint?.tolerance && (
+            <p title={`LOEUF ${constraint.loeuf?.toFixed(2)} — the upper bound of observed/expected loss-of-function variants across ~800,000 people in gnomAD. Lower means the population carries fewer broken copies than chance predicts.`}
+              style={{ fontSize: "0.68rem", marginTop: 5, display: "inline-flex", alignItems: "center", gap: 5,
+                       padding: "0.15em 0.5em", borderRadius: 100, cursor: "help",
+                       background: constraint.loeuf < 0.35 ? "rgb(var(--c-danger) / 0.2)" : "rgb(var(--c-surface) / 0.6)",
+                       color: constraint.loeuf < 0.35 ? "var(--danger)" : "var(--text-dimmer)",
+                       border: "1px solid rgb(var(--c-border) / 0.3)" }}>
+              {constraint.tolerance} to loss of function
+              {constraint.loeuf != null && <span style={{ opacity: 0.75, fontVariantNumeric: "tabular-nums" }}>LOEUF {constraint.loeuf.toFixed(2)}</span>}
+            </p>
+          )}
         </div>
       </div>
       {summary && (
@@ -4166,6 +4338,8 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
     case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} /> : null;
+    case "clinical_trials":      return d.clinical_trials?.length ? <ClinicalTrialsPanel trials={d.clinical_trials} /> : null;
+    case "panels":               return d.panels?.length ? <GenePanelsPanel panels={d.panels} /> : null;
     case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} locus={d.gene_locus_grch37} geneName={msg.target} /> : null;
     case "genetic_tests":        return d.genetic_tests?.tests?.length > 0 ? <GeneticTestsPanel data={d.genetic_tests} /> : null;
     case "medgen":               return d.medgen?.concepts?.length > 0 ? <MedGenPanel data={d.medgen} /> : null;
@@ -4235,7 +4409,13 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
           </div>
         )}
         {/* 1. identity + publication counts */}
-        {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} />}
+        {msg.data?.gene_info && <GeneInfoBanner geneInfo={msg.data.gene_info} proteinInfo={msg.data.protein_info} pubCount={msg.data.publication_count} constraint={msg.data.constraint} />}
+
+        {/* Above the model's answer, not below it: this is the primer someone
+            needs before any of the rest means anything, and it is the only
+            text on the page written for patients by a public health library
+            rather than for specialists. */}
+        {msg.data?.plain_summary && <PlainSummaryPanel plain={msg.data.plain_summary} />}
 
         {/* 2-4. Overview, the 3D structure, then Key Findings. Nothing else is
             shown up front: the reader chooses what to open from Explore further,

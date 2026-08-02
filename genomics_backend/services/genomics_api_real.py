@@ -34,6 +34,9 @@ GWAS_BASE = "https://www.ebi.ac.uk/gwas/rest/api"
 HPO_BASE = "https://hpo.jax.org/api/hpo"          # retired — serves 404 HTML
 HPO_ANNOTATION_BASE = "https://ontology.jax.org/api"
 MONARCH_BASE = "https://api-v3.monarchinitiative.org/v3/api"
+MEDLINEPLUS_BASE = "https://medlineplus.gov/download/genetics"
+CTGOV_BASE = "https://clinicaltrials.gov/api/v2"
+PANELAPP_BASE = "https://panelapp.genomicsengland.co.uk/api/v1"
 
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
 TIMEOUT = 30
@@ -2364,6 +2367,8 @@ OPTIONAL_SECTIONS = {
     "medgen":               "Medical genetics concepts",
     "full_text":            "Open-access full-text papers",
     "disease_network":      "Diseases, phenotypes & related genes",
+    "clinical_trials":      "Clinical trials naming this gene",
+    "panels":               "Diagnostic gene panels (NHS)",
 }
 
 # Sections whose fetcher returns a dict rather than a list. Getting this wrong
@@ -2450,6 +2455,8 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "medgen": fetch_medgen_concepts,
         "full_text": fetch_pmc_articles,
         "disease_network": fetch_disease_network,
+        "clinical_trials": fetch_clinical_trials,
+        "panels": fetch_gene_panels,
     }
     fn = simple.get(section)
     if not fn:
@@ -2481,6 +2488,7 @@ SECTION_SOURCE = {
     "publication_timeline": "PubMed", "gwas": "GWAS Catalog", "phenotypes": "HPO",
     "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
     "full_text": "PMC", "disease_network": "HPO / ClinGen",
+    "clinical_trials": "ClinicalTrials.gov", "panels": "Genomics England PanelApp",
 }
 
 
@@ -2565,15 +2573,26 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
     # The GRCh37 locus rides along for the same reason: it is an Ensembl call,
     # and it is what lets the browser work out which of a reader's own uploaded
     # variants fall inside this gene without any of them leaving the device.
-    pop_summary, structure, locus37 = await asyncio.gather(
+    #
+    # MedlinePlus and the gnomAD constraint ride along too, for a different
+    # reason: both are cheap, and both exist to be *in the prompt* rather than
+    # only on the page. The plain-language summary gives the explanation an
+    # authoritative wording to build on instead of inventing one, and the
+    # constraint reframes every variant below it — "pathogenic" means something
+    # different in a gene the population cannot afford to break.
+    pop_summary, structure, locus37, plain, constraint = await asyncio.gather(
         _gather_one(fetch_gnomad_population_summary(gene_symbol)),
         _gather_one(fetch_gene_section(gene_symbol, "structure", accession, ensembl_id)),
         _gather_one(fetch_gene_locus_grch37(gene_symbol)),
+        _gather_one(fetch_medlineplus_summary(gene_symbol)),
+        _gather_one(fetch_gnomad_constraint(gene_symbol)),
         return_exceptions=True,
     )
     pop_summary = safe(pop_summary) or []
     structure = safe(structure) or {}
     locus37 = safe(locus37)
+    plain = safe(plain) or {}
+    constraint = safe(constraint) or {}
 
     core = {
         "gene_info": ensembl_safe,
@@ -2587,6 +2606,10 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
         # assembly so no caller can mistake it for the GRCh38 coordinates in
         # `gene_info`, which are ~1.85 Mb away at BRCA1.
         "gene_locus_grch37": locus37,
+        # Plain-language gene description, written for patients by the NLM.
+        "plain_summary": plain,
+        # How badly the population tolerates this gene being broken.
+        "constraint": constraint,
         # identifiers the section endpoint needs, so it need not re-resolve them
         "_uniprot_accession": accession,
         "_ensembl_id": ensembl_id,
@@ -2594,6 +2617,8 @@ async def run_gene_pipeline(gene_symbol: str, population: Optional[str] = None,
     }
     core_sources = list(filter(None, [
         "AlphaFold" if structure.get("alphafold") else None,
+        "MedlinePlus" if plain else None,
+        "gnomAD constraint" if constraint else None,
         "Ensembl" if ensembl_safe else None,
         "ClinVar" if variant_list else None,
         "gnomAD" if (freq_list or pop_summary) else None,
@@ -2686,3 +2711,240 @@ async def run_disease_pipeline(disease_name: str, staged: bool = False) -> dict:
         for g in gene_dicts[:DISEASE_FOLLOWUP_GENES]
     ]
     return result
+
+
+# ── MedlinePlus Genetics ──────────────────────────────────────────────────────
+
+async def fetch_medlineplus_summary(gene_symbol: str) -> dict:
+    """A plain-language description of the gene, written for patients by the NLM.
+
+    The one source here that is not aimed at specialists. Everything else —
+    ClinVar, gnomAD, UniProt — describes a gene to someone who already knows
+    what a gene is. MedlinePlus writes "the BRCA1 gene provides instructions for
+    making a protein that acts as a tumor suppressor", which is the register
+    MyDNA wants and cannot reliably get by asking a model to simplify: a
+    paraphrase is the model's words, and this is a citable source's.
+
+    Fetched into the core response rather than offered as an optional section,
+    because its main job is to be *in the prompt* — giving the explanation an
+    authoritative plain phrasing to build on instead of inventing one. One fast
+    call, typically under 300 ms.
+
+    Coverage is partial. MedlinePlus writes these by hand for genes with
+    established clinical relevance, so a gene with no page is normal and not an
+    error; the pipeline simply carries no summary for it.
+    """
+    url = f"{MEDLINEPLUS_BASE}/gene/{gene_symbol.strip().lower()}.json"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            data = await _get(client, url)
+        if not isinstance(data, dict) or not data.get("text-list"):
+            return {}
+
+        # The prose arrives as HTML. Tags are stripped rather than rendered:
+        # this text goes into a prompt and into a plain paragraph, and letting
+        # source markup through either would be a needless injection surface.
+        chunks = []
+        for entry in data.get("text-list") or []:
+            html = ((entry or {}).get("text") or {}).get("html") or ""
+            text = re.sub(r"<[^>]+>", " ", html)
+            text = re.sub(r"&[a-z]+;", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            if text:
+                chunks.append(text)
+        summary = "\n\n".join(chunks)
+        if not summary:
+            return {}
+
+        conditions = []
+        for item in data.get("related-health-condition-list") or []:
+            c = (item or {}).get("related-health-condition") or {}
+            if c.get("name"):
+                conditions.append({"name": c["name"], "url": c.get("ghr-page")})
+
+        return {
+            "gene_symbol": gene_symbol,
+            "full_name": data.get("name"),
+            "summary": summary[:6000],
+            "conditions": conditions[:12],
+            "url": data.get("ghr-page") or f"https://medlineplus.gov/genetics/gene/{gene_symbol.lower()}/",
+            "source": "MedlinePlus Genetics (NLM)",
+        }
+    except Exception as e:
+        logger.warning(f"MedlinePlus fetch failed for {gene_symbol}: {e}")
+        return {}
+
+
+# ── gnomAD constraint ─────────────────────────────────────────────────────────
+
+async def fetch_gnomad_constraint(gene_symbol: str) -> dict:
+    """How badly this gene tolerates being broken, across ~800k people.
+
+    One number that reframes everything else on the page. A LOEUF of 0.2 says
+    loss-of-function variants are almost absent from the population, so the gene
+    is probably essential and a truncating variant in it is a big deal. A LOEUF
+    near 1 says the population carries them freely, and the same variant means
+    much less.
+
+    Without this a reader sees "pathogenic" and "uncertain significance" with no
+    sense of the gene's baseline. It costs one GraphQL call against a host the
+    pipeline already uses.
+
+    pLI is kept because it is what most literature quotes, but LOEUF is the
+    better measure and gnomAD says so: pLI saturates at 1 for anything even
+    moderately constrained, while LOEUF stays continuous and carries a
+    confidence interval.
+    """
+    query = """
+    query Constraint($symbol: String!) {
+      gene(gene_symbol: $symbol, reference_genome: GRCh38) {
+        gnomad_constraint { pli oe_lof oe_lof_upper oe_mis exp_lof obs_lof }
+      }
+    }"""
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            r = await client.post(GNOMAD_BASE, json={"query": query, "variables": {"symbol": gene_symbol}},
+                                  timeout=TIMEOUT, headers=HEADERS)
+            if r.status_code != 200:
+                return {}
+            payload = r.json()
+        # GraphQL answers 200 with an errors array; see the upstream-drift note.
+        if payload.get("errors"):
+            logger.warning("gnomAD constraint errors for %s: %s", gene_symbol, payload["errors"][:1])
+            return {}
+        c = (((payload.get("data") or {}).get("gene") or {}).get("gnomad_constraint")) or {}
+        loeuf = c.get("oe_lof_upper")
+        if loeuf is None and c.get("pli") is None:
+            return {}
+
+        # gnomAD's own guidance: the most constrained decile is LOEUF < 0.35.
+        if loeuf is None:
+            tolerance = None
+        elif loeuf < 0.35:
+            tolerance = "highly intolerant"
+        elif loeuf < 0.6:
+            tolerance = "intolerant"
+        elif loeuf < 1.0:
+            tolerance = "moderately tolerant"
+        else:
+            tolerance = "tolerant"
+
+        return {
+            "gene_symbol": gene_symbol,
+            "pli": c.get("pli"),
+            "loeuf": loeuf,
+            "oe_lof": c.get("oe_lof"),
+            "oe_mis": c.get("oe_mis"),
+            "observed_lof": c.get("obs_lof"),
+            "expected_lof": c.get("exp_lof"),
+            "tolerance": tolerance,
+            "source": "gnomAD v4 constraint",
+        }
+    except Exception as e:
+        logger.warning(f"gnomAD constraint failed for {gene_symbol}: {e}")
+        return {}
+
+
+# ── ClinicalTrials.gov ────────────────────────────────────────────────────────
+
+_TRIAL_STATUS_ORDER = {
+    "RECRUITING": 0, "NOT_YET_RECRUITING": 1, "ENROLLING_BY_INVITATION": 2,
+    "ACTIVE_NOT_RECRUITING": 3, "COMPLETED": 4,
+}
+
+
+async def fetch_clinical_trials(gene_symbol: str) -> list[dict]:
+    """Trials that name this gene, recruiting ones first.
+
+    The most actionable thing on the page and the only section that points at
+    something a reader can actually do. Deliberately ordered by whether
+    enrolment is open: a completed 2011 trial and one recruiting this month are
+    not the same information, and sorting by relevance would mix them.
+
+    No API key and no registration — the v2 API is open. Note the trap in v1's
+    retirement: the old `/api/query/study_fields` endpoints are gone, and the
+    field selector below is v2's `fields` parameter, which silently returns the
+    full record if you name a field that does not exist.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            data = await _get(client, f"{CTGOV_BASE}/studies", {
+                "query.term": gene_symbol,
+                "pageSize": 40,
+                "countTotal": "true",
+            })
+        studies = (data or {}).get("studies") or []
+        out = []
+        for st in studies:
+            proto = (st or {}).get("protocolSection") or {}
+            ident = proto.get("identificationModule") or {}
+            status = (proto.get("statusModule") or {}).get("overallStatus") or ""
+            design = proto.get("designModule") or {}
+            conds = (proto.get("conditionsModule") or {}).get("conditions") or []
+            nct = ident.get("nctId")
+            if not nct:
+                continue
+            out.append({
+                "nct_id": nct,
+                "title": ident.get("briefTitle") or ident.get("officialTitle") or nct,
+                "status": status.replace("_", " ").title(),
+                "recruiting": status in ("RECRUITING", "NOT_YET_RECRUITING", "ENROLLING_BY_INVITATION"),
+                "phase": ", ".join((design.get("phases") or [])) or None,
+                "conditions": conds[:3],
+                "enrollment": ((design.get("enrollmentInfo") or {}).get("count")),
+                "url": f"https://clinicaltrials.gov/study/{nct}",
+            })
+        out.sort(key=lambda t: _TRIAL_STATUS_ORDER.get(
+            t["status"].upper().replace(" ", "_"), 9))
+        return out[:20]
+    except Exception as e:
+        logger.warning(f"ClinicalTrials.gov fetch failed for {gene_symbol}: {e}")
+        return []
+
+
+# ── Genomics England PanelApp ─────────────────────────────────────────────────
+
+_PANEL_CONFIDENCE = {"3": "Green", "2": "Amber", "1": "Red", "0": "Red"}
+
+
+async def fetch_gene_panels(gene_symbol: str) -> list[dict]:
+    """Which diagnostic panels actually use this gene, and how confidently.
+
+    Distinct from everything else here: ClinVar says a variant was seen and
+    ClinGen says a gene–disease link is valid, but PanelApp says a health
+    service *tests* this gene for that condition today. That is the difference
+    between an association in the literature and one trusted in a clinic.
+
+    Confidence is Genomics England's traffic light. Green means diagnostic-grade
+    and reportable; amber and red are borderline or rejected, and are kept
+    rather than filtered because "considered and not adopted" is a real answer
+    to "is this gene used clinically".
+    """
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            data = await _get(client, f"{PANELAPP_BASE}/genes/", {"entity_name": gene_symbol})
+        results = (data or {}).get("results") or []
+        out = []
+        for entry in results:
+            panel = (entry or {}).get("panel") or {}
+            name = panel.get("name")
+            if not name:
+                continue
+            conf = str(entry.get("confidence_level") or "")
+            out.append({
+                "panel": name,
+                "panel_id": panel.get("id"),
+                "confidence": _PANEL_CONFIDENCE.get(conf, "Unknown"),
+                "diagnostic": conf == "3",
+                "moi": entry.get("mode_of_inheritance") or None,
+                "phenotypes": [p for p in (entry.get("phenotypes") or []) if p][:3],
+                "version": (panel.get("version") or None),
+                "url": f"https://panelapp.genomicsengland.co.uk/panels/{panel.get('id')}/" if panel.get("id") else None,
+            })
+        # Diagnostic-grade first; a green entry is the one that answers the
+        # question a reader is really asking.
+        out.sort(key=lambda p: (not p["diagnostic"], p["panel"]))
+        return out[:20]
+    except Exception as e:
+        logger.warning(f"PanelApp fetch failed for {gene_symbol}: {e}")
+        return []

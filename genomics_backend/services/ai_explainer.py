@@ -97,6 +97,42 @@ def _format_gene_data(data: dict) -> str:
     if pub_count:
         lines.append(f"PubMed publications: {pub_count:,}")
 
+    # The NLM's own plain-language description. Given to the model as source
+    # material to build on rather than paraphrase from scratch — the point of
+    # including it is that this wording is citable and ours would not be.
+    plain = data.get("plain_summary") or {}
+    if plain.get("summary"):
+        lines.append(
+            "\nPlain-language description (MedlinePlus Genetics, NLM — an "
+            "authoritative patient-facing source; prefer its phrasing and "
+            "framing where it fits, and cite it as MedlinePlus):"
+        )
+        lines.append(f"  {plain['summary'][:1800]}")
+        if plain.get("conditions"):
+            lines.append("  Conditions MedlinePlus links to this gene: "
+                         + ", ".join(c["name"] for c in plain["conditions"][:8]))
+
+    # Constraint reframes every variant below it: "pathogenic" in a gene the
+    # population cannot afford to break is a different claim from the same word
+    # in a gene that tolerates loss freely.
+    con = data.get("constraint") or {}
+    if con.get("loeuf") is not None or con.get("pli") is not None:
+        bits = []
+        if con.get("loeuf") is not None:
+            bits.append(f"LOEUF={con['loeuf']:.2f}")
+        if con.get("pli") is not None:
+            bits.append(f"pLI={con['pli']:.3g}")
+        if con.get("observed_lof") is not None and con.get("expected_lof"):
+            bits.append(f"{con['observed_lof']} observed vs {con['expected_lof']:.1f} expected loss-of-function variants")
+        lines.append(
+            f"\ngnomAD constraint: {', '.join(bits)} — this gene is "
+            f"{con.get('tolerance') or 'of unstated tolerance'} to loss of function "
+            f"across ~800,000 sequenced people. Lower LOEUF means the population "
+            f"carries fewer broken copies than chance would predict, which is "
+            f"evidence the gene matters. Explain what this implies for how much "
+            f"weight to put on a damaging variant here."
+        )
+
     # ClinGen gene-disease validity
     clingen = data.get("clingen") or []
     if clingen:

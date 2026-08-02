@@ -130,8 +130,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 209 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
-python -m pytest                     # all 264, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 214 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
+python -m pytest                     # all 274, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -169,7 +169,7 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **19 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **23 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
@@ -201,6 +201,15 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 **The answer cache is keyed on the answer's shape, not just the question.** It keyed on the question alone, so the first reader's settings decided everyone's answer for 24 hours — asking for a technical explanation returned whatever plain reply happened to be cached, with nothing to indicate it. `response_detail` had that bug silently from the day the cache was added; `reading_level` would have inherited it. Any new field that changes what the model writes has to go into `cache_key` in the same commit.
 
 **Four panels were rendering less than they were given, found by diffing the pipeline JSON against the frontend's property reads.** `disease_network.also_linked` is the one that mattered: consolidating `phenotypes` into that panel was justified on the grounds that nothing a reader is told exists would be lost, and `also_linked` — conditions with no phenotype annotations, which the diagram therefore cannot draw — was fetched and never shown, so the justification was true of the data and false of the page. Also restored: `disease_total`, ClinGen's `classified_on` (a Definitive call from 2015 and one from last year are different claims), and the GWAS `risk_frequency` (a strong association with something 2% of people carry reads nothing like one with something 60% carry). **That diff is worth re-running whenever a fetcher gains a field** — the frontend fails silently and identically whether a key is absent or misspelled.
+
+**Four sources were added after the original nineteen, and two of them are core on purpose.** `plain_summary` (MedlinePlus Genetics) and `constraint` (gnomAD) ride along in `run_gene_pipeline` rather than being offered as sections, because their job is to be **in the prompt**, not only on the page.
+
+- **MedlinePlus Genetics** is the only source here written for patients rather than specialists — "the BRCA1 gene provides instructions for making a protein that acts as a tumor suppressor". It is given to the model as source material to build on, because a paraphrase is the model's words and this is a citable library's. Coverage is hand-written and partial, so a gene with no page returns `{}` and is not an error. One call, ~300 ms.
+- **gnomAD constraint** reframes everything below it: "pathogenic" in a gene the population cannot afford to break is a different claim from the same word in one that tolerates loss freely. **LOEUF is displayed, not pLI** — pLI saturates at 1 for anything even moderately constrained while LOEUF stays continuous, which is gnomAD's own recommendation. The badge sits beside the gene's identity for that reason rather than in a panel below.
+- **ClinicalTrials.gov** (`clinical_trials`) is the only section pointing at something a reader can act on, so it sorts by whether enrolment is open rather than by relevance. v2 API, no key. Watch the trap: v1's `study_fields` endpoints are retired.
+- **PanelApp** (`panels`) answers a question none of the others do. ClinVar says a variant was observed and ClinGen says a gene–disease link is valid; PanelApp says the NHS *tests* this gene for that condition today. Amber and red entries are kept, because "reviewed and not adopted" is a real answer.
+
+`tests/test_new_sources.py` asserts registration in CI and contracts against the live sources under `external` — SCN1A's LOEUF must land under 0.35, BRCA1 must appear on a green panel. Assertions that would merely pass forever while the data disappeared were avoided deliberately.
 
 **Sending the reader to an external site is a last resort, not a default.** The pharmacogenomics panel was the worst case and is worth keeping as the example. Each row showed an evidence level and a drug name; everything that made the row *mean* something — which genotype, and what happens to someone carrying it — was behind a link to ClinPGx. Two things were wrong with that. The interpretations **were already being fetched and silently discarded**: the backend sent `phenotypes` (a list) and the panel read `ann.phenotype` (singular), so the field was always undefined and the trip out was never necessary. And ClinPGx is a single-page app that returns HTTP 200 and *then* renders an error for some accessions, so the trip out did not reliably work either — the same "a 200 is not success" lesson as the upstream-drift table, one layer up.
 

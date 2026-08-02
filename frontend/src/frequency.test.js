@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pictogramScale, sharedPictogramScale, filledOn, oneInPhrase, comparePopulations } from "./frequency";
+import { pictogramScale, sharedPictogramScale, filledOn, fillOn, oneInPhrase, comparePopulations } from "./frequency";
 
 describe("pictogramScale", () => {
   it("scales the grid to the rarity rather than fixing it", () => {
@@ -146,5 +146,71 @@ describe("sharedPictogramScale", () => {
     expect(sharedPictogramScale([])).toBeNull();
     expect(sharedPictogramScale(null)).toBeNull();
     expect(filledOn(null, 1000)).toBe(0);
+  });
+});
+
+describe("a grid has to separate the groups, not just show them", () => {
+  // The bug this fixes: for a gene whose ancestry groups run from 1 in 720 to
+  // 1 in 1,000, every group rounded to exactly one dot on the thousand-grid.
+  // Seven identical pictures for seven different numbers, directly above a bar
+  // chart that showed the differences perfectly well.
+  const NARROW = [1 / 720, 1 / 750, 1 / 790, 1 / 910, 1 / 950, 1 / 960, 1 / 1000];
+
+  it("picks a grid fine enough that the rarest group is countable", () => {
+    expect(sharedPictogramScale(NARROW).total).toBe(10000);
+  });
+
+  it("gives visibly different whole-dot counts across the range", () => {
+    const { total } = sharedPictogramScale(NARROW);
+    const counts = NARROW.map(f => fillOn(f, total).whole);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("still uses a small grid for a common variant", () => {
+    expect(sharedPictogramScale([0.3, 0.25, 0.2]).total).toBe(100);
+  });
+
+  it("falls back to the finest grid when nothing can separate them", () => {
+    expect(sharedPictogramScale([1 / 50000, 1 / 80000]).total).toBe(10000);
+  });
+});
+
+describe("fillOn", () => {
+  it("returns whole dots and the remainder separately", () => {
+    const f = fillOn(1 / 720, 10000);
+    expect(f.whole).toBe(13);
+    expect(f.partial).toBeCloseTo(0.888, 2);
+  });
+
+  it("distinguishes frequencies that share a whole-dot count", () => {
+    // 1 in 950 and 1 in 960 are both ten whole dots. The remainder is the only
+    // thing telling them apart, which is the whole reason it exists.
+    const a = fillOn(1 / 950, 10000);
+    const b = fillOn(1 / 960, 10000);
+    expect(a.whole).toBe(b.whole);
+    expect(a.partial).not.toBeCloseTo(b.partial, 2);
+  });
+
+  it("does not round a sliver up to a whole person", () => {
+    // filledOn had Math.max(1, ...), drawing a full dot for two tenths of one —
+    // overstating rarity in the panel meant to convey it.
+    const f = fillOn(0.00002, 10000);
+    expect(f.whole).toBe(0);
+    expect(f.partial).toBeGreaterThan(0);
+    expect(f.partial).toBeLessThan(1);
+  });
+
+  it("keeps a very rare group visible rather than drawing an empty grid", () => {
+    expect(fillOn(1e-9, 10000).partial).toBeGreaterThanOrEqual(0.18);
+  });
+
+  it("has no remainder when the grid is completely filled", () => {
+    expect(fillOn(1, 100)).toMatchObject({ whole: 100, partial: 0 });
+  });
+
+  it("is safe on nothing", () => {
+    expect(fillOn(0, 1000)).toMatchObject({ whole: 0, partial: 0 });
+    expect(fillOn(null, 1000).exact).toBe(0);
+    expect(fillOn(0.5, 0).exact).toBe(0);
   });
 });

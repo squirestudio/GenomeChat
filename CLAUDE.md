@@ -105,7 +105,7 @@ Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` read
 **Frontend tests live beside the code they cover and run on every push.**
 
 ```bash
-cd frontend && npm test          # 379 checks, ~0.5s
+cd frontend && npm test          # 389 checks, ~0.5s
 ```
 
 They cover pure logic, not component rendering: DNA parsing, SSE framing, plan
@@ -220,6 +220,12 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 The remaining links are attribution rather than exits — AlphaFold and Reactome are interactive artefacts, PMC is full text — but any new panel should be built on the same question: is the reader being sent away for something we already have?
 
 **A markdown table may have blank lines between its rows.** The model writes them both ways, and `parseTable` originally required the delimiter to be the very next line, so a real population-frequency table rendered as eight lines of raw pipes. It now skips blanks between the header, the delimiter and the rows, and stops at the first non-blank line without a pipe so following prose is not swallowed.
+
+**The pictogram grid is chosen by spread, and the last dot is part-filled.** `sharedPictogramScale` used to pick the coarsest grid on which the *rarest group registered one dot* — a visibility test, in a panel that exists to compare. For a gene whose ancestry groups ran 1 in 720 to 1 in 1,000 it chose the thousand-grid, where all seven round to exactly one dot: seven identical pictures for seven different numbers, sitting directly above a bar chart that showed the differences fine. It now requires the spread between the most and least common group to cover at least `MIN_SPREAD_DOTS` (3), so the same case picks 10,000 and draws 13/13/12/10/10/10/10.
+
+Requiring a minimum *count* instead was tried and is wrong the other way: 16 dots against 9 is perfectly legible on a hundred-grid, and forcing a finer one makes a common variant look rarer than it is. A pre-existing test caught that.
+
+`fillOn()` returns `{whole, partial}` and the component draws the remainder as a genuinely part-filled circle — clipped, not faded, because opacity reads as "uncertain" rather than "part of one more person". That remainder is the only thing separating 1 in 950 from 1 in 960, which are both ten whole dots. It also removed a small lie: `filledOn`'s `Math.max(1, …)` drew a full dot for two tenths of one, overstating rarity in the panel meant to convey it. `filledOn` is kept for callers that want a count rather than a drawing.
 
 **`popfreq` renders inline and is no longer offered in Explore further.** It is free, needs no fetch, and is the visualisation the model's Population Genetics prose reaches for with a table — a shared-scale dot grid compares ancestries in a way a column of `5.58e-04` cannot. The `SectionPanel` case and the `SECTION_GROUP` entry stay so stored answers that recorded it in `loadedOrder` still replay; only the offer is gone, or it would render twice.
 

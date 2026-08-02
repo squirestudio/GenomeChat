@@ -94,6 +94,24 @@ function comparePopulations(populations) {
  * *smallest* frequency present, so even the rarest group fills at least one
  * dot — and the others then fill proportionally more.
  */
+/* A grid has to separate the groups, not merely show them.
+ *
+ * The old rule asked only that the rarest group register one dot, which is a
+ * visibility test, not a comparison test — and this panel exists to compare.
+ * For a gene whose groups run from 1 in 720 to 1 in 1,000, it chose the
+ * thousand-dot grid, where every one of the seven rounds to exactly one dot.
+ * Seven visibly identical pictures for seven different numbers, sitting
+ * directly above a bar chart that showed the differences perfectly well.
+ *
+ * The test is *spread*, not an absolute count. Requiring the rarest group to
+ * reach some minimum number of dots was tried and is wrong in the other
+ * direction: 16 dots against 9 is perfectly legible on a hundred-grid, and
+ * forcing a finer one there makes a common variant look rarer than it is.
+ * What matters is that the distance between the most and least common group
+ * covers enough dots to see. Three is the floor — 13 against 10 reads as
+ * different at a glance; 1 against 1 does not. */
+const MIN_SPREAD_DOTS = 3;
+
 function sharedPictogramScale(frequencies) {
   const values = (frequencies || [])
     .map(Number)
@@ -104,19 +122,51 @@ function sharedPictogramScale(frequencies) {
   const largest = Math.max(...values);
   if (largest >= 1) return { total: 100, scale: 100 };
 
+  // First choice: the coarsest grid on which the groups visibly separate and
+  // the rarest still registers. A single group has no spread to measure, so it
+  // only has to register.
+  const spread = largest - smallest;
   for (const total of SCALES) {
-    // The rarest group has to register, or it renders as an empty grid while
-    // its neighbours show dots — which reads as "none here" rather than "rare".
-    if (Math.round(smallest * total) >= 1) return { total, scale: total };
+    const registers = smallest * total >= 1;
+    const separates = values.length < 2 || spread * total >= MIN_SPREAD_DOTS;
+    if (registers && separates) return { total, scale: total };
   }
-  return { total: SCALES[SCALES.length - 1], scale: SCALES[SCALES.length - 1] };
+  // Nothing on the scale ladder can separate them — the variant is rare enough
+  // that even ten thousand dots leaves fractions. Take the finest grid and let
+  // partial fill carry the difference rather than rounding it away.
+  const finest = SCALES[SCALES.length - 1];
+  return { total: finest, scale: finest };
 }
 
-/** How many dots a given frequency fills on a shared grid. */
+/**
+ * How much of the grid a frequency fills, whole dots and a remainder.
+ *
+ * The remainder is the point. Rounding to whole dots is what made seven
+ * different frequencies draw the same picture, and it also meant `filledOn`
+ * had to round *up* to one — showing a full dot for two tenths of one, which
+ * overstates a rare variant in the one panel meant to convey rarity.
+ */
+function fillOn(frequency, total) {
+  const f = Number(frequency);
+  if (!Number.isFinite(f) || f <= 0 || !total) return { whole: 0, partial: 0, exact: 0 };
+  const exact = Math.min(total, f * total);
+  const whole = Math.floor(exact);
+  return {
+    whole,
+    // A sliver below this is indistinguishable from an empty cell, and an
+    // empty cell reads as "nobody here" rather than "very rare" — the same
+    // failure the old visibility rule was written to avoid.
+    partial: whole >= total ? 0 : Math.max(exact - whole, exact > 0 && whole === 0 ? 0.18 : 0),
+    exact,
+  };
+}
+
+/** Whole dots only. Kept for callers that need a count rather than a drawing. */
 function filledOn(frequency, total) {
   const f = Number(frequency);
   if (!Number.isFinite(f) || f <= 0 || !total) return 0;
   return Math.min(total, Math.max(1, Math.round(f * total)));
 }
 
-export { pictogramScale, sharedPictogramScale, filledOn, oneInPhrase, comparePopulations, SCALES };
+export { pictogramScale, sharedPictogramScale, filledOn, fillOn, oneInPhrase,
+         comparePopulations, SCALES, MIN_SPREAD_DOTS };

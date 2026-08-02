@@ -21,7 +21,7 @@ import { rankAssociations } from "./gwas";
 // rather than as unrelated categories.
 const CONSEQUENCE_SHADES = ["#dc2626", "#ea580c", "#d97706", "#ca8a04", "#65a30d", "#0891b2"];
 import { variantColorBands } from "./lollipop";
-import { comparePopulations, sharedPictogramScale, filledOn } from "./frequency";
+import { comparePopulations, sharedPictogramScale, fillOn } from "./frequency";
 import { Markdown } from "./markdown.jsx";
 import {
   consequenceClass, significanceClass, evidenceLevel,
@@ -2234,7 +2234,8 @@ function PopulationFrequencyChart({ populations }) {
   // each independently made the most and least affected groups look identical,
   // which hid the very difference this panel exists to show.
   const grid = sharedPictogramScale(rows.map(r => r.frequency));
-  const filled = grid ? filledOn(active.frequency, grid.total) : 0;
+  const fill = grid ? fillOn(active.frequency, grid.total) : { whole: 0, partial: 0, exact: 0 };
+  const filled = fill.whole;
   // Roughly 4:1, so a ten-thousand grid stays a band rather than a square.
   const cols = grid ? Math.ceil(Math.sqrt(grid.total * 4)) : 0;
   const gridRows = grid ? Math.ceil(grid.total / cols) : 0;
@@ -2279,12 +2280,31 @@ function PopulationFrequencyChart({ populations }) {
               <circle key={i} cx={(i % cols) + 0.5} cy={Math.floor(i / cols) + 0.5}
                 r="0.48" fill="var(--accent)" />
             ))}
+            {/* The remainder, drawn as a genuinely part-filled dot rather than
+                a faded one. Opacity would read as "uncertain"; a dot filled
+                from the left reads as "part of one more person", which is what
+                it is. This is where the difference between 1 in 950 and 1 in
+                960 actually lives — whole dots put both at ten. */}
+            {fill.partial > 0 && filled < 400 && (
+              <>
+                <clipPath id={`${patternId}-part`}>
+                  <rect x={filled % cols} y={Math.floor(filled / cols)}
+                    width={fill.partial} height="1" />
+                </clipPath>
+                <circle cx={(filled % cols) + 0.5} cy={Math.floor(filled / cols) + 0.5}
+                  r="0.48" fill="var(--accent)" opacity="0.22" />
+                <circle cx={(filled % cols) + 0.5} cy={Math.floor(filled / cols) + 0.5}
+                  r="0.48" fill="var(--accent)" clipPath={`url(#${patternId}-part)`} />
+              </>
+            )}
           </svg>
           <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", textAlign: "center", margin: "5px 0 0" }}>
-            Each dot is one person — <strong style={{ color: "var(--accent)" }}>{filled}</strong> highlighted
-            of {grid.total.toLocaleString()}. The same grid is used for every
-            ancestry group, so switching between them is a like-for-like
-            comparison.
+            Each dot is one person — <strong style={{ color: "var(--accent)" }}>
+              {fill.exact < 1 ? fill.exact.toFixed(2) : fill.exact.toFixed(1)}
+            </strong> of {grid.total.toLocaleString()}
+            {fill.partial > 0 && <>, so the last dot is part-filled</>}. The same
+            grid is used for every ancestry group, so switching between them is a
+            like-for-like comparison.
           </p>
         </div>
       )}

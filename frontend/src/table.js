@@ -47,26 +47,45 @@ function alignments(delimiterLine) {
  * line a single line of prose containing a pipe would be mistaken for a table,
  * which is a worse failure than not rendering one.
  */
+/** The next non-blank line at or after `i`, or -1. */
+function nextContentLine(lines, i) {
+  while (i < lines.length && lines[i].trim() === "") i++;
+  return i < lines.length ? i : -1;
+}
+
 function parseTable(lines, start) {
   const header = lines[start];
-  const delimiter = lines[start + 1];
   if (!header || !header.includes("|")) return null;
-  if (!isDelimiter(delimiter)) return null;
+
+  // Blank lines between rows are tolerated. The model writes tables both ways,
+  // and a strict reading turned a perfectly good population-frequency table
+  // into eight lines of raw pipe characters — the failure looked like missing
+  // table support rather than a spacing difference, which is the worst kind of
+  // bug to be shown as a screenshot.
+  const dIdx = nextContentLine(lines, start + 1);
+  if (dIdx === -1 || !isDelimiter(lines[dIdx])) return null;
 
   const headers = splitRow(header);
-  const align = alignments(delimiter);
+  const align = alignments(lines[dIdx]);
   const rows = [];
-  let i = start + 2;
-  while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+  let i = dIdx + 1;
+  let lastRow = dIdx;
+  while (i < lines.length) {
+    if (lines[i].trim() === "") { i++; continue; }
+    // A non-blank line without a pipe ends the table — prose has resumed.
+    if (!lines[i].includes("|")) break;
     const cells = splitRow(lines[i]);
     // Ragged rows are padded rather than dropped: a short row is still data,
     // and losing it silently is worse than a blank cell.
     while (cells.length < headers.length) cells.push("");
     rows.push(cells.slice(0, headers.length));
+    lastRow = i;
     i++;
   }
 
-  return { headers, align, rows, endsAt: i };
+  // Stop after the last row, not after the blank lines that followed it, so a
+  // gap between the table and the next paragraph is still rendered.
+  return { headers, align, rows, endsAt: lastRow + 1 };
 }
 
 /**

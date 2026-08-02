@@ -1243,14 +1243,45 @@ async def fetch_pharmgkb_data(gene_symbol: str) -> dict:
                         drug_names[name] = level
 
                 accession = ann.get("accessionId") or ann.get("id")
+
+                # The genotype-specific interpretations, which are the whole
+                # point of a pharmacogenomic annotation: "patients with the CC
+                # genotype may have increased risk of X on drug Y". These were
+                # being fetched and then dropped, so the only way to read them
+                # was to follow the link out to ClinPGx — whose own page for
+                # some accessions renders an error. Keeping the allele attached
+                # is what lets the panel match them against an uploaded DNA
+                # file, which no external site can do.
+                allele_phenotypes = [
+                    {
+                        "allele": (p.get("allele") or "").strip(),
+                        "phenotype": (p.get("phenotype") or "").strip(),
+                        "limited_evidence": bool(p.get("limitedEvidence")),
+                    }
+                    for p in (ann.get("allelePhenotypes") or [])
+                    if p.get("phenotype")
+                ]
+
+                location = ann.get("location") or {}
                 annotations.append({
                     "level": level,
                     "level_label": LEVEL_LABELS.get(level, f"Level {level}" if level else "Unrated"),
                     "drugs": chemicals[:6],
-                    "phenotypes": [
-                        p.get("phenotype") for p in (ann.get("allelePhenotypes") or [])
-                        if p.get("phenotype")
-                    ][:3],
+                    # A one-line human summary ClinPGx already composes, e.g.
+                    # "rs429358 (APOE); warfarin; Hemorrhage (level 3 Toxicity)".
+                    "summary": (ann.get("name") or "").strip() or None,
+                    # Either an rsID ("rs429358") or a star-allele list
+                    # ("SLCO1B1*1, *5, *15") — ClinPGx uses one field for both,
+                    # so the name here has to be the general one.
+                    "variant": (location.get("displayName") or "").strip() or None,
+                    # Pulled out separately: only an rsID can be matched against
+                    # an uploaded DNA file, and only then does the allele column
+                    # ("CC", "CT") mean a genotype the reader might carry.
+                    "rsids": re.findall(r"rs\d+", location.get("displayName") or ""),
+                    "assembly": (location.get("buildVersion") or "").strip() or None,
+                    "allele_phenotypes": allele_phenotypes[:12],
+                    "types": [t for t in (ann.get("types") or []) if isinstance(t, str)][:3],
+                    "has_guideline": bool(ann.get("relatedGuidelines")),
                     "url": f"https://www.clinpgx.org/clinicalAnnotation/{accession}" if accession else None,
                 })
 

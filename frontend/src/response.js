@@ -242,7 +242,7 @@ const EXPLORE_LABELS = {
   disease_network: "Diseases, phenotypes & related genes",
 };
 
-const ALL_SECTION_KEYS = ["variants", "domainmap", "popfreq", "pathways", "expression", "interactions",
+const ALL_SECTION_KEYS = ["variants", "domainmap", "pathways", "expression", "interactions",
   "drugs", "omim", "pharmgkb", "cancer_mutations", "clingen", "gwas", "phenotypes", "publication_timeline",
   "structural_variants", "genetic_tests", "medgen", "full_text", "disease_network"];
 
@@ -267,9 +267,12 @@ function buildExploreItems(msg) {
   if (d.protein_info?.length && (d.variants || []).length) {
     items.push({ key: "domainmap", label: "Variant domain map", source: "UniProt / ClinVar", instant: true });
   }
-  if ((d.population_summary || []).length) {
-    items.push({ key: "popfreq", label: "Population frequencies", source: "gnomAD", instant: true });
-  }
+  // `popfreq` is deliberately absent: the pictogram now renders inline with the
+  // answer, because it is free, it needs no fetch, and it is the visualisation
+  // the model's Population Genetics prose is reaching for with a markdown
+  // table. Offering it as a card as well would show it twice. The SectionPanel
+  // case and the SECTION_GROUP entry stay, so stored answers that recorded it
+  // in `loadedOrder` still replay.
 
   // Not yet fetched.
   for (const p of d.pending_sections || []) {

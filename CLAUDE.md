@@ -105,7 +105,7 @@ Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` read
 **Frontend tests live beside the code they cover and run on every push.**
 
 ```bash
-cd frontend && npm test          # 357 checks, ~0.5s
+cd frontend && npm test          # 376 checks, ~0.5s
 ```
 
 They cover pure logic, not component rendering: DNA parsing, SSE framing, plan
@@ -195,6 +195,18 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 **Splitting an answer's prose is only safe when Explore further exists to catch the rest.** `AssistantMessage` renders Overview and Key Findings inline and leaves every other `##` section to the Explore-further menu — but that menu is gated on `msg.data`, and an answer that never ran the pipeline has none. Splitting one therefore did not defer the other sections, it **deleted** them: the backend streamed a complete reply and the reader saw its first line. `proseLayout()` in [response.js](frontend/src/response.js) now returns `mode: "whole"` whenever `msg.data` is absent, and everything data-less renders entire. This was the visible half of the hypotonia bug and it degraded *every* conversational follow-up, not just misrouted queries. If you ever gate Explore further on something else, revisit `proseLayout` in the same commit.
 
 **An empty answer has to say it is empty.** `noResultsFor()` fires only for a disease query whose gene list is empty — deliberately never for a gene query, since a gene with no ClinVar variants still has pathways, expression and interactions, and claiming "no results" there would be false. Before it existed, a genuine miss and a routing failure rendered identically, so neither the reader nor we could tell them apart.
+
+**Sending the reader to an external site is a last resort, not a default.** The pharmacogenomics panel was the worst case and is worth keeping as the example. Each row showed an evidence level and a drug name; everything that made the row *mean* something — which genotype, and what happens to someone carrying it — was behind a link to ClinPGx. Two things were wrong with that. The interpretations **were already being fetched and silently discarded**: the backend sent `phenotypes` (a list) and the panel read `ann.phenotype` (singular), so the field was always undefined and the trip out was never necessary. And ClinPGx is a single-page app that returns HTTP 200 and *then* renders an error for some accessions, so the trip out did not reliably work either — the same "a 200 is not success" lesson as the upstream-drift table, one layer up.
+
+`fetch_pharmgkb_data` now returns `allele_phenotypes` (genotype → interpretation), `variant`, `rsids`, `types` and `has_guideline`, and the panel renders them inline. **When a DNA file is loaded, the row matching the reader's own genotype is marked** — `pgx.js`, matched in the browser like `variantsInLocus()`, sending nothing. That is the argument against link-outs in general: ClinPGx can show every genotype, and only MyDNA knows which one is yours.
+
+`variant` is deliberately not called `rsid`: ClinPGx reuses one field for both rsIDs and star-allele lists (`SLCO1B1*1, *5, *15`), and only the rsID case can be matched against a genotyping array. `rsids` is extracted separately for exactly that reason, and star-allele annotations show without a match rather than guessing.
+
+The remaining links are attribution rather than exits — AlphaFold and Reactome are interactive artefacts, PMC is full text — but any new panel should be built on the same question: is the reader being sent away for something we already have?
+
+**A markdown table may have blank lines between its rows.** The model writes them both ways, and `parseTable` originally required the delimiter to be the very next line, so a real population-frequency table rendered as eight lines of raw pipes. It now skips blanks between the header, the delimiter and the rows, and stops at the first non-blank line without a pipe so following prose is not swallowed.
+
+**`popfreq` renders inline and is no longer offered in Explore further.** It is free, needs no fetch, and is the visualisation the model's Population Genetics prose reaches for with a table — a shared-scale dot grid compares ancestries in a way a column of `5.58e-04` cannot. The `SectionPanel` case and the `SECTION_GROUP` entry stay so stored answers that recorded it in `loadedOrder` still replay; only the offer is gone, or it would render twice.
 
 **Suggested queries are buttons, and they have to be queries.** The explanation prompt writes them into an `## Explore next` section, parsed by `suggestedQueries()` in [response.js](frontend/src/response.js) and rendered as chips that send. The section it replaced was called "Suggested Follow-up Queries" and its prompt line — *"questions the researcher might want to ask"* — never said *ask whom*, so the model wrote questions **to the reader**: "Are you currently taking clopidogrel?", "Do you have a family history of early-onset cardiovascular disease?". Perfectly good prose, and completely unclickable — sending one to a genomics pipeline produces nothing. The old heading is still parsed so stored answers keep working, and `isRunnableQuery()` filters second-person lines out of them. Context that genuinely depends on the reader now has its own home in `## Worth knowing`, which stays prose.
 

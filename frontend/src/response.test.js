@@ -88,7 +88,8 @@ describe("buildExploreItems", () => {
     const variants = items.find(i => i.key === "variants");
     expect(variants.label).toBe("2 clinical variants");
     expect(variants.instant).toBe(true);
-    expect(items.find(i => i.key === "popfreq").instant).toBe(true);
+    // popfreq is intentionally not offered — it renders inline with the answer.
+    expect(items.find(i => i.key === "popfreq")).toBeUndefined();
   });
 
   it("marks not-yet-fetched sections as costing something", () => {
@@ -101,7 +102,7 @@ describe("buildExploreItems", () => {
        them would be billing twice for one piece of work. */
     const free = buildExploreItems(msg).filter(i => i.instant).map(i => i.key);
     expect(free).toEqual(
-      expect.arrayContaining(["prose:Clinical Significance", "variants", "domainmap", "popfreq"]),
+      expect.arrayContaining(["prose:Clinical Significance", "variants", "domainmap"]),
     );
   });
 

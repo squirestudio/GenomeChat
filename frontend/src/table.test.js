@@ -119,3 +119,43 @@ describe("isNumeric", () => {
     expect(isNumeric("1 in 1,790")).toBe(false);
   });
 });
+
+describe("tables written with blank lines between rows", () => {
+  // The model writes tables both ways. A strict reading turned a real
+  // population-frequency table into eight lines of raw pipe characters, which
+  // looked like the renderer had no table support at all.
+  const spaced = [
+    "| Ancestry | AF | Interpretation |",
+    "",
+    "|----------|----|----|",
+    "",
+    "| African/African Am. | 5.58e-04 | Highest carrier frequency |",
+    "",
+    "| Ashkenazi Jewish | 2.79e-04 | Lowest frequency |",
+  ];
+
+  it("parses a table whose rows are separated by blank lines", () => {
+    const t = parseTable(spaced, 0);
+    expect(t).not.toBeNull();
+    expect(t.headers).toEqual(["Ancestry", "AF", "Interpretation"]);
+    expect(t.rows).toHaveLength(2);
+    expect(t.rows[1][0]).toBe("Ashkenazi Jewish");
+  });
+
+  it("still parses a contiguous table identically", () => {
+    const tight = spaced.filter(l => l !== "");
+    expect(parseTable(tight, 0).rows).toEqual(parseTable(spaced, 0).rows);
+  });
+
+  it("stops at prose rather than swallowing it", () => {
+    const withProse = [...spaced, "", "Interpretation: the ~2-fold difference may reflect founder effects."];
+    const t = parseTable(withProse, 0);
+    expect(t.rows).toHaveLength(2);
+    expect(withProse.slice(t.endsAt).join(" ")).toContain("founder effects");
+  });
+
+  it("does not treat a lone pipe line as a table just because a delimiter is far below", () => {
+    // The delimiter has to be the next content line, not merely somewhere later.
+    expect(parseTable(["a | b", "some prose", "|---|---|"], 0)).toBeNull();
+  });
+});

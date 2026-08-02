@@ -9,6 +9,7 @@ import { parseSSEChunk } from "./sse";
 import { getPlan } from "./plan";
 import { splitProseSections, PROSE_PRIMARY, EXPLORE_LABELS, ALL_SECTION_KEYS, buildExploreItems, groupExploreItems, proseLayout, noResultsFor, suggestedQueries, fallbackQueries } from "./response";
 import { genesInData } from "./genes";
+import { countMatches, matchedAllelePhenotype, normalizeGenotype } from "./pgx";
 import { makeDocument, documentsForRequest, saveDocsToSession, loadDocsFromSession, documentsSummary } from "./documents";
 import { classifyFile, needsVision, extractText } from "./extract";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
@@ -3178,11 +3179,36 @@ const PGX_LEVEL_STYLE = {
   "4":  { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)",  border: "rgb(var(--c-border) / 0.4)" },
 };
 
-function PharmGKBPanel({ pgkb }) {
+/**
+ * Pharmacogenomics — how this gene's variants change drug response.
+ *
+ * This panel used to be a list of links out. Each row showed an evidence level
+ * and a drug name, and everything that made the row *mean* something lived on
+ * ClinPGx: which genotype, and what happens to someone who carries it. Two
+ * problems with that. The interpretations were already being fetched and
+ * thrown away by a field-name mismatch — the backend sends `phenotypes`, the
+ * panel read `phenotype` — so the trip out was never necessary. And ClinPGx's
+ * own page renders an error for some accessions, so the trip out did not
+ * reliably work either.
+ *
+ * The interpretations are now here, keyed by genotype. When the reader has a
+ * DNA file loaded, the row matching *their* genotype is marked — which is the
+ * thing no external site can do, and the reason this should never have been a
+ * link in the first place. The matching happens in the browser; see pgx.js.
+ */
+function PharmGKBPanel({ pgkb, dnaData }) {
   const [tab, setTab] = useState("annotations");
+  const [open, setOpen] = useState(() => new Set());
   if (!pgkb?.related_drugs?.length && !pgkb?.clinical_annotations?.length) return null;
   const annotations = pgkb.clinical_annotations || [];
   const relatedDrugs = pgkb.related_drugs || [];
+  const matches = countMatches(annotations, dnaData);
+
+  const toggle = (i) => setOpen(prev => {
+    const next = new Set(prev);
+    next.has(i) ? next.delete(i) : next.add(i);
+    return next;
+  });
 
   const tabBtn = (id, label, count) => (
     <button onClick={() => setTab(id)} style={{
@@ -3197,9 +3223,14 @@ function PharmGKBPanel({ pgkb }) {
 
   return (
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>Pharmacogenomics</span>
-        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "var(--text-faintest)", textDecoration: "none" }}>PharmGKB ↗</a>
+        {matches > 0 && (
+          <span style={{ fontSize: "0.66rem", padding: "0.15em 0.55em", borderRadius: 100, background: "rgb(var(--c-success) / 0.25)", color: "var(--success-soft)", border: "1px solid rgb(var(--c-success) / 0.3)" }}>
+            {matches} {matches === 1 ? "matches" : "match"} your DNA
+          </span>
+        )}
+        <a href={pgkb.url} target="_blank" rel="noreferrer" style={{ fontSize: "0.68rem", color: "var(--text-faintest)", textDecoration: "none", marginLeft: "auto" }}>Source: ClinPGx ↗</a>
       </div>
 
       {/* Tabs */}
@@ -3215,27 +3246,86 @@ function PharmGKBPanel({ pgkb }) {
             : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {annotations.map((ann, i) => {
                   const ls = PGX_LEVEL_STYLE[ann.level] || PGX_LEVEL_STYLE["4"];
+                  const mine = matchedAllelePhenotype(ann, dnaData);
+                  const alleles = ann.allele_phenotypes || [];
+                  const isOpen = open.has(i);
                   return (
-                    <a key={i} href={ann.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-                      <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", gap: 10, alignItems: "flex-start" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.3)"}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
-                      >
-                        <span title={ann.level_label} style={{ fontSize: "0.65rem", padding: "0.2em 0.5em", borderRadius: 4, background: ls.bg, color: ls.color, border: `1px solid ${ls.border}`, flexShrink: 0, cursor: "help", whiteSpace: "nowrap" }}>
-                          Level {ann.level}
+                    <div key={i} style={{
+                      background: "rgb(var(--c-surface) / 0.3)",
+                      border: `1px solid ${mine ? "rgb(var(--c-success) / 0.35)" : "rgb(var(--c-border) / 0.25)"}`,
+                      borderRadius: 8, overflow: "hidden",
+                    }}>
+                      <button
+                        onClick={() => alleles.length && toggle(i)}
+                        aria-expanded={isOpen}
+                        style={{
+                          width: "100%", textAlign: "left", background: "none", border: "none",
+                          padding: "0.5rem 0.65rem", display: "flex", gap: 10, alignItems: "flex-start",
+                          cursor: alleles.length ? "pointer" : "default",
+                        }}>
+                        {/* The level, and what it means. It used to be a bare
+                            badge with the meaning behind a title attribute, so
+                            the only clue was a help cursor — unreadable on
+                            touch, and invisible to anyone not hovering. */}
+                        <span style={{ fontSize: "0.65rem", padding: "0.2em 0.5em", borderRadius: 4, background: ls.bg, color: ls.color, border: `1px solid ${ls.border}`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                          Level {ann.level || "—"}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          {ann.drugs.length > 0 && (
+                          {ann.drugs?.length > 0 && (
                             <p style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {ann.drugs.join(", ")}
                             </p>
                           )}
-                          {ann.phenotype && <p style={{ fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 2 }}>{ann.phenotype}</p>}
-                          {ann.variant && <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 1, fontFamily: "monospace" }}>{ann.variant}</p>}
+                          <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", marginTop: 2 }}>
+                            {ann.level_label}
+                            {ann.variant && <> · <span style={{ fontFamily: "monospace" }}>{ann.variant}</span></>}
+                            {ann.types?.length > 0 && <> · {ann.types.join(", ")}</>}
+                            {ann.has_guideline && <> · CPIC guideline</>}
+                          </p>
+                          {mine && (
+                            <p style={{ fontSize: "0.7rem", color: "var(--success-soft)", marginTop: 5, lineHeight: 1.5 }}>
+                              <strong>Your genotype {mine.genotype}</strong> — {mine.phenotype}
+                              {mine.limited_evidence && <em style={{ color: "var(--text-dimmer)" }}> (limited evidence)</em>}
+                            </p>
+                          )}
                         </div>
-                        <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0 }}>↗</span>
-                      </div>
-                    </a>
+                        {alleles.length > 0 && (
+                          <span style={{ fontSize: "0.62rem", color: "var(--text-faintest)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                            {isOpen ? "hide" : `${alleles.length} genotypes`}
+                          </span>
+                        )}
+                      </button>
+
+                      {isOpen && (
+                        <div style={{ padding: "0 0.65rem 0.6rem", display: "flex", flexDirection: "column", gap: 5 }}>
+                          {alleles.map((ap, k) => {
+                            const isMine = mine && normalizeGenotype(ap.allele) === normalizeGenotype(mine.genotype);
+                            return (
+                              <div key={k} style={{
+                                display: "flex", gap: 8, alignItems: "flex-start",
+                                padding: "0.4rem 0.5rem", borderRadius: 6,
+                                background: isMine ? "rgb(var(--c-success) / 0.12)" : "rgb(var(--c-deep) / 0.4)",
+                                border: `1px solid ${isMine ? "rgb(var(--c-success) / 0.3)" : "transparent"}`,
+                              }}>
+                                <span style={{ fontFamily: "monospace", fontSize: "0.7rem", fontWeight: 700, color: isMine ? "var(--success-soft)" : "var(--text-muted)", flexShrink: 0, minWidth: 28 }}>
+                                  {ap.allele}
+                                </span>
+                                <span style={{ fontSize: "0.7rem", color: "var(--text-faint)", lineHeight: 1.5 }}>
+                                  {ap.phenotype}
+                                  {ap.limited_evidence && <em style={{ color: "var(--text-dimmer)" }}> (limited evidence)</em>}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {ann.url && (
+                            <a href={ann.url} target="_blank" rel="noreferrer"
+                              style={{ fontSize: "0.62rem", color: "var(--text-faintest)", textDecoration: "none", marginTop: 2 }}>
+                              Full annotation on ClinPGx ↗
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -3989,7 +4079,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "interactions":         return d.interactions?.length > 0 ? <InteractionNetwork interactions={d.interactions} centerGene={msg.target} /> : null;
     case "drugs":                return d.drugs?.length > 0 ? <DrugPanel drugs={d.drugs} stages={d.drug_stages} total={d.drug_total} geneName={msg.target} /> : null;
     case "omim":                 return (d.omim?.gene_entry || d.omim?.phenotypes?.length) ? <OmimPanel omim={d.omim} /> : null;
-    case "pharmgkb":             return (d.pharmgkb?.related_drugs?.length || d.pharmgkb?.clinical_annotations?.length) ? <PharmGKBPanel pgkb={d.pharmgkb} /> : null;
+    case "pharmgkb":             return (d.pharmgkb?.related_drugs?.length || d.pharmgkb?.clinical_annotations?.length) ? <PharmGKBPanel pgkb={d.pharmgkb} dnaData={dnaData} /> : null;
     case "cancer_mutations":     return d.cancer_mutations?.cancer_types?.length > 0 ? <CancerMutationsPanel data={d.cancer_mutations} geneName={msg.target} /> : null;
     case "clingen":              return d.clingen?.length > 0 ? <ClinGenPanel curations={d.clingen} /> : null;
     case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} geneName={msg.target} /> : null;
@@ -4098,6 +4188,15 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
               {/* Sits high, and is free: it is the reader's own data, matched
                   against this gene in the browser. Nothing was fetched to
                   produce it beyond the locus that came with the answer. */}
+              {/* The pictogram, inline and free. The model reaches for this
+                  with a markdown table in its Population Genetics section; a
+                  shared-scale dot grid says the same thing in a form you can
+                  actually compare across ancestries. It used to sit behind a
+                  click in Explore further even though it costs nothing. */}
+              {(msg.data?.population_summary || []).length > 0 && (
+                <PopulationFrequencyChart populations={msg.data.population_summary} />
+              )}
+
               {dnaData && msg.data?.gene_locus_grch37 && (
                 <MyVariantsPanel
                   dnaData={dnaData}

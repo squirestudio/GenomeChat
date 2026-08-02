@@ -73,8 +73,23 @@ describe("buildExploreItems", () => {
 
   it("offers the prose the model already wrote, free", () => {
     const prose = buildExploreItems(msg).filter(i => i.key.startsWith("prose:"));
-    expect(prose.map(i => i.label)).toEqual(["Clinical Significance", "Population Genetics"]);
+    expect(prose.map(i => i.label)).toEqual(["Clinical Significance"]);
     expect(prose.every(i => i.instant)).toBe(true);
+  });
+
+  it("does not offer prose that is promoted next to its chart", () => {
+    // Population Genetics renders inline beside the pictogram, so offering it
+    // here as well would put the same paragraph in two places.
+    const keys = buildExploreItems(msg).map(i => i.key);
+    expect(keys).not.toContain("prose:Population Genetics");
+  });
+
+  it("still offers it when the chart has no data to draw", () => {
+    // Pairing is conditional on the visual existing. Without population data
+    // there is no chart to sit beside, so the prose belongs in the menu.
+    const noData = { ...msg, data: { ...msg.data, population_summary: [] } };
+    const keys = buildExploreItems(noData).map(i => i.key);
+    expect(keys).toContain("prose:Population Genetics");
   });
 
   it("does not re-offer Overview or Key Findings, which are shown up front", () => {

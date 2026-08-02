@@ -158,7 +158,6 @@ function DNASummaryDashboard({ dnaData, onQuery }) {
   return (
     <div style={{ maxWidth: 760, width: "100%", marginTop: 28 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <span style={{ fontSize: "1rem" }}>🧬</span>
         <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-faint)", margin: 0, textTransform: "uppercase", letterSpacing: "0.07em" }}>
           Your DNA — {summary.totalFound} notable variant{summary.totalFound !== 1 ? "s" : ""} found
         </p>
@@ -865,7 +864,7 @@ function YourDataSection({ currentUser }) {
   };
 
   return (
-    <Section label="Your Data" hint="Export or erase everything held about your account">
+    <Section label="Your Data" hint="Download or permanently delete everything we hold">
       <button onClick={exportData} disabled={!!busy}
         style={{ width: "100%", fontSize: "0.72rem", padding: "0.45rem", borderRadius: 8,
                  background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)",
@@ -879,18 +878,46 @@ function YourDataSection({ currentUser }) {
 
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgb(var(--c-border) / 0.3)" }}>
         {!armed ? (
-          <button onClick={() => setArmed(true)}
-            style={{ width: "100%", fontSize: "0.72rem", padding: "0.45rem", borderRadius: 8,
-                     background: "none", border: "1px solid rgb(var(--c-danger) / 0.4)",
-                     color: "var(--danger)", cursor: "pointer" }}>
-            Delete my account
-          </button>
+          <>
+            {/* Named for the data, not the account. People come to this screen
+                worried about what is held about them, not about a login — and
+                "Delete my account" reads as closing a subscription rather than
+                erasing anything. */}
+            <button onClick={() => setArmed(true)}
+              style={{ width: "100%", fontSize: "0.72rem", padding: "0.45rem", borderRadius: 8,
+                       background: "none", border: "1px solid rgb(var(--c-danger) / 0.4)",
+                       color: "var(--danger)", cursor: "pointer" }}>
+              Delete my data
+            </button>
+            <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", margin: "5px 0 0", lineHeight: 1.5 }}>
+              Erases your account and everything attached to it, permanently.
+            </p>
+          </>
         ) : (
           <>
+            {/* Saying what is erased *and* what never existed. The second
+                half is the part that actually reassures: someone worried about
+                their genome being held wants to know it was never held, not
+                that it is now queued for deletion. */}
+            <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: "0 0 6px", lineHeight: 1.55 }}>
+              This immediately and permanently erases:
+            </p>
+            <ul style={{ margin: "0 0 7px", paddingLeft: "1.05rem", listStyle: "disc" }}>
+              {["Your account and email address",
+                "Every question you have asked and every answer saved with it",
+                "All of your projects",
+                "Your stored API key, if you added one"].map(t => (
+                <li key={t} style={{ fontSize: "0.66rem", color: "var(--text-faint)", lineHeight: 1.5 }}>{t}</li>
+              ))}
+            </ul>
+            <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", margin: "0 0 7px", lineHeight: 1.5 }}>
+              Your DNA file, your uploaded documents and anything you asked while
+              signed out are not listed because they were never stored in the
+              first place — they live in your browser and are gone when the tab
+              closes.
+            </p>
             <p style={{ fontSize: "0.68rem", color: "var(--text-muted)", margin: "0 0 7px", lineHeight: 1.55 }}>
-              This erases your account, your questions and your projects
-              immediately. It cannot be undone. Type <strong>DELETE</strong> to
-              confirm.
+              This cannot be undone. Type <strong>DELETE</strong> to confirm.
             </p>
             <input value={confirm} onChange={e => setConfirm(e.target.value)}
               placeholder="DELETE" autoComplete="off"
@@ -903,7 +930,7 @@ function YourDataSection({ currentUser }) {
                          background: confirm === "DELETE" ? "var(--danger)" : "rgb(var(--c-border) / 0.35)",
                          border: "none", color: confirm === "DELETE" ? "white" : "var(--text-disabled)",
                          cursor: confirm === "DELETE" && !busy ? "pointer" : "not-allowed" }}>
-                {busy === "delete" ? "Deleting…" : "Delete permanently"}
+                {busy === "delete" ? "Deleting…" : "Delete everything"}
               </button>
               <button onClick={() => { setArmed(false); setConfirm(""); }}
                 style={{ fontSize: "0.72rem", padding: "0.45rem 0.7rem", borderRadius: 8, background: "none",
@@ -1283,13 +1310,13 @@ function ConsentModal({ onAccept, onClose }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
           {[
-            { icon: "🔒", title: "Processed in your browser", body: "Your file is parsed entirely on your device. The raw data never leaves your browser." },
-            { icon: "🚫", title: "Nothing stored or transmitted", body: "Variants are held in browser session memory only and cleared automatically when you close the tab. They are never sent to our servers." },
-            { icon: "💻", title: "Personal device only", body: "Do not upload your DNA data on a shared, public, or work computer. Session data persists until the tab is closed and could be accessed by the next user." },
-            { icon: "⚕️", title: "Not medical advice", body: "This tool is for research and educational purposes. Consult a licensed genetic counselor for health decisions." },
-          ].map(({ icon, title, body }) => (
+            { title: "Processed in your browser", body: "Your file is parsed entirely on your device. The raw data never leaves your browser." },
+            { title: "Nothing stored or transmitted", body: "Variants are held in browser session memory only and cleared automatically when you close the tab. They are never sent to our servers." },
+            { title: "Personal device only", body: "Do not upload your DNA data on a shared, public, or work computer. Session data persists until the tab is closed and could be accessed by the next user." },
+            { title: "Not medical advice", body: "This tool is for research and educational purposes. Consult a licensed genetic counselor for health decisions." },
+          ].map(({ title, body }) => (
             <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgb(var(--c-surface) / 0.4)", borderRadius: 10, border: "1px solid rgb(var(--c-border) / 0.3)" }}>
-              <span style={{ fontSize: "0.95rem", flexShrink: 0, marginTop: 1 }}>{icon}</span>
+              <span aria-hidden="true" style={{ width: 3, alignSelf: "stretch", flexShrink: 0, borderRadius: 2, background: "rgb(var(--c-accent) / 0.45)" }} />
               <div>
                 <p style={{ fontSize: "0.73rem", fontWeight: 600, color: "var(--text-muted)", margin: 0 }}>{title}</p>
                 <p style={{ fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 2, lineHeight: 1.5 }}>{body}</p>
@@ -1325,7 +1352,6 @@ function DNASessionBanner({ dnaData, onClear }) {
   if (!dnaData) return null;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 1.25rem", background: "rgb(var(--c-accent) / 0.35)", borderBottom: "1px solid rgb(var(--c-accent) / 0.1)", fontSize: "0.68rem", flexShrink: 0 }}>
-      <span style={{ fontSize: "0.75rem" }}>🧬</span>
       <span style={{ color: "var(--accent)", fontWeight: 600 }}>DNA session active</span>
       <span style={{ color: "var(--text-dimmer)" }}>·</span>
       <span style={{ color: "var(--text-dimmer)" }}>{dnaData.totalCount.toLocaleString()} variants</span>
@@ -1405,14 +1431,14 @@ function DocumentUploadModal({ onAccept, onClose, onTranscribe }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1.25rem" }}>
           {[
-            { icon: "🚫", title: "MyDNA never stores what you upload", body: "Your documents are held in this browser tab only and disappear when you close it. Nothing is written to our database — not the file, not the text, not a copy of any kind." },
-            { icon: "📄", title: "PDFs are read on your device", body: "A PDF with selectable text is extracted in your browser and never leaves it. Free." },
-            { icon: "📷", title: "Photos and scans are read by Claude", body: "A photographed page has no text to extract, so the image is sent to Claude to be transcribed, then discarded. Uses one query credit per page." },
-            { icon: "⚕️", title: "Relationships, not diagnoses", body: "MyDNA will connect what your documents say to what the databases say, and to your own variants. It will not tell you whether you have a condition — it cannot, and neither can any tool without examining you." },
-            { icon: "©", title: "Your own copies only", body: "Upload material you have lawful access to. MyDNA reads it with you for this session; it never redistributes it or adds it to any shared library." },
-          ].map(({ icon, title, body }) => (
+            { title: "MyDNA never stores what you upload", body: "Your documents are held in this browser tab only and disappear when you close it. Nothing is written to our database — not the file, not the text, not a copy of any kind." },
+            { title: "PDFs are read on your device", body: "A PDF with selectable text is extracted in your browser and never leaves it. Free." },
+            { title: "Photos and scans are read by Claude", body: "A photographed page has no text to extract, so the image is sent to Claude to be transcribed, then discarded. Uses one query credit per page." },
+            { title: "Relationships, not diagnoses", body: "MyDNA will connect what your documents say to what the databases say, and to your own variants. It will not tell you whether you have a condition — it cannot, and neither can any tool without examining you." },
+            { title: "Your own copies only", body: "Upload material you have lawful access to. MyDNA reads it with you for this session; it never redistributes it or adds it to any shared library." },
+          ].map(({ title, body }) => (
             <div key={title} style={{ display: "flex", gap: 10, padding: "0.6rem 0.75rem", background: "rgb(var(--c-surface) / 0.4)", borderRadius: 10, border: "1px solid rgb(var(--c-border) / 0.3)" }}>
-              <span style={{ fontSize: "0.95rem", flexShrink: 0, marginTop: 1 }}>{icon}</span>
+              <span aria-hidden="true" style={{ width: 3, alignSelf: "stretch", flexShrink: 0, borderRadius: 2, background: "rgb(var(--c-accent) / 0.45)" }} />
               <div>
                 <p style={{ fontSize: "0.73rem", fontWeight: 600, color: "var(--text-muted)", margin: 0 }}>{title}</p>
                 <p style={{ fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 2, lineHeight: 1.5 }}>{body}</p>
@@ -1450,7 +1476,6 @@ function DocumentsBanner({ documents, onClear }) {
   if (!summary) return null;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 1.25rem", background: "rgb(var(--c-violet) / 0.25)", borderBottom: "1px solid rgb(var(--c-border) / 0.15)", fontSize: "0.68rem", flexShrink: 0, flexWrap: "wrap" }}>
-      <span style={{ fontSize: "0.75rem" }}>📄</span>
       <span style={{ color: "var(--violet)", fontWeight: 600 }}>{summary.label}</span>
       <span style={{ color: "var(--text-dimmer)" }}>·</span>
       <span style={{ color: "var(--text-dimmer)" }}>not stored · session only</span>
@@ -1686,7 +1711,6 @@ function AboutNudge({ onOpen, onDismiss }) {
       background: "rgb(var(--c-accent) / 0.08)",
       border: "1px solid rgb(var(--c-accent) / 0.25)",
     }}>
-      <span style={{ fontSize: "0.8rem", flexShrink: 0 }}>🧬</span>
       <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5, margin: 0, flex: 1, minWidth: 0 }}>
         Glad you&rsquo;re here. MyDNA is an independent project with a reason for
         existing —{" "}
@@ -2117,7 +2141,7 @@ function DataSection({ data, queryType, dnaData, settings }) {
                 color: myDataOnly ? "var(--accent)" : "var(--text-dimmer)",
                 border: `1px solid ${myDataOnly ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.3)"}`,
                 fontWeight: myDataOnly ? 700 : 400 }}>
-              🧬 My data only
+              My data only
             </button>
           )}
           {(sigFilter !== "All" || myDataOnly) && (
@@ -3285,7 +3309,7 @@ function MyVariantsPanel({ dnaData, locus, gene }) {
     <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.25)", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>
-          🧬 Your Variants in {gene}
+          Your Variants in {gene}
         </span>
         <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
           {hits.length} of your file · GRCh37
@@ -4617,7 +4641,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             shown up front: the reader chooses what to open from Explore further,
             rather than receiving every dataset at once. */}
         {(() => {
-          const { mode, body, lead, overview, findings } = proseLayout(msg);
+          const { mode, body, lead, overview, findings, popfreqProse } = proseLayout(msg);
 
           // No pipeline data means no Explore further menu to hold the rest of
           // the answer, so splitting it would discard everything that is not
@@ -4644,13 +4668,21 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
               {/* Sits high, and is free: it is the reader's own data, matched
                   against this gene in the browser. Nothing was fetched to
                   produce it beyond the locus that came with the answer. */}
-              {/* The pictogram, inline and free. The model reaches for this
-                  with a markdown table in its Population Genetics section; a
-                  shared-scale dot grid says the same thing in a form you can
-                  actually compare across ancestries. It used to sit behind a
-                  click in Explore further even though it costs nothing. */}
+              {/* The picture and the paragraph explaining it, together.
+                  The chart used to render here while the model's Population
+                  Genetics prose sat behind a click in Explore further — the
+                  same subject in two places, for the reader to assemble. The
+                  prose is promoted beside its chart and dropped from the menu,
+                  so it appears exactly once. Either half stands alone: a chart
+                  with no paragraph still renders, and a paragraph whose data
+                  never arrived stays in the menu. */}
               {(msg.data?.population_summary || []).length > 0 && (
-                <PopulationFrequencyChart populations={msg.data.population_summary} />
+                <>
+                  <PopulationFrequencyChart populations={msg.data.population_summary} />
+                  {popfreqProse && (
+                    <Markdown content={popfreqProse.body} gene={gene} />
+                  )}
+                </>
               )}
 
               {dnaData && msg.data?.gene_locus_grch37 && (
@@ -5822,9 +5854,9 @@ export default function App({ onNavigate }) {
             ? { bg: "var(--border-solid)", border: "rgb(var(--c-border) / 0.35)", fg: "var(--text-muted)" }
             : { bg: "var(--bg-elevated)", border: "rgb(var(--c-success) / 0.4)", fg: "var(--success)" };
           const text = paymentToast === "success_unlock"
-            ? "🔓 Unlimited access unlocked! Welcome to MyDNA Unlimited."
+            ? "Unlimited access unlocked. Welcome to MyDNA Unlimited."
             : paymentToast === "success_credits"
-            ? "⚡ 50 query credits added to your account."
+            ? "50 query credits added to your account."
             : paymentToast === "pending"
             ? "Payment received — confirming with our server…"
             : "Payment received, but your account hasn't updated yet. Nothing was lost — contact support and we'll apply it.";
@@ -5901,7 +5933,7 @@ export default function App({ onNavigate }) {
                   style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                   title={dnaData ? "Clear DNA session data" : "Upload your DNA data"}
                 >
-                  {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
+                  {dnaData ? "DNA loaded" : "Upload DNA"}
                 </button>
                 <button
                   data-tour="documents"
@@ -5909,7 +5941,7 @@ export default function App({ onNavigate }) {
                   style={{ fontSize: "0.72rem", color: documents.length ? "var(--violet)" : "var(--text-dim)", background: documents.length ? "rgb(var(--c-violet) / 0.08)" : "none", border: `1px solid ${documents.length ? "rgb(var(--c-violet) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", transition: "all 0.15s" }}
                   title={documents.length ? "Remove documents from this session" : "Add your own papers to read alongside the data"}
                 >
-                  {documents.length ? `📄 ${documents.length} loaded` : "Add documents"}
+                  {documents.length ? `${documents.length} document${documents.length === 1 ? "" : "s"}` : "Add documents"}
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
@@ -5989,7 +6021,7 @@ export default function App({ onNavigate }) {
                 onClick={() => dnaData ? updateDnaData(null) : requestDnaUpload()}
                 style={{ fontSize: "0.72rem", color: dnaData ? "var(--accent)" : "var(--text-dim)", background: dnaData ? "rgb(var(--c-accent) / 0.08)" : "none", border: `1px solid ${dnaData ? "rgb(var(--c-accent) / 0.3)" : "rgb(var(--c-border) / 0.4)"}`, borderRadius: 8, padding: "0.35rem 0.75rem", cursor: "pointer" }}
               >
-                {dnaData ? "🧬 DNA loaded" : "Upload DNA"}
+                {dnaData ? "DNA loaded" : "Upload DNA"}
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                 {messages.length > 0 && (
@@ -6056,8 +6088,7 @@ export default function App({ onNavigate }) {
                 <div className="gc-dna-upload-section">
                   {dnaData ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0.65rem 1rem", borderRadius: 12, background: "rgb(var(--c-accent) / 0.3)", border: "1px solid rgb(var(--c-accent) / 0.2)" }}>
-                      <span style={{ fontSize: "1rem" }}>🧬</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--accent)", margin: 0 }}>{dnaData.totalCount.toLocaleString()} variants loaded</p>
                         <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", marginTop: 2 }}>{dnaData.filename} · {dnaData.format} · session only</p>
                       </div>
@@ -6070,8 +6101,7 @@ export default function App({ onNavigate }) {
                       onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.35)"}
                       onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}
                     >
-                      <span style={{ fontSize: "1rem" }}>🧬</span>
-                      <div style={{ flex: 1 }}>
+                                    <div style={{ flex: 1 }}>
                         <p style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-dimmer)", margin: 0 }}>Upload your DNA data</p>
                         <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 2 }}>23andMe · AncestryDNA · VCF · Processed locally, never stored</p>
                       </div>

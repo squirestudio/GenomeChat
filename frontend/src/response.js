@@ -136,6 +136,41 @@ function withoutQuerySection(content) {
 }
 
 /**
+ * Prose sections that have a picture, and the data that picture needs.
+ *
+ * A chart and the paragraph explaining it belong together. The population
+ * pictogram was rendering high in the answer while the model's "Population
+ * Genetics" paragraph sat behind a click in Explore further — the same subject
+ * in two places, and the reader had to assemble them.
+ *
+ * Pairing promotes the prose inline beside its visual and drops it from the
+ * menu, so it appears exactly once, next to the thing it describes. The prose
+ * is optional in both directions: a chart with no paragraph still renders, and
+ * a paragraph whose data never arrived stays in the menu as before.
+ *
+ * Keyed by normalised section title. Adding a pairing is one line here plus
+ * rendering the visual in App.jsx's paired block.
+ */
+const PROSE_VISUALS = {
+  populationgenetics: "popfreq",
+};
+
+/** Whether an answer actually has the data behind a paired visual. */
+function hasVisual(msg, visual) {
+  if (visual === "popfreq") return (msg?.data?.population_summary || []).length > 0;
+  return false;
+}
+
+/** The prose section paired with a given visual, if the model wrote one. */
+function pairedProse(msg, visual) {
+  if (!hasVisual(msg, visual)) return null;
+  const title = Object.keys(PROSE_VISUALS).find(k => PROSE_VISUALS[k] === visual);
+  if (!title) return null;
+  const { sections } = splitProseSections(withoutQuerySection(msg?.content));
+  return sections.find(sx => norm(sx.title) === title) || null;
+}
+
+/**
  * How an answer's prose should be laid out.
  *
  * A pipeline answer is *split*: Overview and Key Findings render inline around
@@ -156,7 +191,12 @@ function proseLayout(msg) {
   // the prose would show every suggestion twice.
   if (!msg?.data) return { mode: "whole", body, lead: "", overview: null, findings: null };
   const pick = name => sections.find(sx => norm(sx.title) === name) || null;
-  return { mode: "split", body, lead, overview: pick("overview"), findings: pick("keyfindings") };
+  return {
+    mode: "split", body, lead,
+    overview: pick("overview"), findings: pick("keyfindings"),
+    // Rendered by the paired block, not here.
+    popfreqProse: pairedProse(msg, "popfreq"),
+  };
 }
 
 /**
@@ -262,6 +302,10 @@ function buildExploreItems(msg) {
   for (const sx of sections) {
     if (PROSE_PRIMARY.includes(norm(sx.title))) continue;
     if (QUERY_SECTIONS.includes(norm(sx.title))) continue;   // rendered as buttons
+    // Promoted inline next to its chart — offering it here as well would put
+    // the same paragraph in two places.
+    const visual = PROSE_VISUALS[norm(sx.title)];
+    if (visual && hasVisual(msg, visual)) continue;
     items.push({ key: `prose:${sx.title}`, label: sx.title, source: "In this answer", instant: true });
   }
 
@@ -293,4 +337,5 @@ export {
   buildExploreItems, groupExploreItems, groupFor, EXPLORE_GROUPS, SECTION_GROUP,
   proseLayout, noResultsFor, suggestedQueries, withoutQuerySection,
   isRunnableQuery, QUERY_SECTIONS, fallbackQueries,
+  PROSE_VISUALS, pairedProse, hasVisual,
 };

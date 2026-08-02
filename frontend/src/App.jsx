@@ -1736,6 +1736,23 @@ function AboutNudge({ onOpen, onDismiss }) {
  * trial and one recruiting this month are not the same information, and mixing
  * them buries the useful half.
  */
+/**
+ * The mark that says "this leaves MyDNA".
+ *
+ * Consistency here is the whole point: a reader learns the glyph once and can
+ * then tell, without clicking, which cards are ours and which hand them to a
+ * database. Eleven of twenty-one external links were missing it, so the signal
+ * was worse than useless — its absence meant nothing.
+ */
+function ExternalArrow() {
+  return (
+    <span aria-hidden="true" style={{
+      position: "absolute", top: 6, right: 8, fontSize: "0.62rem",
+      color: "var(--text-faintest)", pointerEvents: "none", lineHeight: 1,
+    }}>↗</span>
+  );
+}
+
 function ClinicalTrialsPanel({ trials }) {
   const [showClosed, setShowClosed] = useState(false);
   if (!trials?.length) return null;
@@ -1753,7 +1770,7 @@ function ClinicalTrialsPanel({ trials }) {
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {shown.map(t => (
-          <a key={t.nct_id} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <a key={t.nct_id} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
             <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: `1px solid ${t.recruiting ? "rgb(var(--c-success) / 0.3)" : "rgb(var(--c-border) / 0.25)"}`, borderRadius: 8 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 3 }}>
                 <span style={{ fontSize: "0.62rem", padding: "0.15em 0.5em", borderRadius: 4, whiteSpace: "nowrap",
@@ -1833,7 +1850,7 @@ function GenePanelsPanel({ panels }) {
             </div>
           );
           return p.url
-            ? <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>{inner}</a>
+            ? <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />{inner}</a>
             : <div key={i}>{inner}</div>;
         })}
       </div>
@@ -2244,7 +2261,16 @@ function ExpressionChart({ expression }) {
 
 // ─── Protein Interaction Network (STRING) ────────────────────────────────────
 
-function InteractionNetwork({ interactions, centerGene }) {
+/**
+ * STRING partners, clickable.
+ *
+ * Every node here is a gene symbol, which is the one thing the app already
+ * knows how to answer a question about — so leaving them inert made the most
+ * obviously explorable panel a dead end. Clicking prefills rather than sends,
+ * the same rule as gene names in prose: a query costs a credit, and a graph is
+ * something people poke at.
+ */
+function InteractionNetwork({ interactions, centerGene, onGene }) {
   if (!interactions?.length) return null;
 
   // Simple force-like circular layout
@@ -2276,7 +2302,10 @@ function InteractionNetwork({ interactions, centerGene }) {
             const nx = cx + r * Math.cos(angle);
             const ny = cy + r * Math.sin(angle);
             return (
-              <g key={`n${i}`}>
+              <g key={`n${i}`}
+                onClick={onGene ? () => onGene(node.gene) : undefined}
+                style={onGene ? { cursor: "pointer" } : undefined}>
+                {onGene && <title>{`Ask about ${node.gene}`}</title>}
                 <circle cx={nx} cy={ny} r={16} fill="rgb(var(--c-warning) / 0.12)" stroke={`rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`} strokeWidth={1} />
                 <text x={nx} y={ny + 4} textAnchor="middle" fill="var(--warning-soft)" fontSize={8} fontFamily="monospace">{node.gene}</text>
               </g>
@@ -2286,7 +2315,16 @@ function InteractionNetwork({ interactions, centerGene }) {
         <div style={{ flex: 1, padding: "0.75rem 0.75rem 0.75rem 0", overflowY: "auto", maxHeight: 360 }}>
           {nodes.map((node, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.3rem 0", borderBottom: "1px solid rgb(var(--c-surface) / 0.4)" }}>
-              <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--warning-soft)" }}>{node.gene}</span>
+              {onGene ? (
+                <button type="button" onClick={() => onGene(node.gene)} title={`Ask about ${node.gene}`}
+                  style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--warning-soft)",
+                           background: "none", border: "none", padding: 0, cursor: "pointer",
+                           borderBottom: "1px dashed rgba(245,158,11,0.5)" }}>
+                  {node.gene}
+                </button>
+              ) : (
+                <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--warning-soft)" }}>{node.gene}</span>
+              )}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 40, height: 4, background: "rgb(var(--c-surface) / 0.5)", borderRadius: 2, overflow: "hidden" }}>
                   <div style={{ width: `${node.score_pct}%`, height: "100%", background: `rgba(245,158,11,${0.4 + node.interaction_score * 0.6})`, borderRadius: 2 }} />
@@ -2739,7 +2777,7 @@ function ClinGenPanel({ curations }) {
         {curations.map((c, i) => {
           const cs = CLINGEN_STYLE[c.classification] || CLINGEN_STYLE["No Reported Evidence"];
           return (
-            <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
               <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-success) / 0.3)"}
                 onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
@@ -2790,7 +2828,7 @@ function ClinGenPanel({ curations }) {
  *
  * Layout is in network.js and tested. This is SVG and hover state.
  */
-function DiseaseNetworkPanel({ data, geneName }) {
+function DiseaseNetworkPanel({ data, geneName, onGene }) {
   const [focus, setFocus] = useState(null);   // {type:"disease"|"phenotype", index}
 
   const graph = useMemo(() => buildNetwork(data), [data]);
@@ -2961,16 +2999,29 @@ function DiseaseNetworkPanel({ data, geneName }) {
               are genes a clinician would often consider alongside {geneName}.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {data.related_genes.slice(0, 18).map(g => (
-                <span key={g.symbol} title={g.shared_diseases.join(" · ")}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.68rem",
-                           fontFamily: "monospace", padding: "0.2em 0.5em", borderRadius: 100,
-                           background: "rgb(var(--c-success) / 0.1)",
-                           border: "1px solid rgb(var(--c-success) / 0.25)", color: "var(--success-soft)" }}>
-                  {g.symbol}
-                  {g.count > 1 && <span style={{ fontSize: "0.58rem", opacity: 0.75 }}>×{g.count}</span>}
-                </span>
-              ))}
+              {data.related_genes.slice(0, 18).map(g => {
+                const chip = {
+                  display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.68rem",
+                  fontFamily: "monospace", padding: "0.2em 0.5em", borderRadius: 100,
+                  background: "rgb(var(--c-success) / 0.1)",
+                  border: "1px solid rgb(var(--c-success) / 0.25)", color: "var(--success-soft)",
+                };
+                const inner = (
+                  <>
+                    {g.symbol}
+                    {g.count > 1 && <span style={{ fontSize: "0.58rem", opacity: 0.75 }}>×{g.count}</span>}
+                  </>
+                );
+                // Same rule as every other gene symbol in the app: clicking
+                // prefills rather than sends, so a stray tap costs nothing.
+                return onGene ? (
+                  <button key={g.symbol} type="button" onClick={() => onGene(g.symbol)}
+                    title={`Ask about ${g.symbol} — shares ${g.shared_diseases.join(", ")}`}
+                    style={{ ...chip, cursor: "pointer" }}>{inner}</button>
+                ) : (
+                  <span key={g.symbol} title={g.shared_diseases.join(" · ")} style={chip}>{inner}</span>
+                );
+              })}
             </div>
           </div>
         )}
@@ -3105,8 +3156,8 @@ function StructuralVariantsPanel({ data, locus, geneName }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {(drawable ? shown : rows.length ? rows : data.variants).map((v) => (
             <a key={v.accession} href={v.url} target="_blank" rel="noreferrer"
-              style={{ textDecoration: "none" }}
-              onMouseEnter={() => drawable && setHover(v)} onMouseLeave={() => setHover(null)}>
+              style={{ textDecoration: "none", position: "relative", display: "block" }}
+              onMouseEnter={() => drawable && setHover(v)} onMouseLeave={() => setHover(null)}><ExternalArrow />
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 0.5rem",
                             background: hover?.accession === v.accession ? "rgb(var(--c-surface) / 0.6)" : "rgb(var(--c-surface) / 0.28)",
                             border: "1px solid rgb(var(--c-border) / 0.22)", borderRadius: 6 }}>
@@ -3155,7 +3206,7 @@ function GeneticTestsPanel({ data }) {
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {shown.map((t) => (
-          <a key={t.id} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <a key={t.id} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
             <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}
               onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.3)"}
               onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
@@ -3208,7 +3259,7 @@ function MedGenPanel({ data }) {
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {data.concepts.map((c, i) => (
-          <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
             <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}
               onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}
               onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
@@ -3246,7 +3297,7 @@ function FullTextPanel({ data }) {
       </div>
       <div style={{ padding: "0.75rem", display: "flex", flexDirection: "column", gap: 6 }}>
         {data.articles.map((a) => (
-          <a key={a.pmcid} href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <a key={a.pmcid} href={a.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
             <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}
               onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.5)"}
               onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.25)"}
@@ -3437,7 +3488,7 @@ function GWASPanel({ gwas, geneName }) {
 
   const row = (a) => (
     <a key={`${a.trait}-${a.rsid}`} href={a.url} target="_blank" rel="noreferrer"
-      style={{ textDecoration: "none", display: "block" }}>
+      style={{ textDecoration: "none", display: "block", position: "relative" }}><ExternalArrow />
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.3rem 0.45rem", borderRadius: 6 }}
         onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-surface) / 0.45)"}
         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -3571,7 +3622,7 @@ function PhenotypePanel({ hpo, monarch }) {
 
       <div style={{ padding: "0.65rem 0.75rem", maxHeight: 260, overflowY: "auto" }}>
         {activeTab === "hpo" && hpoTerms.map((t, i) => (
-          <a key={i} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <a key={i} href={t.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
             <div style={{ padding: "0.4rem 0.6rem", marginBottom: 4, background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.2)", borderRadius: 7, display: "flex", gap: 8, alignItems: "flex-start" }}
               onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
               onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.2)"}
@@ -3622,7 +3673,7 @@ function PhenotypePanel({ hpo, monarch }) {
               <>
                 <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", margin: "8px 0 5px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Phenotypic Features</p>
                 {monarchPhenos.map((p, i) => (
-                  <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                  <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
                     <div style={{ padding: "0.35rem 0.6rem", marginBottom: 3, background: "rgb(var(--c-surface) / 0.2)", border: "1px solid rgb(var(--c-border) / 0.15)", borderRadius: 6 }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.25)"}
                       onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.15)"}
@@ -4333,7 +4384,7 @@ function OmimPanel({ omim }) {
             {shown.map((p, i) => {
               const iStyle = p.inheritance ? (INHERITANCE_STYLE[p.inheritance] || {}) : {};
               return (
-                <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                <a key={i} href={p.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", position: "relative", display: "block" }}><ExternalArrow />
                   <div style={{ padding: "0.45rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.3)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-violet) / 0.3)"}
                     onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.3)"}
@@ -4376,7 +4427,7 @@ function ComparisonStat({ label, a, b }) {
   );
 }
 
-function ComparisonView({ msg }) {
+function ComparisonView({ msg, onGene }) {
   const { gene_a, gene_b, data_a, data_b } = msg.data || {};
   const [activeTab, setActiveTab] = useState("overview");
   if (!data_a || !data_b) return null;
@@ -4410,7 +4461,7 @@ function ComparisonView({ msg }) {
       {data.alphafold?.pdb_url && <ProteinViewer pdbUrl={data.alphafold.pdb_url} geneName={gene} entryId={data.alphafold.entry_id} variants={data.variants} proteinLength={data.protein_info?.length} />}
       {data.pathways?.length > 0 && <PathwayViewer pathways={data.pathways} />}
       {data.expression?.length > 0 && <ExpressionChart expression={data.expression} />}
-      {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} />}
+      {data.interactions?.length > 0 && <InteractionNetwork interactions={data.interactions} centerGene={gene} onGene={onGene} />}
       {data.protein_info?.length && <LollipopMap key={gene} variants={data.variants || []} domains={data.domains || []} proteinLength={data.protein_info.length} geneName={gene} />}
       {data.drugs?.length > 0 && <DrugPanel drugs={data.drugs} stages={data.drug_stages} total={data.drug_total} geneName={gene} />}
       {data.cancer_mutations?.cancer_types?.length > 0 && <CancerMutationsPanel data={data.cancer_mutations} geneName={gene} />}
@@ -4418,7 +4469,7 @@ function ComparisonView({ msg }) {
       {(data.omim?.gene_entry || data.omim?.phenotypes?.length) && <OmimPanel omim={data.omim} />}
       {data.gwas?.length > 0 && <GWASPanel gwas={data.gwas} geneName={gene} />}
       {(data.hpo?.phenotype_terms?.length > 0 || data.monarch?.diseases?.length > 0) && <PhenotypePanel hpo={data.hpo} monarch={data.monarch} />}
-      {data.disease_network?.diseases?.length > 0 && <DiseaseNetworkPanel data={data.disease_network} geneName={gene} />}
+      {data.disease_network?.diseases?.length > 0 && <DiseaseNetworkPanel data={data.disease_network} geneName={gene} onGene={onGene} />}
       {data.structural_variants?.variants?.length > 0 && <StructuralVariantsPanel data={data.structural_variants} locus={data.gene_locus_grch37} geneName={gene} />}
       {data.genetic_tests?.tests?.length > 0 && <GeneticTestsPanel data={data.genetic_tests} />}
       {data.medgen?.concepts?.length > 0 && <MedGenPanel data={data.medgen} />}
@@ -4528,7 +4579,7 @@ function ProseSection({ title, body, defaultOpen }) {
 
 /** Renders one data panel by section key, so panels can be ordered by when the
  *  reader asked for them rather than by a fixed layout. */
-function SectionPanel({ sectionKey, msg, dnaData, settings }) {
+function SectionPanel({ sectionKey, msg, dnaData, settings, onGene }) {
   const d = msg.data || {};
   if (sectionKey.startsWith("prose:")) {
     const title = sectionKey.slice(6);
@@ -4548,7 +4599,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
       return d.population_summary?.length > 0 ? <PopulationFrequencyChart populations={d.population_summary} /> : null;
     case "pathways":             return d.pathways?.length > 0 ? <PathwayViewer pathways={d.pathways} /> : null;
     case "expression":           return d.expression?.length > 0 ? <ExpressionChart expression={d.expression} /> : null;
-    case "interactions":         return d.interactions?.length > 0 ? <InteractionNetwork interactions={d.interactions} centerGene={msg.target} /> : null;
+    case "interactions":         return d.interactions?.length > 0 ? <InteractionNetwork interactions={d.interactions} centerGene={msg.target} onGene={onGene} /> : null;
     case "drugs":                return d.drugs?.length > 0 ? <DrugPanel drugs={d.drugs} stages={d.drug_stages} total={d.drug_total} geneName={msg.target} /> : null;
     case "omim":                 return (d.omim?.gene_entry || d.omim?.phenotypes?.length) ? <OmimPanel omim={d.omim} /> : null;
     case "pharmgkb":             return (d.pharmgkb?.related_drugs?.length || d.pharmgkb?.clinical_annotations?.length) ? <PharmGKBPanel pgkb={d.pharmgkb} dnaData={dnaData} /> : null;
@@ -4557,7 +4608,7 @@ function SectionPanel({ sectionKey, msg, dnaData, settings }) {
     case "gwas":                 return d.gwas?.length > 0 ? <GWASPanel gwas={d.gwas} geneName={msg.target} /> : null;
     case "phenotypes":           return (d.hpo?.phenotype_terms?.length > 0 || d.monarch?.diseases?.length > 0) ? <PhenotypePanel hpo={d.hpo} monarch={d.monarch} /> : null;
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
-    case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} /> : null;
+    case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} onGene={onGene} /> : null;
     case "clinical_trials":      return d.clinical_trials?.length ? <ClinicalTrialsPanel trials={d.clinical_trials} /> : null;
     case "panels":               return d.panels?.length ? <GenePanelsPanel panels={d.panels} /> : null;
     case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} locus={d.gene_locus_grch37} geneName={msg.target} /> : null;
@@ -4614,7 +4665,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
   // Data-backed symbols are certain; linkifyGenes falls back to shape for
   // genes that arrived in prose, such as one read out of an uploaded paper.
   const gene = onGene ? { known: genesInData(msg.data), onPick: onGene } : null;
-  if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} />;
+  if (msg.query_type === "comparison_query") return <ComparisonView msg={msg} onGene={onGene} />;
   return (
     <div style={{ display: "flex", gap: 12, animation: "fadeSlideIn 0.25s ease-out" }}>
       <BrandMark size={28} style={{ marginTop: 2 }} />
@@ -4740,7 +4791,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
         ).map(key => {
           const ui = (msg.sectionUi || {})[key];
           const label = (msg.loadedLabels || {})[key] || key;
-          const body = <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} />;
+          const body = <SectionPanel sectionKey={key} msg={msg} dnaData={dnaData} settings={settings} onGene={onGene} />;
           // Legacy full responses have no per-section UI state; render them plainly.
           if (!ui) return <div key={key}>{body}</div>;
           return (

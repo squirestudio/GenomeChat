@@ -77,7 +77,7 @@ const DEFAULT_SETTINGS = {
   theme: "light",              // light | dark | system — light is the default brand look
   fontSize: "medium",          // small | medium | large
   responseDetail: "standard",  // concise | standard | detailed — how much is said
-  readingLevel: "plain",       // plain | standard | technical — how hard the words are
+  readingLevel: "plain",       // plain | clinical — how hard the words are
   variantDefault: "collapsed", // collapsed | expanded
   defaultSort: "default",      // default | pathogenic_first | frequency
   apiKey: "",                  // optional user-supplied Anthropic key
@@ -88,7 +88,14 @@ const FONT_SIZE_MAP = { small: "14px", medium: "16px", large: "18px" };
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+    const saved = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+    // Reading level went from three options to two. Someone who chose
+    // "technical" meant clinical; "standard" was the undifferentiated middle
+    // and folds into plain. Without this, a returning reader keeps a value the
+    // segmented control cannot show and no option looks selected.
+    const LEGACY_LEVEL = { technical: "clinical", standard: "plain" };
+    if (LEGACY_LEVEL[saved.readingLevel]) saved.readingLevel = LEGACY_LEVEL[saved.readingLevel];
+    return saved;
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
 
@@ -585,14 +592,20 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
               length and very different words — conflating them is why answers
               used "ablate" at every setting. Plain is the default because most
               readers are here about their own health. */}
-          <Section label="Reading Level" hint="How technical the language is — separate from how much is said">
+          {/* Two options, not three. A middle called "Standard" is where most
+              people land without ever making a choice, and it was the least
+              defined of the three. "Clinical" names an audience rather than
+              claiming superiority — "Precise" was considered and rejected,
+              because it would tell the reader that plain mode is imprecise,
+              which is the opposite of the promise: only the language
+              simplifies, never the findings. */}
+          <Section label="Language" hint="How technical the wording is — separate from how much is said">
             <SettingSegment value={settings.readingLevel}
-              options={[{ value: "plain", label: "Plain" }, { value: "standard", label: "Standard" }, { value: "technical", label: "Technical" }]}
+              options={[{ value: "plain", label: "Plain English" }, { value: "clinical", label: "Clinical" }]}
               onChange={v => set("readingLevel", v)} />
             <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
-              {settings.readingLevel === "plain" && "Everyday words, short sentences, technical terms defined as they appear. The facts are unchanged — only the language is simpler."}
-              {settings.readingLevel === "standard" && "Written for a curious adult. Some terminology, explained the first time it is used."}
-              {settings.readingLevel === "technical" && "Standard clinical and molecular terminology, unglossed. For clinicians and researchers."}
+              {settings.readingLevel === "plain" && "Everyday words, short sentences, and any technical term defined where it appears. The findings are identical — only the wording is simpler."}
+              {settings.readingLevel === "clinical" && "Standard clinical and molecular terminology, unglossed, with effect sizes and inheritance patterns stated precisely. Written for clinicians and researchers."}
             </p>
           </Section>
 

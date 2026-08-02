@@ -32,9 +32,22 @@ def test_the_prompt_names_the_words_to_avoid():
     assert "ablat" in flat and "penetrance" in flat
 
 
-@pytest.mark.parametrize("level", ["plain", "standard", "technical"])
-def test_every_level_exists(level):
+@pytest.mark.parametrize("level", ["plain", "clinical"])
+def test_the_two_live_levels_exist(level):
     assert level in READING_LEVEL_INSTRUCTIONS
+
+
+def test_the_old_technical_value_still_means_clinical():
+    """The setting was three options and is now two. A browser that has not
+    reloaded still sends "technical", and letting that fall through to the
+    default would quietly downgrade a clinician's answer to plain language."""
+    assert READING_LEVEL_INSTRUCTIONS["technical"] == READING_LEVEL_INSTRUCTIONS["clinical"]
+
+
+def test_the_old_standard_value_is_still_accepted():
+    """It maps to no override, which is right: the base prompt is now aimed at
+    a non-specialist adult anyway. What matters is that it does not KeyError."""
+    assert READING_LEVEL_INSTRUCTIONS["standard"] == ""
 
 
 def test_plain_simplifies_language_and_not_the_facts():
@@ -45,16 +58,18 @@ def test_plain_simplifies_language_and_not_the_facts():
     assert "never round a number or drop a caveat" in plain
 
 
-def test_standard_adds_nothing_so_the_base_prompt_stands():
-    assert READING_LEVEL_INSTRUCTIONS["standard"] == ""
+def test_plain_is_a_real_override_not_a_no_op():
+    """Plain is the default and must actually instruct, or the default does
+    nothing and the base prompt decides everything."""
+    assert READING_LEVEL_INSTRUCTIONS["plain"].strip() != ""
 
 
 @pytest.mark.parametrize("builder", ["explanation", "followup"])
 def test_the_level_reaches_the_prompt(builder):
     if builder == "explanation":
-        msgs = build_explanation_messages("BRCA1", "gene_query", {}, reading_level="technical")
+        msgs = build_explanation_messages("BRCA1", "gene_query", {}, reading_level="clinical")
     else:
-        msgs = build_followup_messages("what does that mean", [], reading_level="technical")
+        msgs = build_followup_messages("what does that mean", [], reading_level="clinical")
     assert "LANGUAGE:" in msgs[-1]["content"]
     assert "clinician or researcher" in msgs[-1]["content"]
 
@@ -68,7 +83,7 @@ def test_detail_and_reading_level_are_independent():
     """Both must be able to apply at once — a short technical answer is a real
     thing to want, and so is a long plain one."""
     msgs = build_explanation_messages("BRCA1", "gene_query", {},
-                                      response_detail="concise", reading_level="technical")
+                                      response_detail="concise", reading_level="clinical")
     body = msgs[-1]["content"]
     assert "INSTRUCTION:" in body and "LANGUAGE:" in body
 

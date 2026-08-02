@@ -130,8 +130,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 208 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
-python -m pytest                     # all 263, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 209 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
+python -m pytest                     # all 264, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -196,7 +196,7 @@ Three lessons worth generalising. **A 200 is not success** — check for an empt
 
 **An empty answer has to say it is empty.** `noResultsFor()` fires only for a disease query whose gene list is empty — deliberately never for a gene query, since a gene with no ClinVar variants still has pathways, expression and interactions, and claiming "no results" there would be false. Before it existed, a genuine miss and a routing failure rendered identically, so neither the reader nor we could tell them apart.
 
-**Reading level is a separate axis from detail, and the default is plain.** `response_detail` is how much is said; `reading_level` is how hard the words are. They were conflated, and the base prompt asked for prose "accessible to a research scientist" — which is who it wrote for, so a reader looking up their own gene met "ablate" and "penetrance" unglossed. `READING_LEVEL_INSTRUCTIONS` in [ai_explainer.py](genomics_backend/services/ai_explainer.py) has plain/standard/technical, plain is the default, and the instruction is explicit that only the *language* simplifies — rounding a number or dropping a caveat to shorten a sentence would be simplifying the finding.
+**Reading level is a separate axis from detail, and the default is plain.** `response_detail` is how much is said; `reading_level` is how hard the words are. They were conflated, and the base prompt asked for prose "accessible to a research scientist" — which is who it wrote for, so a reader looking up their own gene met "ablate" and "penetrance" unglossed. `READING_LEVEL_INSTRUCTIONS` in [ai_explainer.py](genomics_backend/services/ai_explainer.py) exposes **two** options — **Plain English** (default) and **Clinical** — and keeps `standard`/`technical` as accepted legacy keys, because a browser that has not reloaded still sends them and letting `technical` fall through would quietly downgrade a clinician's answer. `loadSettings()` migrates saved values. **"Precise" was considered as the opposite of "Plain" and rejected**: it would tell the reader plain mode is imprecise, which is the reverse of the commitment. A middle option was dropped because a control labelled "Standard" is where people land without choosing. Plain is the default, and the instruction is explicit that only the *language* simplifies — rounding a number or dropping a caveat to shorten a sentence would be simplifying the finding.
 
 **The answer cache is keyed on the answer's shape, not just the question.** It keyed on the question alone, so the first reader's settings decided everyone's answer for 24 hours — asking for a technical explanation returned whatever plain reply happened to be cached, with nothing to indicate it. `response_detail` had that bug silently from the day the cache was added; `reading_level` would have inherited it. Any new field that changes what the model writes has to go into `cache_key` in the same commit.
 

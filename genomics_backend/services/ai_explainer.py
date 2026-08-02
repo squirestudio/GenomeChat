@@ -203,6 +203,9 @@ READING_LEVEL_INSTRUCTIONS = {
         "simplify only the language, and never round a number or drop a caveat to "
         "make a sentence easier."
     ),
+    # Legacy keys. The setting was three options and is now two; a client that
+    # has not reloaded still sends these, and silently falling through to plain
+    # would quietly downgrade a clinician's answer.
     "standard": "",   # the base prompt, already aimed at a non-specialist adult
     "technical": (
         "The reader is a clinician or researcher. Use standard terminology "
@@ -210,6 +213,7 @@ READING_LEVEL_INSTRUCTIONS = {
         "sizes, inheritance patterns and evidence levels precisely."
     ),
 }
+READING_LEVEL_INSTRUCTIONS["clinical"] = READING_LEVEL_INSTRUCTIONS["technical"]
 
 DETAIL_INSTRUCTIONS = {
     "concise": "Be brief. Respond in 3-5 bullet points maximum. Skip population genetics and research context sections. Lead with the single most important clinical finding.",

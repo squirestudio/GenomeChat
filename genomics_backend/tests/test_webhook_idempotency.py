@@ -4,6 +4,8 @@ import time
 import httpx
 import pytest
 
+from services.billing import CREDITS_PER_PACK
+
 
 @pytest.fixture
 def user(make_user):
@@ -15,19 +17,19 @@ def test_one_event_grants_once_no_matter_how_often_it_arrives(user, grant, fresh
     first = grant(user, "credits", event_id=eid)
     assert first.status_code == 200
     assert first.json().get("duplicate") is not True
-    assert fresh(user).query_credits == 50
+    assert fresh(user).query_credits == CREDITS_PER_PACK
 
     for _ in range(3):
         again = grant(user, "credits", event_id=eid)
         assert again.status_code == 200, "Stripe must not see an error, or it keeps retrying"
         assert again.json()["duplicate"] is True
-    assert fresh(user).query_credits == 50, "replays must not stack"
+    assert fresh(user).query_credits == CREDITS_PER_PACK, "replays must not stack"
 
 
 def test_a_genuinely_new_event_grants_again(user, grant, fresh):
     grant(user, "credits", event_id=f"evt_pytest_{user.id}_a")
     grant(user, "credits", event_id=f"evt_pytest_{user.id}_b")
-    assert fresh(user).query_credits == 100
+    assert fresh(user).query_credits == CREDITS_PER_PACK * 2
 
 
 def test_an_event_for_an_unknown_user_still_returns_200(base_url, send_webhook):

@@ -7,6 +7,8 @@ all, so the $25 product was being given away.
 import httpx
 import pytest
 
+from services.billing import CREDITS_PER_PACK
+
 
 @pytest.fixture
 def user(make_user):
@@ -49,7 +51,7 @@ def test_cancelling_a_subscription_does_not_revoke_byok(user, grant, send_webhoo
 
 def test_credits_are_independent_of_both(user, grant, fresh):
     grant(user, "credits")
-    assert fresh(user).query_credits == 50
+    assert fresh(user).query_credits == CREDITS_PER_PACK
 
 
 def test_auth_me_reports_each_entitlement_separately(base_url, user, auth, grant):

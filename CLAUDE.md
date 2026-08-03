@@ -100,6 +100,10 @@ In production there is no bind mount, so the mounted and baked files are the sam
 
 `genomics_backend/.dockerignore` excludes env files, `.git`, and bytecode from the build context — `.gitignore` has no effect on Docker builds, and the Dockerfile does `COPY . .`. Runtime is unaffected: compose passes secrets via `env_file`, Railway injects them from its dashboard, and pydantic-settings prefers real env vars over the `.env` file.
 
+**Price follows measured cost, and one charge was removed for that reason.** A question costs about **$0.013** in model tokens (measured: 4,617 in + 1,639 out on Haiku 4.5). **A section fetch makes no model call at all** — public API traffic and a database read — so charging a credit for one bought the reader nothing, and it was the only line in the pricing that could not be defended on cost. Sections are now free, and `/gene/section` no longer checks quota either: refusing someone out of credits would be charging twice for a question they already paid for. A **scanned page costs `SCAN_CREDITS` (2)**, because Sonnet vision runs 2–3x a question. `CREDITS_PER_PACK` is 200, which also dilutes Stripe's flat 30c — on a $3 sale that fee is 10%. Full working in [POSITIONING.md](POSITIONING.md).
+
+**Contributions grant nothing, and that is structural.** `create_support_session` is deliberately separate from `create_checkout_session`, and `purchase_type: "support"` is a value the webhook has no grant branch for. It is handled *before* the user lookup, because anyone can contribute signed out and a missing account there is normal rather than the paid-but-unmatched emergency that branch exists to shout about. Not called "Donate": a sole proprietorship is not a charity, so contributions are taxable income rather than deductible gifts, and the modal says both that and "unlocks nothing" on screen.
+
 **Abuse limits are server-side.** `ANON_QUERY_LIMIT` (default 3) is enforced per client IP in [services/limits.py](genomics_backend/services/limits.py), not just counted in `localStorage` — the browser copy only decides when to show the sign-in prompt early. Per-IP rate limits apply to every route except `/health` (so a limited client cannot take the healthcheck down with it) and `/billing/webhook` (Stripe retries in bursts and is already authenticated by signature); expensive paths get a tighter ceiling than the rest.
 
 Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` reads the left-most `X-Forwarded-For` entry. That is spoofable in general, which is why these are a fairness measure and a cost brake, never an authentication boundary. All of this state is per-process — see the note about scaling out under "Two independent allowlists".
@@ -107,7 +111,7 @@ Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` read
 **Frontend tests live beside the code they cover and run on every push.**
 
 ```bash
-cd frontend && npm test          # 389 checks, ~0.5s
+cd frontend && npm test          # 409 checks, ~0.6s
 ```
 
 They cover pure logic, not component rendering: DNA parsing, SSE framing, plan

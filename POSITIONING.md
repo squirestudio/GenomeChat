@@ -146,5 +146,11 @@ free tier. Two things in the structure are wrong and are worth fixing:
 - **Document scans cost ~$0.03** (Sonnet vision) and charge the same one credit
   as a $0.0128 query — nearly break-even.
 
-Aligning price to cost would mean: sections free, scans at two credits, and
-larger packs to dilute Stripe's flat fee.
+**Acted on 2 August 2026.** Sections are now free — they make no model call, so
+a credit bought nothing and it was the one charge that could not be defended.
+Scanned pages cost two credits. The pack is 200 credits, which both dilutes
+Stripe's flat 30c and brings the per-credit price to roughly 2x cost rather than
+4x.
+
+Outstanding, and requires a Stripe dashboard change rather than code: the credits
+Price still says $3 for what is now a 200-credit pack. See the punch list.

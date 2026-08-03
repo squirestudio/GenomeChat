@@ -7,7 +7,13 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 FREE_QUERY_LIMIT = 20
-CREDITS_PER_PACK = 50
+CREDITS_PER_PACK = 200
+
+# What a scanned page costs, in credits. A question costs about $0.013 in model
+# tokens; a page of vision costs two to three times that, so it spends two.
+# Sections cost nothing and spend none — the pricing follows the measurement in
+# POSITIONING.md rather than charging a flat credit for everything.
+SCAN_CREDITS = 2
 
 
 def is_test_mode_user(user) -> bool:

@@ -22,7 +22,7 @@ from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, cli
 from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK, SCAN_CREDITS
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 from datetime import datetime
@@ -655,16 +655,9 @@ async def gene_section(request: Request, body: SectionRequest, db: Session = Dep
 
     user_api_key = try_decrypt_key(current_user.encrypted_api_key) if current_user else None
     has_working_key = bool(user_api_key)
-    if current_user:
-        allowed, _ = user_can_query(current_user, has_working_key=has_working_key)
-        if not allowed:
-            raise HTTPException(status_code=402, detail={
-                "upgrade_required": True,
-                "total_queries": current_user.total_queries or 0,
-                "query_credits": current_user.query_credits or 0,
-                "free_limit": FREE_QUERY_LIMIT,
-                "stored_key_unusable": bool(current_user.encrypted_api_key and not has_working_key),
-            })
+    # No quota check: sections cost nothing to produce, so someone out of
+    # credits can still open every panel on an answer they already paid for.
+    # Refusing them would be charging twice for one question.
 
     try:
         data = await fetch_gene_section(
@@ -679,16 +672,21 @@ async def gene_section(request: Request, body: SectionRequest, db: Session = Dep
         raise HTTPException(status_code=502, detail=f"Could not load {body.section}")
 
     has_data = section_has_data(data)
-    if not has_data:
-        logger.info("Section %s empty for %s — not charged", body.section, body.gene)
 
+    # Sections are free, and that is a correction rather than a promotion.
+    # Fetching one makes **no model call at all** — it is public API traffic and
+    # a database read — so a credit bought nothing, and charging for it was the
+    # one line in the pricing that could not be defended on cost. Measured:
+    # a full question costs about $0.013 in tokens, a section costs nothing.
+    #
+    # The per-IP rate limit is what still protects the upstream sources; a
+    # credit was never doing that job.
     charged = False
-    if has_data:
-        if current_user:
-            consume_query(current_user, db, has_working_key=has_working_key)
-            charged = True
-        elif anon_key:
-            anon_allowance.record(anon_key)
+    if has_data and not current_user and anon_key:
+        # Signed-out visitors still count against the anonymous allowance,
+        # which is a fairness measure on shared public databases rather than a
+        # charge — see the note on ANON_QUERY_LIMIT in CLAUDE.md.
+        anon_allowance.record(anon_key)
 
     # A negative expires sooner than a real answer, so a source that later
     # gains data for this gene surfaces again on its own.
@@ -794,6 +792,8 @@ async def documents_extract(
 ):
     """Transcribe photographed or scanned pages so they can be read alongside the data.
 
+    Costs SCAN_CREDITS rather than one: measured at roughly 2-3x a question.
+
     **Requires sign-in, and that is not a paywall.** A paper someone uploads
     about their own condition is health data in its own right — uploading one on
     osteogenesis imperfecta discloses a suspected diagnosis, which is arguably
@@ -835,8 +835,14 @@ async def documents_extract(
         logger.error("Document transcription failed for %d page(s): %s", len(body.images), e)
         raise HTTPException(status_code=502, detail="Could not read that document")
 
-    consume_query(current_user, db, has_working_key=has_working_key)
-    return {"text": text, "pages": len(body.images), "charged": True}
+    # A scanned page costs roughly two to three times a question — Sonnet
+    # vision, up to 8,000 output tokens — so it spends two credits rather than
+    # one. Priced to cost in both directions: sections became free for the same
+    # reason this became dearer.
+    for _ in range(SCAN_CREDITS):
+        consume_query(current_user, db, has_working_key=has_working_key)
+    return {"text": text, "pages": len(body.images),
+            "charged": True, "credits": SCAN_CREDITS}
 
 
 # ── Streaming chat ────────────────────────────────────────────────────────────

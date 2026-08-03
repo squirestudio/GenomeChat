@@ -324,7 +324,9 @@ function buildExploreItems(msg) {
   // case and the SECTION_GROUP entry stay, so stored answers that recorded it
   // in `loadedOrder` still replay.
 
-  // Not yet fetched.
+  // Not yet fetched — and no longer charged. A section fetch makes no model
+  // call, so it costs nothing to produce and nothing to open; `instant` now
+  // means "already in hand" rather than "free", and everything is free.
   for (const p of d.pending_sections || []) {
     // Disease answers offer follow-up questions rather than datasets: the useful
     // next step from a gene list is reading about one of the genes, which runs

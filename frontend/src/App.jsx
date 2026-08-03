@@ -12,6 +12,7 @@ import { genesInData } from "./genes";
 import { countMatches, matchedAllelePhenotype, normalizeGenotype } from "./pgx";
 import { makeDocument, documentsForRequest, saveDocsToSession, loadDocsFromSession, documentsSummary } from "./documents";
 import { classifyFile, needsVision, extractText } from "./extract";
+import { CHROMOSOMES, binVariants, coveragePhrase, locusBin } from "./karyogram";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
 import { rankCancerTypes, splitConsequences } from "./cancer";
@@ -2370,7 +2371,6 @@ function ExploreFurther({ items, opened, onLoadSection, onAsk, sectionState }) {
   const remaining = items.filter(it => !opened.includes(it.key));
   if (!remaining.length) return null;
   const { loading = {}, errors = {}, idx } = sectionState || {};
-  const costCount = remaining.filter(it => !it.instant).length;
 
   return (
     <div style={{ marginTop: 18 }}>
@@ -2379,7 +2379,11 @@ function ExploreFurther({ items, opened, onLoadSection, onAsk, sectionState }) {
           Explore further
         </p>
         <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)" }}>
-          {remaining.length} available{costCount > 0 ? ` · ${costCount} use a credit — only if data is found` : ""}
+          {/* No longer "N use a credit": opening a section makes no model call,
+              so it costs nothing to produce and nothing to open. The label used
+              to be the honest disclosure of a charge that has now been removed
+              rather than merely hidden. */}
+          {remaining.length} available · free to open
         </span>
       </div>
       {groupExploreItems(remaining).map(group => (
@@ -3709,6 +3713,116 @@ function FullTextPanel({ data }) {
  * of the reader's file is sent anywhere to compute it. Annotation is opt-in and
  * explicit, because that request does disclose which variants they carry.
  */
+/**
+ * The reader's genome, as a genome.
+ *
+ * Every other view here is gene-level or protein-level. This one earns its place
+ * by showing a truth nothing else on the page does: **a consumer array reads a
+ * vanishing fraction of a genome** — a million positions out of three billion
+ * bases. The sparseness is the lesson rather than a caveat on it, and no sentence
+ * conveys it as well as a picture.
+ *
+ * Density is binned, not per-variant. A million individual marks at genome scale
+ * is a solid black bar, which hides the very unevenness worth seeing: coverage is
+ * clumpy, dense where the chip targets known variants and empty across
+ * centromeres and repeats.
+ *
+ * Rendered from the file in the browser. Nothing is sent to draw this.
+ */
+function Karyogram({ dnaData, locus, gene }) {
+  const { bins, binSize, placed, mitochondrial, unplaced, busiest } =
+    useMemo(() => binVariants(dnaData), [dnaData]);
+  const highlight = useMemo(() => locusBin(locus, binSize), [locus, binSize]);
+  if (!placed) return null;
+
+  const W = 760;
+  const LABEL = 22;
+  const TRACK = 11;
+  const GAP = 6;
+  const usable = W - LABEL - 8;
+  const longest = CHROMOSOMES[0].length;
+  const H = CHROMOSOMES.length * (TRACK + GAP);
+  const scale = (bp) => (bp / longest) * usable;
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-accent) / 0.12)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--accent)" }}>Your Genome</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {placed.toLocaleString()} positions read · your device only
+        </span>
+      </div>
+
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.55, margin: 0 }}>
+        Every tick is somewhere your file has a reading. The gaps are not missing
+        DNA — they are places the test did not look. A consumer test reads{" "}
+        <strong style={{ color: "var(--text-muted)" }}>{coveragePhrase(placed)}</strong>,
+        which is why it can answer some questions and not others.
+        {gene && highlight && <> {gene} is marked in orange.</>}
+      </p>
+
+      <div style={{ padding: "0.6rem 0.875rem 0.2rem", overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
+          aria-label={`Chromosome map of ${placed.toLocaleString()} genotyped positions`}
+          style={{ display: "block", minWidth: 420 }}>
+          {CHROMOSOMES.map((c, i) => {
+            const y = i * (TRACK + GAP);
+            const arr = bins.get(c.name);
+            const width = scale(c.length);
+            const isTarget = highlight?.chromosome === c.name;
+            return (
+              <g key={c.name}>
+                <text x={0} y={y + TRACK - 1.5} fontSize={8.5}
+                  fill={isTarget ? "var(--warning)" : "var(--text-dimmer)"}
+                  fontWeight={isTarget ? 700 : 400}>{c.name}</text>
+
+                {/* The chromosome itself: an outline, so an unread region reads
+                    as "not looked at" rather than as absent sequence. */}
+                <rect x={LABEL} y={y} width={width} height={TRACK} rx={TRACK / 2}
+                  fill="rgb(var(--c-surface) / 0.55)"
+                  stroke="rgb(var(--c-border) / 0.5)" strokeWidth={0.5} />
+
+                {/* Density. Opacity carries count against the busiest bin in
+                    this file, so the picture is scaled to the reader's own chip
+                    rather than to an absolute nobody can see. */}
+                {Array.from(arr, (n, b) => {
+                  if (!n) return null;
+                  const bx = LABEL + scale(b * binSize);
+                  const bw = Math.max(0.7, scale(binSize));
+                  return (
+                    <rect key={b} x={bx} y={y + 1} width={bw} height={TRACK - 2}
+                      fill="var(--accent)" opacity={0.25 + 0.75 * (n / busiest)} />
+                  );
+                })}
+
+                {/* The centromere, drawn as a pinch. Not decoration: it is why
+                    a band of every chromosome is empty in every file. */}
+                <circle cx={LABEL + scale(c.centromere)} cy={y + TRACK / 2} r={1.6}
+                  fill="rgb(var(--c-deep) / 0.9)" stroke="rgb(var(--c-border) / 0.6)" strokeWidth={0.4} />
+
+                {isTarget && (
+                  <rect x={LABEL + scale(highlight.start) - 1.5} y={y - 1.5}
+                    width={Math.max(3, scale(Math.max(1, (highlight.end || highlight.start) - highlight.start)))}
+                    height={TRACK + 3} rx={1.5}
+                    fill="none" stroke="var(--warning)" strokeWidth={1.4} />
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      <p style={{ fontSize: "0.61rem", color: "var(--text-faintest)", padding: "0 0.875rem 0.75rem", lineHeight: 1.5, margin: 0 }}>
+        GRCh37 coordinates, the build consumer tests report. Darker means more
+        readings in that stretch. The notch on each chromosome is the centromere,
+        which is repetitive enough that no test reads it well.
+        {mitochondrial > 0 && <> {mitochondrial.toLocaleString()} mitochondrial readings are not shown — they sit outside the 24 chromosomes.</>}
+        {unplaced > 0 && <> {unplaced.toLocaleString()} could not be placed.</>}
+      </p>
+    </div>
+  );
+}
+
 function MyVariantsPanel({ dnaData, locus, gene }) {
   const [annotations, setAnnotations] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -5052,7 +5166,7 @@ function SuggestedQueries({ queries, onAsk }) {
           Explore next
         </p>
         <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
-          {queries.length} {queries.length === 1 ? "query" : "queries"} · each uses a credit
+          {queries.length} {queries.length === 1 ? "query" : "queries"} · each asks a new question
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
@@ -5146,6 +5260,13 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
                     <Markdown content={popfreqProse.body} gene={gene} />
                   )}
                 </>
+              )}
+
+              {/* The genome-wide view sits above the gene-level one: it is the
+                  context for everything below it, and it is the only place the
+                  reader learns how little of their sequence was read. */}
+              {dnaData && (
+                <Karyogram dnaData={dnaData} locus={msg.data?.gene_locus_grch37} gene={msg.target} />
               )}
 
               {dnaData && msg.data?.gene_locus_grch37 && (

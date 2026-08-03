@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
-from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, fetch_vep_predictions, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
+from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, fetch_vep_predictions, fetch_pubmed_titles, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
 from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup, transcribe_pages
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
@@ -750,6 +750,33 @@ async def dna_annotate(request: Request, current_user: Optional[User] = Depends(
             "resolved": len(annotations),
             "predicted": len(predictions or {}),
             "source": "dbSNP + Ensembl VEP"}
+
+
+class CitationsRequest(BaseModel):
+    # Bounded because each is forwarded to NCBI; forty covers the union of every
+    # curator's citations on the most-disputed gene-disease pair in the dataset.
+    pmids: list[str] = Field(min_length=1, max_length=40)
+
+
+@app.post("/citations")
+async def citations(body: CitationsRequest):
+    """Resolve PMIDs to titles so cited evidence can be read inside MyDNA.
+
+    Deliberately free and uncharged, on the same reasoning as `/dna/annotate`:
+    the reader already paid for the answer that surfaced these citations, and a
+    list of eight-digit numbers is not an answer. Charging again to say what the
+    numbers are would be billing twice for one thing.
+
+    Also deliberately unauthenticated. A PMID is a public identifier and
+    reveals nothing about the caller, so there is nothing here to protect — the
+    per-IP rate limit is what stops it being used as a bulk PubMed proxy.
+    """
+    try:
+        titles = await fetch_pubmed_titles(body.pmids)
+    except Exception as e:
+        logger.warning("Citation lookup failed for %d PMIDs: %s", len(body.pmids), e)
+        raise HTTPException(status_code=502, detail="Could not reach PubMed")
+    return {"citations": titles, "requested": len(body.pmids), "resolved": len(titles)}
 
 
 class DocumentExtractRequest(BaseModel):

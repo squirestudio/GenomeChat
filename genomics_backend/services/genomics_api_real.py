@@ -3122,9 +3122,22 @@ _gencc_index = BulkIndex(
     GENCC_URL,
     lambda text: index_tsv_by(
         text, "gene_symbol",
-        ("disease_title", "classification_title", "submitter_title", "moi_title"),
+        # The evidence columns were being discarded, which left a reader who got
+        # as far as "these four curators disagree" with nowhere to go. PMIDs are
+        # the valuable ones: 77% of assertions carry them, and MyDNA can resolve
+        # a PMID to a title in-app, so the reader never has to leave to see what
+        # each side actually read.
+        ("disease_title", "classification_title", "submitter_title", "moi_title",
+         "submitted_as_pmids", "submitted_as_public_report_url",
+         "submitted_as_assertion_criteria_url", "submitted_as_date"),
     ),
 )
+
+
+def _http_url(value) -> Optional[str]:
+    """A URL, or None. Submitters put free text in URL columns."""
+    v = (value or "").strip()
+    return v if v.startswith(("http://", "https://")) else None
 
 
 def _rank(label: str) -> int:
@@ -3169,14 +3182,35 @@ async def fetch_gencc_validity(gene_symbol: str) -> list[dict]:
             if (label, submitter) in seen:
                 continue
             seen.add((label, submitter))
-            verdicts.append({"classification": label, "submitter": submitter,
-                             "moi": e.get("moi_title") or None})
+            pmids = [t for t in re.split(r"[,;\s]+", e.get("submitted_as_pmids") or "")
+                     if t.isdigit()][:12]
+            verdicts.append({
+                "classification": label, "submitter": submitter,
+                "moi": e.get("moi_title") or None,
+                "pmids": pmids,
+                # Ambry submits free text in this column ("Pseudoautosomal
+                # region, recessive"), so a URL has to be checked rather than
+                # trusted — a link that is not a link is worse than none.
+                "report_url": _http_url(e.get("submitted_as_public_report_url")),
+                "criteria_url": _http_url(e.get("submitted_as_assertion_criteria_url")),
+                "date": (e.get("submitted_as_date") or "")[:10] or None,
+            })
         labels = [v["classification"] for v in verdicts]
         distinct = sorted(set(labels), key=_rank)
         spread = _rank(distinct[-1]) - _rank(distinct[0]) if len(distinct) > 1 else 0
+        all_pmids, seen_p = [], set()
+        for v in verdicts:
+            for pm in v["pmids"]:
+                if pm not in seen_p:
+                    seen_p.add(pm)
+                    all_pmids.append(pm)
         out.append({
             "disease": disease,
             "consensus": distinct[0],
+            # Every paper any curator cited for this pair. On a disputed row
+            # this is the interesting set: disagreement usually means they read
+            # different evidence, and this is where that becomes visible.
+            "pmids": all_pmids[:25],
             "disputed": len(distinct) > 1,
             "spread": spread,
             "verdicts": verdicts[:10],
@@ -3325,3 +3359,36 @@ async def fetch_orphanet_prevalence(gene_symbol: str) -> list[dict]:
     # a disorder with a number is more use than one with only an onset.
     out.sort(key=lambda r: (not r["assessed"], not r["prevalence"], r["disorder"]))
     return out[:15]
+
+
+async def fetch_pubmed_titles(pmids: list[str]) -> dict:
+    """PMID -> title, journal and year, so citations can be read without leaving.
+
+    The point of resolving these here is that a reader who has got as far as
+    "four curators disagree" deserves to see *what each of them read* — and a
+    bare list of eight-digit numbers is not that. Titles turn a citation list
+    into something a person can actually scan.
+    """
+    clean = [p for p in dict.fromkeys(str(x).strip() for x in pmids) if p.isdigit()][:40]
+    if not clean:
+        return {}
+    out = {}
+    try:
+        async with httpx.AsyncClient() as client:
+            data = await _get(client, f"{NCBI_BASE}/esummary.fcgi",
+                              {"db": "pubmed", "id": ",".join(clean), "retmode": "json"})
+        result = (data or {}).get("result") or {}
+        for pmid in result.get("uids", []):
+            item = result.get(pmid) or {}
+            title = (item.get("title") or "").strip().rstrip(".")
+            if not title:
+                continue
+            out[pmid] = {
+                "title": title,
+                "journal": item.get("source") or None,
+                "year": (item.get("pubdate") or "")[:4] or None,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+            }
+    except Exception as e:
+        logger.warning("PubMed title lookup failed for %d PMIDs: %s", len(clean), e)
+    return out

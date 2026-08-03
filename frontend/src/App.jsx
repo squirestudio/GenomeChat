@@ -1863,6 +1863,74 @@ function PrevalencePanel({ entries, gene, carrierRate }) {
   );
 }
 
+/**
+ * The papers a verdict rests on, resolved to titles in MyDNA.
+ *
+ * A reader who has got as far as "four curators disagree" deserves to see what
+ * each of them read, and a list of eight-digit PMIDs is not that. Titles are
+ * fetched on demand — the union across a disputed pair can be twenty-five
+ * papers, and resolving every citation for every gene up front would be a lot
+ * of PubMed traffic for something most readers never open.
+ *
+ * Free: the reader already paid for the answer that surfaced these citations.
+ */
+function CitedPapers({ pmids }) {
+  const [papers, setPapers] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await fetch(`${API}/citations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pmids: pmids.slice(0, 40) }),
+      });
+      if (!r.ok) throw new Error("Could not reach PubMed");
+      const { citations } = await r.json();
+      setPapers(Object.entries(citations));
+    } catch (e) {
+      setError(e.message || "Could not load the papers");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 4, paddingTop: 6, borderTop: "1px solid rgb(var(--c-border) / 0.25)" }}>
+      {!papers ? (
+        <button onClick={load} disabled={busy}
+          style={{ fontSize: "0.65rem", background: "none", border: "none", padding: 0,
+                   color: "var(--accent)", cursor: busy ? "default" : "pointer" }}>
+          {busy ? "Loading…" : `Read the ${pmids.length} papers these verdicts cite`}
+        </button>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", marginBottom: 2 }}>
+            Every paper any curator cited for this pair — where they disagree, they
+            usually read different evidence.
+          </p>
+          {papers.map(([pmid, c]) => (
+            <a key={pmid} href={c.url} target="_blank" rel="noreferrer"
+              style={{ textDecoration: "none", display: "flex", gap: 6, alignItems: "baseline" }}>
+              <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
+                {c.year || "—"}
+              </span>
+              <span style={{ fontSize: "0.65rem", color: "var(--text-faint)", lineHeight: 1.45 }}>
+                {c.title}
+                {c.journal && <span style={{ color: "var(--text-faintest)" }}> · {c.journal}</span>}
+                <span style={{ color: "var(--text-faintest)" }}> ↗</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+      {error && <p style={{ fontSize: "0.62rem", color: "var(--danger)", marginTop: 3 }}>{error}</p>}
+    </div>
+  );
+}
+
 function GenCCPanel({ entries, gene }) {
   const [open, setOpen] = useState(() => new Set());
   if (!entries?.length) return null;
@@ -1923,18 +1991,45 @@ function GenCCPanel({ entries, gene }) {
               </button>
 
               {isOpen && (
-                <div style={{ padding: "0 0.65rem 0.6rem", display: "flex", flexDirection: "column", gap: 3 }}>
+                <div style={{ padding: "0 0.65rem 0.6rem", display: "flex", flexDirection: "column", gap: 4 }}>
                   {e.verdicts.map((v, k) => {
                     const st = gcStyle(v.classification);
                     return (
-                      <div key={k} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "0.68rem" }}>
+                      <div key={k} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: "0.68rem", flexWrap: "wrap" }}>
                         <span style={{ fontSize: "0.6rem", padding: "0.12em 0.4em", borderRadius: 4, background: st.bg, color: st.color, minWidth: 76, textAlign: "center", flexShrink: 0 }}>
                           {v.classification}
                         </span>
                         <span style={{ color: "var(--text-faint)" }}>{v.submitter}</span>
+                        {v.date && <span style={{ color: "var(--text-faintest)", fontSize: "0.62rem" }}>{v.date}</span>}
+                        {v.pmids?.length > 0 && (
+                          <span style={{ color: "var(--text-faintest)", fontSize: "0.62rem" }}>
+                            {v.pmids.length} {v.pmids.length === 1 ? "paper" : "papers"}
+                          </span>
+                        )}
+                        {/* Their own write-up, when they publish one — 47% do.
+                            Leaving is a last resort, so it is offered rather
+                            than required, and marked so nobody is surprised. */}
+                        {v.report_url && (
+                          <a href={v.report_url} target="_blank" rel="noreferrer"
+                            style={{ fontSize: "0.62rem", color: "var(--accent)", textDecoration: "none" }}>
+                            their report ↗
+                          </a>
+                        )}
+                        {v.criteria_url && (
+                          <a href={v.criteria_url} target="_blank" rel="noreferrer"
+                            title="The published framework this curator used to reach its verdict"
+                            style={{ fontSize: "0.62rem", color: "var(--text-faintest)", textDecoration: "none" }}>
+                            criteria ↗
+                          </a>
+                        )}
                       </div>
                     );
                   })}
+                  {/* The evidence itself, read inside MyDNA. On a disputed row
+                      this is the whole point: curators usually disagree because
+                      they read different papers, and this is where that becomes
+                      visible instead of implied. */}
+                  {e.pmids?.length > 0 && <CitedPapers pmids={e.pmids} />}
                 </div>
               )}
             </div>

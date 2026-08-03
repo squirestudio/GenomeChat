@@ -4053,6 +4053,105 @@ function MyVariantsPanel({ dnaData, locus, gene }) {
 
 // ─── Publication Timeline ─────────────────────────────────────────────────────
 
+/**
+ * What the literature on this gene is about, and how that moved.
+ *
+ * A bar chart of counts per year says a gene is studied, which the reader
+ * already assumed. It does not say what changed. This does, using MeSH — NLM's
+ * curated vocabulary, assigned by human indexers rather than inferred from word
+ * frequency.
+ *
+ * Chosen over a word cloud on purpose. A cloud of title words is pretty and
+ * unfalsifiable: it tracks phrasing fashion as much as subject, and offers no
+ * way to distinguish a rising topic from a common word. A fixed vocabulary can
+ * be compared across periods and mean something.
+ *
+ * `trend_available` is respected rather than assumed. If a period failed to
+ * load, every topic would read as "fell to 0%" — a finding the data does not
+ * support — so the movement section is withheld instead.
+ */
+function ResearchTopicsPanel({ topics, gene }) {
+  if (!topics?.buckets?.length) return null;
+  const { buckets, rising = [], fading = [], trend_available: trend } = topics;
+  const busiest = Math.max(...buckets.flatMap(b => b.terms.map(t => t.count)), 1);
+
+  const move = (m, dir) => (
+    <div key={m.term} style={{ display: "flex", alignItems: "baseline", gap: 7, fontSize: "0.7rem" }}>
+      <span style={{ color: dir === "up" ? "var(--success-soft)" : "var(--text-dimmer)", flexShrink: 0, width: 10 }}>
+        {dir === "up" ? "↑" : "↓"}
+      </span>
+      <span style={{ color: "var(--text-faint)", flex: 1, minWidth: 0 }}>{m.term}</span>
+      <span style={{ color: "var(--text-faintest)", fontVariantNumeric: "tabular-nums", fontSize: "0.64rem", flexShrink: 0 }}>
+        {m.then}% → {m.now}%
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-warning) / 0.2)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.15)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--warning-soft)" }}>What the research is about</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>PubMed MeSH terms</span>
+      </div>
+
+      <p style={{ fontSize: "0.65rem", color: "var(--text-dimmer)", padding: "0.5rem 0.875rem 0", lineHeight: 1.55, margin: 0 }}>
+        Subject headings assigned to {gene} papers by NLM indexers, grouped into
+        periods. Not word frequency — a fixed vocabulary, so a term appearing
+        more often means more papers were judged to be <em>about</em> it.
+      </p>
+
+      <div style={{ padding: "0.7rem 0.875rem 0", display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {buckets.map(b => (
+          <div key={b.from} style={{ flex: "1 1 180px", minWidth: 170 }}>
+            <p style={{ fontSize: "0.64rem", color: "var(--text-dimmer)", fontWeight: 600, marginBottom: 5 }}>
+              {b.from}–{b.to}
+            </p>
+            {b.terms.length === 0 ? (
+              <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)" }}>no indexed papers loaded</p>
+            ) : b.terms.slice(0, 6).map(t => (
+              <div key={t.term} style={{ marginBottom: 4 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                  <span style={{ fontSize: "0.65rem", color: "var(--text-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.term}>
+                    {t.term}
+                  </span>
+                  <span style={{ fontSize: "0.6rem", color: "var(--text-faintest)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{t.count}</span>
+                </div>
+                <div style={{ height: 3, borderRadius: 2, background: "rgb(var(--c-surface) / 0.6)", overflow: "hidden" }}>
+                  <div style={{ width: `${Math.max(3, (t.count / busiest) * 100)}%`, height: "100%", background: "var(--warning)", opacity: 0.75 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {trend && (rising.length > 0 || fading.length > 0) && (
+        <div style={{ padding: "0.7rem 0.875rem 0", display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {rising.length > 0 && (
+            <div style={{ flex: "1 1 240px", minWidth: 220 }}>
+              <p style={{ fontSize: "0.64rem", color: "var(--success-soft)", fontWeight: 600, marginBottom: 4 }}>Gaining attention</p>
+              {rising.slice(0, 4).map(m => move(m, "up"))}
+            </div>
+          )}
+          {fading.length > 0 && (
+            <div style={{ flex: "1 1 240px", minWidth: 220 }}>
+              <p style={{ fontSize: "0.64rem", color: "var(--text-dimmer)", fontWeight: 600, marginBottom: 4 }}>Losing attention</p>
+              {fading.slice(0, 4).map(m => move(m, "down"))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <p style={{ fontSize: "0.61rem", color: "var(--text-faintest)", padding: "0.7rem 0.875rem 0.8rem", lineHeight: 1.5, margin: 0 }}>
+        {trend
+          ? "Percentages are each term's share of all subject headings in that period, so a rise means relatively more attention, not simply more papers."
+          : "One of the periods did not load, so the comparison is withheld — showing it would report every topic as having fallen to zero, which is not what the data says."}
+        {" "}Sampled from up to 200 papers per period, ranked by relevance.
+      </p>
+    </div>
+  );
+}
+
 function PublicationTimeline({ timeline }) {
   if (!timeline?.length) return null;
   const hasData = timeline.some(t => t.count > 0);
@@ -5239,6 +5338,8 @@ function SectionPanel({ sectionKey, msg, dnaData, settings, onGene }) {
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
     case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} onGene={onGene} /> : null;
     case "gencc":                return d.gencc?.length ? <GenCCPanel entries={d.gencc} gene={msg.target} /> : null;
+    case "research_topics":      return d.research_topics?.buckets?.length
+      ? <ResearchTopicsPanel topics={d.research_topics} gene={msg.target} /> : null;
     case "prevalence":           return d.prevalence?.length
       ? <PrevalencePanel entries={d.prevalence} gene={msg.target}
           carrierRate={(d.population_summary || [])[0]?.allele_frequency

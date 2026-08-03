@@ -1,5 +1,6 @@
 import httpx
 import asyncio
+import collections
 import contextvars
 import csv
 import io
@@ -133,6 +134,34 @@ def record_source_failure(url: str, reason: str) -> None:
     logger.error("Upstream %s failed: %s (%s)", source, reason, url.split("?")[0])
     if failures is not None:
         failures.add(source)
+
+
+async def _get_text(client: httpx.AsyncClient, url: str, params: dict = None) -> str | None:
+    """GET that returns raw text, for endpoints that only speak XML.
+
+    efetch has no JSON mode for PubMed records, so MeSH terms can only be read
+    from XML. Shares the NCBI rate limiter with `_get` — bypassing it here would
+    put the shared budget over the cap and starve the JSON callers.
+    """
+    is_ncbi = NCBI_HOST in url
+    if is_ncbi and NCBI_API_KEY:
+        params = {**(params or {}), "api_key": NCBI_API_KEY}
+    for attempt in range(MAX_RETRIES):
+        if is_ncbi:
+            await _ncbi_limiter.acquire()
+        try:
+            r = await client.get(url, params=params, timeout=TIMEOUT, headers=HEADERS)
+            if r.status_code == 200:
+                return r.text
+            if r.status_code == 429:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            return None
+        except Exception:
+            if attempt == MAX_RETRIES - 1:
+                return None
+            await asyncio.sleep(2 ** attempt)
+    return None
 
 
 async def _get(client: httpx.AsyncClient, url: str, params: dict = None) -> dict | list | None:
@@ -592,6 +621,144 @@ async def fetch_pubmed_timeline(gene_symbol: str, years: int = 12) -> list[dict]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
     return [r for r in results if isinstance(r, dict)]
+
+
+# Terms too generic to describe what a field is working on. Every genetics paper
+# is about genes, humans and mutation; saying so is noise where the question is
+# "what changed".
+_MESH_STOPWORDS = {
+    "humans", "human", "female", "male", "animals", "adult", "aged", "child",
+    "middle aged", "young adult", "adolescent", "infant", "mice",
+    "genetic predisposition to disease",
+    "mutation", "genotype", "phenotype", "polymorphism, single nucleotide",
+    "dna mutational analysis", "genetic testing", "pedigree", "risk factors",
+    "case-control studies", "gene expression regulation", "signal transduction",
+    "cell line, tumor", "molecular sequence data", "amino acid sequence",
+    "base sequence", "retrospective studies", "prospective studies", "prognosis",
+    "treatment outcome", "reproducibility of results", "cohort studies",
+    "aged, 80 and over", "young", "sequence analysis, dna", "alleles",
+    "gene frequency", "cells, cultured", "immunohistochemistry",
+}
+
+
+def _canonical_mesh(term: str) -> str:
+    """Collapse MeSH's vocabulary generations onto one label.
+
+    NLM renamed a swathe of gene descriptors from "Genes, BRCA2" to
+    "BRCA2 Protein" partway through the last decade. Counted separately, that
+    rename becomes the single largest "rising topic" for half the genes in the
+    database — a change in indexing convention presented as a change in science.
+    """
+    t = term.strip()
+    if t.lower().startswith("genes, "):
+        return f"{t[7:].strip()} (gene)"
+    if t.lower().endswith(" protein"):
+        return f"{t[:-8].strip()} (gene)"
+    return t
+
+
+async def fetch_research_topics(gene_symbol: str, window: int = 4, buckets: int = 3) -> dict:
+    """What the literature on this gene is actually *about*, and how that moved.
+
+    A count per year says a gene is studied, which the reader already assumed. It
+    does not say what changed. MeSH terms do: they are NLM's curated vocabulary,
+    assigned by indexers rather than inferred from word frequency, so comparing
+    two periods says something real — "2015-2018 was mostly screening, 2023-2026
+    is increasingly gene therapy".
+
+    Chosen over a word cloud deliberately. A cloud of title words is pretty and
+    unfalsifiable: it reflects phrasing fashion as much as subject, and gives no
+    way to tell a rising topic from a common word. MeSH is a fixed vocabulary, so
+    a term appearing more often means indexers judged more papers to be about it.
+
+    Returns buckets oldest-first, each with its top terms, plus `rising` and
+    `fading` — terms whose share moved most between the first and last bucket.
+    """
+    import datetime as dt
+    this_year = dt.datetime.utcnow().year
+    gene_low = (gene_symbol or "").strip().lower()
+
+    async def terms_for(client, lo, hi) -> collections.Counter:
+        ids = await _get(client, f"{NCBI_BASE}/esearch.fcgi", {
+            "db": "pubmed", "term": f"{gene_symbol}[Gene Name]", "retmode": "json",
+            "datetype": "pdat", "mindate": f"{lo}/01/01", "maxdate": f"{hi}/12/31",
+            # A sample, not the whole period: 200 indexed papers is plenty to
+            # rank topics, and fetching thousands would be slow and rude.
+            "retmax": 200, "sort": "relevance",
+        })
+        uids = ((ids or {}).get("esearchresult") or {}).get("idlist") or []
+        if not uids:
+            return collections.Counter()
+        counts = collections.Counter()
+        for i in range(0, len(uids), 100):
+            xml = await _get_text(client, f"{NCBI_BASE}/efetch.fcgi", {
+                "db": "pubmed", "id": ",".join(uids[i:i + 100]), "retmode": "xml",
+            })
+            if not xml:
+                continue
+            for m in re.finditer(r"<DescriptorName[^>]*>([^<]+)</DescriptorName>", xml):
+                term = m.group(1).strip()
+                low = term.lower()
+                if low in _MESH_STOPWORDS or len(term) <= 2:
+                    continue
+                # Terms naming the gene itself are not a topic — "papers about
+                # BRCA1 are about BRCA1" is not an insight. Worse, they actively
+                # mislead: MeSH renamed "Genes, BRCA1" to "BRCA1 Protein"
+                # mid-decade, so leaving them in made a vocabulary change the
+                # single biggest "rising topic" in the results.
+                if gene_low in low:
+                    continue
+                counts[_canonical_mesh(term)] += 1
+        return counts
+
+    try:
+        edges = [(this_year - window * (buckets - b) + 1, this_year - window * (buckets - b - 1))
+                 for b in range(buckets)]
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            per = await asyncio.gather(*[terms_for(client, lo, hi) for lo, hi in edges],
+                                       return_exceptions=True)
+        per = [p if isinstance(p, collections.Counter) else collections.Counter() for p in per]
+        if not any(per):
+            return {}
+
+        def share(counter):
+            total = sum(counter.values()) or 1
+            return {t: n / total for t, n in counter.items()}
+
+        # A bucket that came back empty is a failed fetch, not a decade with no
+        # research — and comparing against it renders every topic as "fell to
+        # 0%", which is a finding the data does not support. Same lesson as the
+        # upstream-drift audit: an empty result and a broken query look
+        # identical unless you refuse to interpret the empty one.
+        endpoints_loaded = bool(per[0]) and bool(per[-1])
+
+        first, last = share(per[0]), share(per[-1])
+        moved = []
+        for term in set(first) | set(last):
+            delta = last.get(term, 0) - first.get(term, 0)
+            # A term seen once in one bucket is noise, not a trend.
+            if per[0][term] + per[-1][term] >= 4:
+                moved.append({"term": term, "delta": delta,
+                              "then": round(first.get(term, 0) * 100, 1),
+                              "now": round(last.get(term, 0) * 100, 1)})
+        moved.sort(key=lambda m: m["delta"])
+
+        return {
+            "gene_symbol": gene_symbol,
+            "buckets": [
+                {"from": lo, "to": hi, "papers": sum(c.values()),
+                 "terms": [{"term": t, "count": n} for t, n in c.most_common(8)]}
+                for (lo, hi), c in zip(edges, per)
+            ],
+            "rising": [m for m in reversed(moved) if m["delta"] > 0][:6] if endpoints_loaded else [],
+            "fading": [m for m in moved if m["delta"] < 0][:6] if endpoints_loaded else [],
+            # The panel says so rather than silently showing no movement.
+            "trend_available": endpoints_loaded,
+            "source": "PubMed MeSH terms",
+        }
+    except Exception as e:
+        logger.warning(f"Research topics failed for {gene_symbol}: {e}")
+        return {}
 
 
 def _normalize_disease_name(name: str) -> str:
@@ -2372,6 +2539,7 @@ OPTIONAL_SECTIONS = {
     "disease_network":      "Diseases, phenotypes & related genes",
     "gencc":                "Curator agreement & disagreement",
     "prevalence":           "How common these diseases are",
+    "research_topics":      "What the research is about, over time",
     "clinical_trials":      "Clinical trials naming this gene",
     "panels":               "Diagnostic gene panels (NHS)",
 }
@@ -2382,7 +2550,7 @@ OPTIONAL_SECTIONS = {
 DICT_SECTIONS = {
     "omim", "pharmgkb", "cancer_mutations",
     "structural_variants", "genetic_tests", "medgen", "full_text",
-    "disease_network",
+    "disease_network", "research_topics",
 }
 
 # Sources fetched by this module but not offered to readers.
@@ -2462,6 +2630,7 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "disease_network": fetch_disease_network,
         "gencc": fetch_gencc_validity,
         "prevalence": fetch_orphanet_prevalence,
+        "research_topics": fetch_research_topics,
         "clinical_trials": fetch_clinical_trials,
         "panels": fetch_gene_panels,
     }
@@ -2496,7 +2665,7 @@ SECTION_SOURCE = {
     "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
     "full_text": "PMC", "disease_network": "HPO / ClinGen",
     "clinical_trials": "ClinicalTrials.gov", "panels": "Genomics England PanelApp",
-    "gencc": "GenCC", "prevalence": "Orphanet",
+    "gencc": "GenCC", "prevalence": "Orphanet", "research_topics": "PubMed MeSH",
 }
 
 

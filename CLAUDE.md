@@ -177,7 +177,7 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **26 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **27 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
@@ -499,7 +499,16 @@ The hardcoded badge colours in the report HTML were always light-appropriate (da
 
 `API` is `import.meta.env.VITE_API_URL || "http://localhost:8000"`; set `VITE_API_URL` in Vercel.
 
-### Two DNA-level views, and the honesty in each
+**`research_topics` answers what a publication count cannot.** A bar per year says a gene is studied, which the reader assumed. MeSH terms say what changed — NLM's curated vocabulary, assigned by indexers, so comparing two periods means something. **A word cloud was rejected**: title-word frequency tracks phrasing fashion as much as subject and gives no way to tell a rising topic from a common word.
+
+Two artefacts had to be handled, and both would have shipped as findings:
+
+- **MeSH renamed a swathe of gene descriptors** from "Genes, BRCA2" to "BRCA2 Protein" mid-decade. Counted separately, that rename was the single largest "rising topic" — an indexing convention presented as a change in science. `_canonical_mesh` collapses both onto one label.
+- **An empty period rendered as every topic falling to 0%.** SCN1A's last bucket failed to load under the local NCBI rate limit and the panel reported topics vanishing from the literature. `trend_available` now gates the comparison, and the panel says why it is withheld. Same lesson as the upstream-drift audit: an empty result and a broken query are indistinguishable unless you refuse to interpret the empty one.
+
+Terms naming the queried gene are dropped — "papers about BRCA1 are about BRCA1" is not an insight.
+
+### Two DNA-level views, and the honesty in each### Two DNA-level views, and the honesty in each
 
 [karyogram.js](frontend/src/karyogram.js) and [helix.js](frontend/src/helix.js) exist because everything else in the app is gene- or protein-level. Both are drawn from the file in the browser; nothing is sent to render either.
 

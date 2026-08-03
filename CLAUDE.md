@@ -130,7 +130,7 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 225 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
+python -m pytest -m "not external"   # 223 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
 python -m pytest                     # all 297, adds the ones hitting real APIs
 ```
 

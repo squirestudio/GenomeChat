@@ -2371,6 +2371,7 @@ OPTIONAL_SECTIONS = {
     "full_text":            "Open-access full-text papers",
     "disease_network":      "Diseases, phenotypes & related genes",
     "gencc":                "Curator agreement & disagreement",
+    "prevalence":           "How common these diseases are",
     "clinical_trials":      "Clinical trials naming this gene",
     "panels":               "Diagnostic gene panels (NHS)",
 }
@@ -2460,6 +2461,7 @@ async def fetch_gene_section(gene_symbol: str, section: str, uniprot_accession: 
         "full_text": fetch_pmc_articles,
         "disease_network": fetch_disease_network,
         "gencc": fetch_gencc_validity,
+        "prevalence": fetch_orphanet_prevalence,
         "clinical_trials": fetch_clinical_trials,
         "panels": fetch_gene_panels,
     }
@@ -2494,7 +2496,7 @@ SECTION_SOURCE = {
     "structural_variants": "dbVar", "genetic_tests": "GTR", "medgen": "MedGen",
     "full_text": "PMC", "disease_network": "HPO / ClinGen",
     "clinical_trials": "ClinicalTrials.gov", "panels": "Genomics England PanelApp",
-    "gencc": "GenCC",
+    "gencc": "GenCC", "prevalence": "Orphanet",
 }
 
 
@@ -3185,3 +3187,141 @@ async def fetch_gencc_validity(gene_symbol: str) -> list[dict]:
     # Widest disagreement first; then, among the agreed, the strongest.
     out.sort(key=lambda d: (-d["spread"], _rank(d["consensus"]), d["disease"]))
     return out[:20]
+
+
+# ── Orphanet ──────────────────────────────────────────────────────────────────
+
+ORPHA_XML = "https://www.orphadata.com/data/xml"
+
+# Orphanet's prevalence bands, commonest first. Kept as published strings rather
+# than converted to a single number: "1-9 / 100 000" is a range Orphanet chose
+# deliberately, and collapsing it to a midpoint would invent precision.
+_ORPHA_UNKNOWN = {"Unknown", "Not yet documented", ""}
+
+
+def _orpha_iter(text: str):
+    """Yield each <Disorder> element, then release it.
+
+    iterparse rather than a full tree: these files are 16–36 MB and a parsed
+    DOM of one is several times that. Clearing as we go keeps the peak near the
+    size of a single disorder.
+    """
+    import xml.etree.ElementTree as ET
+    for _, el in ET.iterparse(io.StringIO(text), events=("end",)):
+        if el.tag == "Disorder":
+            yield el
+            el.clear()
+
+
+def _build_orpha_genes(text: str) -> dict:
+    """gene symbol -> disorders it causes, from product6."""
+    out: dict[str, list] = {}
+    for el in _orpha_iter(text):
+        code, name = el.findtext("OrphaCode"), el.findtext("Name")
+        if not (code and name):
+            continue
+        for a in el.findall(".//DisorderGeneAssociation"):
+            sym = a.findtext(".//Gene/Symbol")
+            if not sym:
+                continue
+            out.setdefault(sym.strip().upper(), []).append({
+                "orphacode": code,
+                "disorder": name,
+                "association": a.findtext(".//DisorderGeneAssociationType/Name") or None,
+                "assessed": (a.findtext(".//DisorderGeneAssociationStatus/Name") or "") == "Assessed",
+            })
+    return out
+
+
+def _build_orpha_prevalence(text: str) -> dict:
+    """ORPHAcode -> prevalence records, from product9_prev."""
+    out: dict[str, list] = {}
+    for el in _orpha_iter(text):
+        code = el.findtext("OrphaCode")
+        if not code:
+            continue
+        rows = []
+        for p in el.findall(".//Prevalence"):
+            band = p.findtext("PrevalenceClass/Name")
+            if not band or band in _ORPHA_UNKNOWN:
+                continue
+            rows.append({
+                # Point prevalence and annual incidence are not interchangeable
+                # and readers conflate them, so the type is carried, not dropped.
+                "type": p.findtext("PrevalenceType/Name") or None,
+                "band": band,
+                "geography": p.findtext("PrevalenceGeographic/Name") or None,
+                "validated": (p.findtext("PrevalenceValidationStatus/Name") or "") == "Validated",
+            })
+        if rows:
+            out[code] = rows
+    return out
+
+
+def _build_orpha_onset(text: str) -> dict:
+    """ORPHAcode -> ages of onset and inheritance, from product9_ages."""
+    out: dict[str, list] = {}
+    for el in _orpha_iter(text):
+        code = el.findtext("OrphaCode")
+        if not code:
+            continue
+        onset = [a.findtext("Name") for a in el.findall(".//AverageAgeOfOnset") if a.findtext("Name")]
+        moi = [a.findtext("Name") for a in el.findall(".//TypeOfInheritance") if a.findtext("Name")]
+        if onset or moi:
+            out[code] = [{"onset": onset, "inheritance": moi}]
+    return out
+
+
+_orpha_genes = BulkIndex("Orphanet genes", f"{ORPHA_XML}/en_product6.xml", _build_orpha_genes)
+_orpha_prev = BulkIndex("Orphanet prevalence", f"{ORPHA_XML}/en_product9_prev.xml", _build_orpha_prevalence)
+_orpha_onset = BulkIndex("Orphanet onset", f"{ORPHA_XML}/en_product9_ages.xml", _build_orpha_onset)
+
+
+async def fetch_orphanet_prevalence(gene_symbol: str) -> list[dict]:
+    """How common the *diseases* this gene causes actually are.
+
+    This is the one number MyDNA had no source for, and its absence was the
+    app's most plausible misreading. gnomAD answers "how many people carry a
+    variant in this gene" — roughly 1 in 720 for some genes, drawn as a large
+    dot grid. Nothing on the page distinguished that from "how many people have
+    the disease", which is often a thousand times rarer. A reader looking at the
+    pictogram had every reason to conflate the two, and the fix is to state the
+    other number beside it rather than to caption the confusion away.
+
+    Rare disease only, by definition — Orphanet does not cover common
+    conditions, so a gene behind ordinary cardiovascular risk returns nothing.
+    The panel must be absent for those rather than empty.
+
+    Bands are Orphanet's published ranges, not midpoints: "1-9 / 100 000" is a
+    range they chose, and averaging it would invent precision they withheld.
+    """
+    disorders = await _orpha_genes.get(gene_symbol)
+    if not disorders:
+        return []
+
+    out = []
+    for d in disorders:
+        code = d["orphacode"]
+        prev, onset = await asyncio.gather(
+            _orpha_prev.get(code), _orpha_onset.get(code), return_exceptions=True,
+        )
+        prev = prev if isinstance(prev, list) else []
+        onset = onset if isinstance(onset, list) else []
+        ages = onset[0] if onset else {}
+        if not prev and not ages:
+            continue
+        out.append({
+            "orphacode": code,
+            "disorder": d["disorder"],
+            "association": d["association"],
+            "assessed": d["assessed"],
+            "prevalence": prev[:4],
+            "onset": ages.get("onset") or [],
+            "inheritance": ages.get("inheritance") or [],
+            "url": f"https://www.orpha.net/en/disease/detail/{code}",
+        })
+
+    # Assessed associations first, then the ones with a prevalence figure —
+    # a disorder with a number is more use than one with only an onset.
+    out.sort(key=lambda r: (not r["assessed"], not r["prevalence"], r["disorder"]))
+    return out[:15]

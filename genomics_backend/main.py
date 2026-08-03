@@ -271,10 +271,14 @@ async def _startup_diagnostics() -> None:
 
 async def _warm_bulk_indexes() -> None:
     """Build the downloaded reference indexes before anyone asks for them."""
-    from services.genomics_api_real import fetch_gencc_validity
+    from services.genomics_api_real import fetch_gencc_validity, fetch_orphanet_prevalence
     try:
-        # Any gene will do; the call builds the whole index as a side effect.
+        # Any gene will do; each call builds its whole index as a side effect.
+        # Sequential rather than gathered: four downloads at once on a cold boot
+        # competes with the first real requests for bandwidth, and nothing is
+        # waiting on these.
         await fetch_gencc_validity("BRCA1")
+        await fetch_orphanet_prevalence("COL1A1")
         logger.info("Bulk indexes warmed")
     except Exception as e:
         logger.warning("Bulk index warm-up failed, will rebuild on demand: %s", e)

@@ -130,8 +130,8 @@ handles a dropped payload by saying so and offering to ask again.
 
 ```bash
 cd genomics_backend
-python -m pytest -m "not external"   # 219 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
-python -m pytest                     # all 288, adds the ones hitting real APIs
+python -m pytest -m "not external"   # 225 checks, ~1.5s, no network — what CI runs (195 + 2 skipped there; see below)
+python -m pytest                     # all 297, adds the ones hitting real APIs
 ```
 
 Anything reaching NCBI, Ensembl or Anthropic is marked `external` and excluded
@@ -169,7 +169,7 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **25 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **26 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
@@ -230,7 +230,15 @@ ClinGen is 3,653 of GenCC's 30,410 assertions — **12%**. The other 88% come fr
 
 Cost is a 26 MB TSV parsed into a gene-keyed index and held resident, which is why it wants one shared bulk-index mechanism rather than a bespoke loader — Orphanet would use the same.
 
-**Orphanet remains unwired, and the reason is memory rather than access.** Verified reachable, and CC-BY 4.0 with commercial use permitted — the licence is declared inline in every API response. Their REST API exposes only `rd-cross-referencing`, so gene–disease associations are bulk-only (`en_product6.xml`, ~22 MB) and need a cached index rather than a call. Rare-disease gene links are already covered by HPO, Monarch and ClinGen, so this one genuinely is incremental. Categorised under "Licensed and available, not connected" in [legal/data-source-licensing.md](legal/data-source-licensing.md) — available when something wants it, blocked by nothing.
+**Orphanet is connected, and it exists to correct a misreading rather than to add a panel.** MyDNA had *no prevalence source at all* — grep confirmed it. gnomAD answers "how many people carry a variant in this gene", roughly 1 in 720 for some, drawn as a large dot grid; nothing on the page distinguished that from "how many people have the disease", which is often a thousand times rarer. A reader had every reason to conflate them. `PrevalencePanel` states the contrast in words at the top, quoting the carrier rate from the same answer, before showing any figure.
+
+**Bands are Orphanet's published ranges, never midpoints.** "1-9 / 100 000" is a range they chose deliberately and averaging it would invent precision they withheld. Point prevalence and annual incidence are labelled separately for the same reason — they are routinely swapped and are not interchangeable. A band of `Unknown` is dropped rather than shown, because rendering an absence as a figure presents it as a finding.
+
+**Three files, joined at query time**, all through `BulkIndex`: `en_product6` for gene → disorder, `en_product9_prev` for the bands, `en_product9_ages` for onset and inheritance. Parsed with `iterparse` and cleared per element — a DOM of a 36 MB XML is several times its size on disk, while clearing keeps the peak near one disorder. 85% of the 13,484 prevalence records carry a usable band.
+
+**It covers rare disease only, and that is a feature to preserve.** A gene behind ordinary cardiovascular risk returns `[]` and the panel is absent rather than empty; claiming coverage it does not have would be worse than having none.
+
+**Orphanet's REST API remains unusable for this, which is why it is bulk.** Verified reachable, and CC-BY 4.0 with commercial use permitted — the licence is declared inline in every API response. Their REST API exposes only `rd-cross-referencing`, so gene–disease associations are bulk-only (`en_product6.xml`, ~22 MB) and need a cached index rather than a call. Rare-disease gene links are already covered by HPO, Monarch and ClinGen, so this one genuinely is incremental. Categorised under "Licensed and available, not connected" in [legal/data-source-licensing.md](legal/data-source-licensing.md) — available when something wants it, blocked by nothing.
 
 **Four sources were added after the original nineteen, and two of them are core on purpose.** `plain_summary` (MedlinePlus Genetics) and `constraint` (gnomAD) ride along in `run_gene_pipeline` rather than being offered as sections, because their job is to be **in the prompt**, not only on the page.
 

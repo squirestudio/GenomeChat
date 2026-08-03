@@ -21,7 +21,7 @@ import { rankAssociations } from "./gwas";
 // rather than as unrelated categories.
 const CONSEQUENCE_SHADES = ["#dc2626", "#ea580c", "#d97706", "#ca8a04", "#65a30d", "#0891b2"];
 import { variantColorBands } from "./lollipop";
-import { comparePopulations, sharedPictogramScale, fillOn } from "./frequency";
+import { comparePopulations, sharedPictogramScale, fillOn, oneInPhrase } from "./frequency";
 import { Markdown } from "./markdown.jsx";
 import {
   consequenceClass, significanceClass, evidenceLevel,
@@ -1777,6 +1777,91 @@ const GENCC_STYLE = {
   "Refuted Evidence": { bg: "rgb(var(--c-danger) / 0.3)", color: "var(--danger)" },
 };
 const gcStyle = (c) => GENCC_STYLE[c] || { bg: "rgb(var(--c-surface) / 0.6)", color: "var(--text-dimmer)" };
+
+/**
+ * How common the diseases are — as distinct from how common the variants are.
+ *
+ * This panel exists to correct a misreading rather than to add a number. The
+ * population pictogram says "1 in 720 people carry a variant in this gene" in
+ * large type, and nothing on the page distinguished that from "1 in 720 people
+ * have the disease" — which is often a thousand times rarer. A reader had every
+ * reason to conflate them, so the contrast is stated in words at the top rather
+ * than left for them to infer.
+ *
+ * Bands are Orphanet's published ranges, not midpoints. "1-9 / 100 000" is a
+ * range they chose deliberately; averaging it would invent precision they
+ * withheld. Point prevalence and annual incidence are labelled separately for
+ * the same reason — they are not interchangeable and are routinely swapped.
+ *
+ * Rare disease only, by definition. A gene behind ordinary cardiovascular risk
+ * returns nothing and the panel is absent rather than empty.
+ */
+function PrevalencePanel({ entries, gene, carrierRate }) {
+  if (!entries?.length) return null;
+  const withFigures = entries.filter(e => e.prevalence?.length);
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-border) / 0.2)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>How Common Are These Diseases?</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {withFigures.length} with figures · Orphanet
+        </span>
+      </div>
+
+      {/* The distinction this panel exists for, said plainly and first. */}
+      <div style={{ margin: "0.6rem 0.875rem 0", padding: "0.55rem 0.7rem", borderRadius: 8,
+                    background: "rgb(var(--c-accent) / 0.07)", borderLeft: "3px solid rgb(var(--c-accent) / 0.45)" }}>
+        <p style={{ fontSize: "0.7rem", color: "var(--text-faint)", lineHeight: 1.55, margin: 0 }}>
+          <strong style={{ color: "var(--text-muted)" }}>Carrying a variant and having a disease are different things.</strong>{" "}
+          {carrierRate
+            ? <>The chart above says roughly <strong>{carrierRate}</strong> people carry some variant in {gene}. The figures below are how many people actually have each condition — usually far rarer, because most variants in a gene are harmless.</>
+            : <>Variant frequencies describe how many people carry a change in {gene}. The figures below are how many people actually have each condition — usually far rarer, because most variants in a gene are harmless.</>}
+        </p>
+      </div>
+
+      <div style={{ padding: "0.7rem 0.875rem 0.85rem", display: "flex", flexDirection: "column", gap: 6 }}>
+        {entries.map((e) => (
+          <a key={e.orphacode} href={e.url} target="_blank" rel="noreferrer"
+            style={{ textDecoration: "none", position: "relative", display: "block" }}>
+            <ExternalArrow />
+            <div style={{ padding: "0.5rem 0.65rem", background: "rgb(var(--c-surface) / 0.3)", border: "1px solid rgb(var(--c-border) / 0.25)", borderRadius: 8 }}>
+              <p style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.4, paddingRight: 14 }}>
+                {e.disorder}
+              </p>
+              {e.prevalence?.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 4 }}>
+                  {e.prevalence.map((p, k) => (
+                    <span key={k}
+                      title={`${p.type || "Prevalence"}${p.geography ? ` — ${p.geography}` : ""}${p.validated ? " — validated by Orphanet" : " — not yet validated"}`}
+                      style={{ fontSize: "0.64rem", padding: "0.16em 0.5em", borderRadius: 4, whiteSpace: "nowrap",
+                               background: "rgb(var(--c-accent) / 0.14)", color: "var(--accent)",
+                               border: "1px solid rgb(var(--c-accent) / 0.25)" }}>
+                      {p.band}
+                      {p.type === "Annual incidence" && <span style={{ opacity: 0.75 }}> / year</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: "0.63rem", color: "var(--text-dimmer)", marginTop: 4 }}>
+                {[e.onset?.length ? `onset: ${e.onset.join(", ").toLowerCase()}` : null,
+                  e.inheritance?.length ? e.inheritance.join(", ") : null,
+                  e.assessed ? null : "association not yet assessed",
+                 ].filter(Boolean).join(" · ")}
+              </p>
+            </div>
+          </a>
+        ))}
+        <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", lineHeight: 1.5, marginTop: 2 }}>
+          Ranges are Orphanet&rsquo;s own bands, not averages. Prevalence is how many
+          people have a condition at a given time; annual incidence is how many are
+          newly diagnosed each year — they are marked separately because they are
+          not interchangeable. Orphanet covers rare disease only.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function GenCCPanel({ entries, gene }) {
   const [open, setOpen] = useState(() => new Set());
@@ -4747,6 +4832,11 @@ function SectionPanel({ sectionKey, msg, dnaData, settings, onGene }) {
     case "publication_timeline": return d.publication_timeline?.length > 0 ? <PublicationTimeline timeline={d.publication_timeline} /> : null;
     case "disease_network":      return d.disease_network?.diseases?.length > 0 ? <DiseaseNetworkPanel data={d.disease_network} geneName={msg.target} onGene={onGene} /> : null;
     case "gencc":                return d.gencc?.length ? <GenCCPanel entries={d.gencc} gene={msg.target} /> : null;
+    case "prevalence":           return d.prevalence?.length
+      ? <PrevalencePanel entries={d.prevalence} gene={msg.target}
+          carrierRate={(d.population_summary || [])[0]?.allele_frequency
+            ? oneInPhrase((d.population_summary || [])[0].allele_frequency) : null} />
+      : null;
     case "clinical_trials":      return d.clinical_trials?.length ? <ClinicalTrialsPanel trials={d.clinical_trials} /> : null;
     case "panels":               return d.panels?.length ? <GenePanelsPanel panels={d.panels} /> : null;
     case "structural_variants":  return d.structural_variants?.variants?.length > 0 ? <StructuralVariantsPanel data={d.structural_variants} locus={d.gene_locus_grch37} geneName={msg.target} /> : null;

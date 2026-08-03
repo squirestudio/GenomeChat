@@ -233,3 +233,75 @@ def test_consensus_is_the_strongest_verdict_not_an_average():
                  if v["classification"] in GENCC_STRENGTH]
         if ranks:
             assert GENCC_STRENGTH.index(e["consensus"]) == min(ranks)
+
+
+# ── Orphanet ─────────────────────────────────────────────────────────────────
+
+def test_prevalence_is_registered():
+    from services.genomics_api_real import OPTIONAL_SECTIONS, SECTION_SOURCE, DICT_SECTIONS
+    assert "prevalence" in OPTIONAL_SECTIONS
+    assert SECTION_SOURCE["prevalence"] == "Orphanet"
+    assert "prevalence" not in DICT_SECTIONS
+
+
+def test_unknown_prevalence_bands_are_dropped_not_shown():
+    """Orphanet records a band of "Unknown" for many disorders. Rendering that
+    as a prevalence figure would present an absence as a finding."""
+    from services.genomics_api_real import _build_orpha_prevalence
+    xml = """<JDBOR><DisorderList><Disorder><OrphaCode>1</OrphaCode>
+      <PrevalenceList><Prevalence><PrevalenceClass><Name lang="en">Unknown</Name></PrevalenceClass>
+      </Prevalence></PrevalenceList></Disorder></DisorderList></JDBOR>"""
+    assert _build_orpha_prevalence(xml) == {}
+
+
+def test_a_real_band_survives_with_its_type_and_geography():
+    """Point prevalence and annual incidence are not interchangeable and are
+    routinely swapped, so the type has to travel with the number."""
+    from services.genomics_api_real import _build_orpha_prevalence
+    xml = """<JDBOR><DisorderList><Disorder><OrphaCode>216796</OrphaCode>
+      <PrevalenceList><Prevalence>
+        <PrevalenceType><Name lang="en">Annual incidence</Name></PrevalenceType>
+        <PrevalenceClass><Name lang="en">1-9 / 100 000</Name></PrevalenceClass>
+        <PrevalenceGeographic><Name lang="en">Europe</Name></PrevalenceGeographic>
+        <PrevalenceValidationStatus><Name lang="en">Validated</Name></PrevalenceValidationStatus>
+      </Prevalence></PrevalenceList></Disorder></DisorderList></JDBOR>"""
+    got = _build_orpha_prevalence(xml)["216796"][0]
+    assert got == {"type": "Annual incidence", "band": "1-9 / 100 000",
+                   "geography": "Europe", "validated": True}
+
+
+def test_gene_associations_record_whether_orphanet_assessed_them():
+    """An assessed association is a stronger claim than an unassessed one, and
+    the panel sorts on it."""
+    from services.genomics_api_real import _build_orpha_genes
+    xml = """<JDBOR><DisorderList><Disorder><OrphaCode>9</OrphaCode><Name lang="en">Test disorder</Name>
+      <DisorderGeneAssociationList><DisorderGeneAssociation>
+        <Gene><Symbol>COL1A1</Symbol></Gene>
+        <DisorderGeneAssociationType><Name lang="en">Disease-causing germline mutation(s) in</Name></DisorderGeneAssociationType>
+        <DisorderGeneAssociationStatus><Name lang="en">Assessed</Name></DisorderGeneAssociationStatus>
+      </DisorderGeneAssociation></DisorderGeneAssociationList></Disorder></DisorderList></JDBOR>"""
+    got = _build_orpha_genes(xml)["COL1A1"][0]
+    assert got["orphacode"] == "9" and got["assessed"] is True
+
+
+@pytest.mark.external
+def test_orphanet_gives_disease_prevalence_for_a_rare_disease_gene():
+    """COL1A1 causes osteogenesis imperfecta and Ehlers-Danlos subtypes, all
+    rare and all with published bands. This is the number MyDNA had no source
+    for at all."""
+    import asyncio
+    from services.genomics_api_real import fetch_orphanet_prevalence
+    got = asyncio.run(fetch_orphanet_prevalence("COL1A1"))
+    assert got, "Orphanet returned nothing for COL1A1"
+    assert any(e["prevalence"] for e in got)
+    assert any(e["onset"] for e in got)
+
+
+@pytest.mark.external
+def test_orphanet_returns_a_list_and_never_raises_for_an_unknown_gene():
+    """It covers rare disease only, so plenty of genes have no entry. That has
+    to come back as an empty list — the panel is then absent rather than empty,
+    and claiming coverage it does not have would be worse than having none."""
+    import asyncio
+    from services.genomics_api_real import fetch_orphanet_prevalence
+    assert asyncio.run(fetch_orphanet_prevalence("NOTAGENE12345")) == []

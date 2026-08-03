@@ -113,7 +113,7 @@ Behind Railway's proxy `request.client.host` is the proxy, so `client_ip()` read
 **Frontend tests live beside the code they cover and run on every push.**
 
 ```bash
-cd frontend && npm test          # 409 checks, ~0.6s
+cd frontend && npm test          # 424 checks, ~0.6s
 ```
 
 They cover pure logic, not component rendering: DNA parsing, SSE framing, plan
@@ -498,6 +498,18 @@ Two failures found this way, both invisible to inspection because the values *lo
 The hardcoded badge colours in the report HTML were always light-appropriate (dark text on light tints), so they needed no change — it was only the tokens that flipped. Any new theme-scoped rule that needs to reach the report must be written without `:root`, as `.prose-genomics code` now is.
 
 `API` is `import.meta.env.VITE_API_URL || "http://localhost:8000"`; set `VITE_API_URL` in Vercel.
+
+### Two DNA-level views, and the honesty in each
+
+[karyogram.js](frontend/src/karyogram.js) and [helix.js](frontend/src/helix.js) exist because everything else in the app is gene- or protein-level. Both are drawn from the file in the browser; nothing is sent to render either.
+
+**The karyogram's point is sparseness.** A consumer array reads about one base in every 3,400, and the gaps are places the test did not look rather than missing DNA. Density is binned because a million individual marks is a solid bar, which would hide the unevenness worth seeing — coverage clusters where the chip targets known variants and vanishes across centromeres. GRCh37, with a test pinning chr1 at 249,250,621 so a build mix-up fails loudly instead of shifting every mark by megabases. Mitochondrial and unplaceable rows are counted and reported rather than dropped, or the totals would disagree with the reader's own file.
+
+**The helix has one correctness constraint that shapes its whole design.** A rung is a base *pair* — A opposite T, G opposite C — across two complementary strands of one molecule. A genotype like `AG` is not that: it means one chromosome copy reads A and the other reads G. **Drawing "A—G" as a rung would teach something false**, so the rung is a true complementary pair and a heterozygous position is *ringed* instead. That ring is the most interesting thing on the panel — it is where someone sees concretely that they carry two copies.
+
+A single-letter genotype is **hemizygous**, not homozygous. 23andMe reports one base on Y and for mitochondrial positions because there is genuinely one copy; expanding `A` to `AA` would claim a second copy that does not exist.
+
+Rungs sit at real coordinates so the gaps are literal, and thinning **pins both endpoints** — sampling at `i * length / max` never lands on the final element, so the helix used to stop short of the end of the gene, which is a small lie about where the data runs to. A test caught that.
 
 ### Personal DNA data — the privacy invariant
 

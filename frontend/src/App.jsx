@@ -13,6 +13,7 @@ import { countMatches, matchedAllelePhenotype, normalizeGenotype } from "./pgx";
 import { makeDocument, documentsForRequest, saveDocsToSession, loadDocsFromSession, documentsSummary } from "./documents";
 import { classifyFile, needsVision, extractText } from "./extract";
 import { CHROMOSOMES, binVariants, coveragePhrase, locusBin } from "./karyogram";
+import { BASE_COLOR, buildHelix, strandPath, rungEnds, helixCoverage } from "./helix";
 import { layoutSpans, spanLegend, svKind, formatBp } from "./spans";
 import { buildNetwork, evidenceColor } from "./network";
 import { rankCancerTypes, splitConsequences } from "./cancer";
@@ -3823,6 +3824,114 @@ function Karyogram({ dnaData, locus, gene }) {
   );
 }
 
+/**
+ * The reader's own bases, at this gene, drawn as the molecule.
+ *
+ * The one correctness decision worth knowing about: a rung of a double helix is
+ * a base *pair* — A opposite T — across two complementary strands of one
+ * molecule. A genotype like "AG" is something different: one chromosome copy
+ * reads A, the other reads G. So the rung is drawn as a true pair, and a
+ * position where the two copies differ is **marked** rather than drawn as
+ * "A—G", which would teach something false. See helix.js.
+ *
+ * Rungs sit at their real coordinates, so the gaps are literal. Eleven readings
+ * across eighty thousand bases draws as a mostly bare backbone with eleven
+ * coloured rungs — which is exactly what a consumer array read, and far more
+ * honest than a full ladder.
+ *
+ * Rendered from the file in the browser. Nothing is sent to draw this.
+ */
+function HelixView({ dnaData, locus, gene }) {
+  const hits = useMemo(() => variantsInLocus(dnaData, locus), [dnaData, locus]);
+  const { rungs, span, kept } = useMemo(() => buildHelix(hits, locus), [hits, locus]);
+  const [focus, setFocus] = useState(null);
+  if (!rungs.length) return null;
+
+  const W = 720, H = 96, TURNS = 3.5;
+  const back = strandPath(W, H, TURNS, 0);
+  const front = strandPath(W, H, TURNS, Math.PI);
+  const toPath = (pts) => pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+  const hetero = rungs.filter(r => r.zygosity === "heterozygous").length;
+  const perBase = helixCoverage(kept, span);
+
+  return (
+    <div style={{ marginTop: "1rem", background: "rgb(var(--c-deep) / 0.6)", border: "1px solid rgb(var(--c-violet) / 0.25)", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.625rem 0.875rem", borderBottom: "1px solid rgb(var(--c-violet) / 0.15)", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--violet)" }}>Your {gene}, base by base</span>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {kept} readings{hetero > 0 ? ` · ${hetero} where your two copies differ` : ""}
+        </span>
+      </div>
+
+      <div style={{ padding: "0.55rem 0.875rem 0", overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" style={{ display: "block", minWidth: 420 }}
+          aria-label={`Double helix of ${gene} showing ${kept} of your genotyped positions`}>
+          {/* Rungs behind the strands where the helix twists away, in front
+              where it faces the reader — which is what reads as three
+              dimensions rather than a flat ladder. */}
+          {rungs.filter(r => rungEnds(r.at, W, H, TURNS).depth < 0.5).map((r, i) => {
+            const { x, y1, y2 } = rungEnds(r.at, W, H, TURNS);
+            return <line key={`b${i}`} x1={x} y1={y1} x2={x} y2={y2}
+              stroke={BASE_COLOR[r.base] || "var(--text-dim)"} strokeWidth={2} opacity={0.35} />;
+          })}
+
+          <path d={toPath(back)} fill="none" stroke="rgb(var(--c-violet) / 0.55)" strokeWidth={2.5} />
+          <path d={toPath(front)} fill="none" stroke="rgb(var(--c-violet) / 0.9)" strokeWidth={2.5} />
+
+          {rungs.map((r, i) => {
+            const { x, y1, y2, depth } = rungEnds(r.at, W, H, TURNS);
+            if (depth < 0.5) return null;
+            const isFocus = focus === r.rsid;
+            return (
+              <g key={i} onMouseEnter={() => setFocus(r.rsid)} onMouseLeave={() => setFocus(null)}
+                style={{ cursor: "default" }}>
+                <line x1={x} y1={y1} x2={x} y2={y2}
+                  stroke={BASE_COLOR[r.base] || "var(--text-dim)"}
+                  strokeWidth={isFocus ? 4 : 2.5} opacity={isFocus ? 1 : 0.9} />
+                {/* A position where the two copies differ gets a ring. It is the
+                    thing a reader has probably never seen about themselves, and
+                    it cannot be drawn into the ladder without lying. */}
+                {r.zygosity === "heterozygous" && (
+                  <circle cx={x} cy={H / 2} r={isFocus ? 4 : 3} fill="none"
+                    stroke="var(--warning)" strokeWidth={1.4} />
+                )}
+                <circle cx={x} cy={y1} r={2.4} fill={BASE_COLOR[r.base] || "var(--text-dim)"} />
+                <circle cx={x} cy={y2} r={2.4} fill={BASE_COLOR[r.pair] || "var(--text-dim)"} />
+                <title>{`${r.rsid} · ${r.base}–${r.pair} pair · your genotype ${r.genotype} (${r.zygosity})`}</title>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      <div style={{ padding: "0.35rem 0.875rem 0.75rem" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+          {["A", "T", "G", "C"].map(b => (
+            <span key={b} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: BASE_COLOR[b] }} />
+              <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)", fontFamily: "monospace" }}>{b}</span>
+            </span>
+          ))}
+          {hetero > 0 && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", border: "1.4px solid var(--warning)" }} />
+              <span style={{ fontSize: "0.62rem", color: "var(--text-dimmer)" }}>your two copies differ here</span>
+            </span>
+          )}
+        </div>
+        <p style={{ fontSize: "0.62rem", color: "var(--text-faintest)", lineHeight: 1.55, margin: 0 }}>
+          Each rung is a base pair — A always opposite T, G always opposite C —
+          at a position your file actually read. Across {gene} that is{" "}
+          {perBase ? <strong style={{ color: "var(--text-dimmer)" }}>about one base in every {perBase.toLocaleString()}</strong> : "a small fraction"},
+          which is why the backbone runs mostly bare: the rest was never looked
+          at, not missing. You carry two copies of this gene, so a ringed rung is
+          a place where they read differently — one from each parent.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function MyVariantsPanel({ dnaData, locus, gene }) {
   const [annotations, setAnnotations] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -5267,6 +5376,12 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
                   reader learns how little of their sequence was read. */}
               {dnaData && (
                 <Karyogram dnaData={dnaData} locus={msg.data?.gene_locus_grch37} gene={msg.target} />
+              )}
+
+              {/* Genome, then this gene's bases, then the variant list: zoomed
+                  out to zoomed in, each answering a different question. */}
+              {dnaData && msg.data?.gene_locus_grch37 && (
+                <HelixView dnaData={dnaData} locus={msg.data.gene_locus_grch37} gene={msg.target} />
               )}
 
               {dnaData && msg.data?.gene_locus_grch37 && (

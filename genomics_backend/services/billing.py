@@ -105,6 +105,58 @@ def get_price_display(test_mode: bool = False) -> dict:
     return out
 
 
+# Amounts offered on the support screen, in cents. Fixed rather than free-entry
+# because an open box makes people guess, and because a $0.50 contribution costs
+# more in Stripe's flat fee than it delivers.
+SUPPORT_AMOUNTS = (500, 1500, 5000)
+SUPPORT_MIN, SUPPORT_MAX = 200, 50000
+
+
+def create_support_session(amount_cents: int, user_id: int = 0, test_mode: bool = False) -> str:
+    """A contribution towards running costs. Grants nothing, on purpose.
+
+    Kept separate from `create_checkout_session` because the difference is not
+    cosmetic: the moment a contribution unlocks a feature it stops being support
+    and becomes a sale, with different refund expectations and a different
+    consumer-protection posture. `purchase_type` is deliberately a value the
+    webhook has no grant branch for, so nothing can be entitled by accident.
+
+    Uses inline `price_data` rather than a dashboard Price so the amount is the
+    reader's choice and no new configuration is needed for it to work.
+    """
+    settings = get_settings()
+    secret_key, _ = stripe_credentials_for(test_mode)
+    if not secret_key:
+        raise ValueError("Stripe not configured in this mode")
+    amount = max(SUPPORT_MIN, min(int(amount_cents), SUPPORT_MAX))
+
+    stripe.api_key = secret_key
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        mode="payment",
+        line_items=[{
+            "quantity": 1,
+            "price_data": {
+                "currency": "usd",
+                "unit_amount": amount,
+                "product_data": {
+                    "name": "Support MyDNA",
+                    # Shown on the Stripe page and on the receipt. It states the
+                    # two things that keep this from being a sale or a donation.
+                    "description": "A contribution towards running costs. "
+                                   "Not tax-deductible, and unlocks no features.",
+                },
+            },
+        }],
+        metadata={"user_id": str(user_id or 0), "purchase_type": "support"},
+        success_url=f"{settings.frontend_url}?support=thanks",
+        cancel_url=f"{settings.frontend_url}?support=cancelled",
+    )
+    if test_mode:
+        logger.info("TEST-MODE support session created (%d cents)", amount)
+    return session.url
+
+
 def create_checkout_session(user_id: int, purchase_type: str, test_mode: bool = False) -> str:
     settings = get_settings()
     secret_key, prices = stripe_credentials_for(test_mode)

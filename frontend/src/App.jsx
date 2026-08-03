@@ -1145,6 +1145,95 @@ function WelcomeTour({ onClose }) {
   );
 }
 
+/**
+ * Support MyDNA — a contribution, not a purchase.
+ *
+ * Deliberately not called "Donate". MyDNA is a sole proprietorship, not a
+ * registered charity, so money received is ordinary taxable income rather than
+ * a deductible gift — and the word "donate" invites a reader to assume
+ * otherwise. Both facts are stated on the screen rather than buried, because
+ * the whole product argues for saying the less flattering thing out loud.
+ *
+ * **It unlocks nothing.** The moment a contribution grants a feature it becomes
+ * a sale, with different refund expectations. The amounts are fixed because an
+ * open box makes people guess, and because Stripe's flat 30c makes very small
+ * contributions cost more to process than they deliver.
+ */
+const SUPPORT_TIERS = [
+  { cents: 500, label: "$5", note: "about a month of server costs" },
+  { cents: 1500, label: "$15", note: "a few months" },
+  { cents: 5000, label: "$50", note: "a year, comfortably" },
+];
+
+function SupportModal({ onClose }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  const contribute = async (cents) => {
+    setBusy(cents); setError(null);
+    try {
+      const r = await fetch(`${API}/billing/support`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ amount_cents: cents }),
+      });
+      if (r.status === 501) throw new Error("Contributions are not configured yet.");
+      if (!r.ok) throw new Error("Could not start checkout. Please try again.");
+      const { url } = await r.json();
+      window.location.href = url;
+    } catch (e) {
+      setError(e.message); setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgb(var(--c-shadow) / 0.7)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 901,
+                    background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16,
+                    padding: "1.75rem", width: 420, maxWidth: "calc(100vw - 2rem)",
+                    boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.6rem" }}>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Support MyDNA</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <p style={{ fontSize: "0.78rem", color: "var(--text-dim)", lineHeight: 1.6, margin: "0 0 1rem" }}>
+          MyDNA is an independent project run by one person. It queries 26 public
+          research databases and keeps nothing about you. Contributions cover
+          hosting and the model costs behind each answer.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: "1rem" }}>
+          {SUPPORT_TIERS.map(t => (
+            <button key={t.cents} onClick={() => contribute(t.cents)} disabled={busy !== null}
+              style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "0.6rem 0.8rem", borderRadius: 10,
+                       background: "rgb(var(--c-accent) / 0.08)", border: "1px solid rgb(var(--c-accent) / 0.3)",
+                       cursor: busy === null ? "pointer" : "default", textAlign: "left", opacity: busy !== null && busy !== t.cents ? 0.5 : 1 }}>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--accent)" }}>{t.label}</span>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>
+                {busy === t.cents ? "Opening checkout…" : t.note}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {error && <p style={{ fontSize: "0.72rem", color: "var(--danger)", margin: "0 0 0.75rem" }}>{error}</p>}
+
+        {/* The two things a reader is entitled to know before paying, said
+            plainly rather than in a footnote. */}
+        <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", lineHeight: 1.55, margin: 0,
+                    paddingTop: "0.75rem", borderTop: "1px solid var(--border-solid)" }}>
+          MyDNA is not a registered charity, so this is <strong style={{ color: "var(--text-dimmer)" }}>not
+          tax-deductible</strong>. It also <strong style={{ color: "var(--text-dimmer)" }}>unlocks
+          nothing</strong> — no extra queries, no features. If you want more
+          queries, the credit packs do that and cost less.
+        </p>
+      </div>
+    </>
+  );
+}
+
 function SignInGateModal({ onClose, reason = "queries" }) {
   const dna = reason === "dna";
   const docs = reason === "documents";
@@ -5343,6 +5432,7 @@ export default function App({ onNavigate }) {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [documents, setDocuments] = useState(() => loadDocsFromSession());
   const [showDocModal, setShowDocModal] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
   // First run only. A tutorial that reappears is worse than none — the second
   // showing is pure friction and the reader has already decided.
   const [showTour, setShowTour] = useState(() => {
@@ -6217,6 +6307,8 @@ export default function App({ onNavigate }) {
       `}</style>
       <div style={{ display: "flex", height: "100vh", background: "var(--bg)", color: "var(--text-secondary)", overflow: "hidden", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
         {showSettings && <SettingsPanel settings={settings} onChange={setSettings} onClose={() => setShowSettings(false)} currentUser={currentUser} onUserRefresh={fetchMe} />}
+        {showSupport && <SupportModal onClose={() => setShowSupport(false)} />}
+
         {showTour && <WelcomeTour onClose={dismissTour} />}
 
         {showSignInGate && <SignInGateModal reason={showSignInGate} onClose={() => setShowSignInGate(false)} />}
@@ -6553,11 +6645,15 @@ export default function App({ onNavigate }) {
                   ["/about", "About MyDNA"],
                   ["/privacy", "Privacy"],
                   ["/terms", "Terms"],
+                  ["#support", "Support"],
                 ].map(([href, label], n) => (
                   <span key={href} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
                     {n > 0 && <span aria-hidden="true" style={{ color: "var(--text-faintest)" }}>·</span>}
                     <a href={href}
-                      onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate(href); } }}
+                      onClick={(e) => {
+                        if (href === "#support") { e.preventDefault(); setShowSupport(true); return; }
+                        if (onNavigate) { e.preventDefault(); onNavigate(href); }
+                      }}
                       style={{ color: "var(--text-dim)", textDecoration: "none" }}>
                       {label}
                     </a>

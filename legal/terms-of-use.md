@@ -171,14 +171,29 @@ misused.
   be reasonable. Your statutory rights are unaffected either way.
 - **Taxes** may apply depending on where you are.
 
-## 11. Availability
+## 11. Supporting MyDNA
+
+You can contribute towards running costs through the "Support MyDNA" button.
+This is **not a purchase and not a donation to a charity**, and two things follow
+from that:
+
+- MyDNA is operated by a sole proprietorship, not a registered non-profit, so a
+  contribution is **not tax-deductible**. Anyone telling you otherwise, including
+  us by accident, is wrong.
+- It **unlocks nothing** — no extra queries, no features, no priority. If you
+  want more queries, the credit packs above do that and cost less.
+
+Contributions are non-refundable, because there is nothing to return and no
+service was withheld. If you contributed by mistake, ask and we will refund it.
+
+## 12. Availability
 
 MyDNA is an independent project, not an enterprise service. It may be
 unavailable, and features may change or be withdrawn. Nothing here is a
 guarantee of continued availability. If it is ever discontinued we will give
 reasonable notice and an opportunity to export your data.
 
-## 12. Limitation of liability
+## 13. Limitation of liability
 
 To the fullest extent the law allows, MyDNA is not liable for any indirect,
 incidental, special or consequential loss, or for any loss arising from a
@@ -192,28 +207,28 @@ Nothing here excludes liability for death or personal injury caused by
 negligence, fraud, or anything else that cannot lawfully be excluded — and if
 you are a consumer, your statutory rights stand regardless of this section.
 
-## 13. Indemnity
+## 14. Indemnity
 
 You agree to indemnify us against claims arising from your misuse of MyDNA, or
 from uploading another person's genetic data without their consent.
 
-## 14. Termination
+## 15. Termination
 
 You may stop using MyDNA and delete your account at any time. We may suspend or
 terminate access for breach of these terms, or where continued access would harm
 the service or its data sources. Sections 3, 4, 6, 12 and 13 survive.
 
-## 15. Governing law
+## 16. Governing law
 
 These terms are governed by the laws of **the State of Tennessee, United States**, and disputes are
 subject to the courts of **the State of Tennessee, United States**. If you are a consumer, this does
 not deprive you of the protection of your local law.
 
-## 16. Changes
+## 17. Changes
 
 We may update these terms. Material changes will be noted on the site with a
 revised date. Continuing to use MyDNA after that means you accept them.
 
-## 17. Contact
+## 18. Contact
 
 **privacy@mydna.chat**

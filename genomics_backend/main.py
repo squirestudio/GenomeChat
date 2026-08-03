@@ -22,7 +22,7 @@ from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, cli
 from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
 from database.routes import router as projects_router, share_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
+from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 from datetime import datetime
@@ -856,6 +856,37 @@ async def billing_prices(current_user: Optional[User] = Depends(get_current_user
     return get_price_display(test_mode)
 
 
+class SupportRequest(BaseModel):
+    amount_cents: int = Field(ge=200, le=50000)
+
+
+@app.post("/billing/support")
+async def billing_support(body: SupportRequest,
+                          current_user: Optional[User] = Depends(get_current_user)):
+    """Start a contribution towards running costs.
+
+    Unauthenticated on purpose: someone who finds the project useful should be
+    able to chip in without making an account, and there is no entitlement to
+    attach to one anyway. The user id is recorded when present only so a
+    thank-you can be matched to a person in the log.
+
+    **This grants nothing.** The moment a contribution unlocks a feature it stops
+    being support and becomes a sale — see `create_support_session`.
+    """
+    try:
+        url = create_support_session(
+            body.amount_cents,
+            user_id=current_user.id if current_user else 0,
+            test_mode=is_test_mode_user(current_user),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=501, detail=str(e))
+    except Exception as e:
+        logger.error("Support session failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not start checkout")
+    return {"url": url}
+
+
 @app.post("/billing/portal")
 async def billing_portal(db: Session = Depends(get_db), current_user: User = Depends(require_user)):
     """Open Stripe's customer portal so a subscriber can cancel or update payment."""
@@ -1019,6 +1050,16 @@ async def billing_webhook(request: Request, db: Session = Depends(get_db)):
         meta = event["data"]["object"].get("metadata", {})
         user_id = int(meta.get("user_id", 0))
         purchase_type = meta.get("purchase_type", "")
+
+        # A contribution, handled before the user lookup because it needs no
+        # user and grants nothing. Anyone can support the project signed out, so
+        # a missing account here is normal rather than the paid-but-unmatched
+        # emergency the branch below exists to shout about.
+        if purchase_type == "support":
+            logger.info("Support contribution received%s (user %s)",
+                        " [TEST MODE]" if is_test else "", user_id or "anonymous")
+            return {"received": True}
+
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             # Nothing to grant, but the money moved — this needs a human.

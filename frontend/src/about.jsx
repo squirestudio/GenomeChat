@@ -19,6 +19,7 @@ const SOURCES = [
   "ClinGen", "MedGen", "GTR", "HPO", "Monarch", "Reactome", "GTEx",
   "STRING", "Open Targets", "GWAS Catalog", "ClinPGx", "NCI GDC", "PubMed", "PMC",
   "MedlinePlus", "PanelApp", "ClinicalTrials.gov", "HGNC",
+  "GenCC", "Orphanet", "Ensembl VEP",
 ];
 
 function Section({ title, children }) {

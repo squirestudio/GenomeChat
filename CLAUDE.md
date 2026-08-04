@@ -187,7 +187,7 @@ Two different models are used on purpose: interpretation is a cheap tool call, e
 
 ### The genomics fan-out
 
-`run_gene_pipeline()` is the core of the backend. It queries **27 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
+`run_gene_pipeline()` is the core of the backend. It queries **28 external biomedical APIs** (Ensembl, ClinVar, gnomAD, UniProt, AlphaFold, Reactome, GTEx, STRING, Open Targets, ClinPGx, NCI GDC/TCGA, ClinGen, GWAS Catalog, HPO, Monarch, dbSNP, dbVar, GTR, MedGen, PMC) in two `asyncio.gather` waves — the second wave depends on the UniProt accession and Ensembl ID resolved by the first.
 
 **Set `NCBI_API_KEY`.** It is free and instant from an NCBI account, and it moves the E-utilities cap from 3 to 10 requests/sec — `_NCBI_RATE` in [genomics_api_real.py](genomics_backend/services/genomics_api_real.py) reads 9.0 with a key and 2.5 without. Seven of the sources are NCBI (ClinVar, dbSNP, dbVar, GTR, MedGen, PMC, PubMed), so without the key they queue behind one limiter and the ones at the back of the queue return nothing — which looks exactly like a gene having no data. That is how ClinVar silently reported zero variants for BRCA1. The boot log prints which mode is active; `ANONYMOUS` in production is a misconfiguration, not a default.
 
@@ -512,6 +512,10 @@ Two failures found this way, both invisible to inspection because the values *lo
 The hardcoded badge colours in the report HTML were always light-appropriate (dark text on light tints), so they needed no change — it was only the tokens that flipped. Any new theme-scoped rule that needs to reach the report must be written without `:root`, as `.prose-genomics code` now is.
 
 `API` is `import.meta.env.VITE_API_URL || "http://localhost:8000"`; set `VITE_API_URL` in Vercel.
+
+**The source list is published in four places and drifted in two.** `/about` carries the full roll-call, the footer names a handful plus a link, the privacy policy lists every database that receives the gene being asked about, and `legal/data-source-licensing.md` records each one's terms. GenCC, Orphanet and Ensembl VEP were connected without being added to `/about`, which is how the count reported here was wrong by one for a while. **Adding a fetcher means touching all four.**
+
+The footer deliberately names five and then links the remainder as a count. Traceability is the strongest argument MyDNA makes and it was being understated by naming six of twenty-eight; the count is the link so the claim is checkable in a click.
 
 **`research_topics` answers what a publication count cannot.** A bar per year says a gene is studied, which the reader assumed. MeSH terms say what changed — NLM's curated vocabulary, assigned by indexers, so comparing two periods means something. **A word cloud was rejected**: title-word frequency tracks phrasing fashion as much as subject and gives no way to tell a rising topic from a common word.
 

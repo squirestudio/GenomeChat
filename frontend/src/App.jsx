@@ -5678,16 +5678,18 @@ function TypingIndicator({ stage }) {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser, open, onClose }) {
+function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser, open, onClose, collapsed, onToggleCollapse }) {
   const [newName, setNewName] = useState("");
   const [hoveredId, setHoveredId] = useState(null);
   return (
-    <aside className={`gc-sidebar${open ? " open" : ""}`}>
+    <aside className={`gc-sidebar${open ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
       <div style={{ padding: "1rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.6)", display: "flex", gap: 8 }}>
         <button onClick={onNewChat} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0.5rem 0.75rem", borderRadius: 10, background: "var(--accent-deep)", color: "white", fontSize: "0.8rem", fontWeight: 600, border: "none", cursor: "pointer" }}>
           + New Chat
         </button>
         <button onClick={onClose} className="gc-hamburger" style={{ padding: "0.5rem 0.6rem", borderRadius: 10, background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}>✕</button>
+        <button onClick={onToggleCollapse} className="gc-collapse-btn" title="Collapse sidebar" aria-label="Collapse sidebar"
+          style={{ padding: "0.5rem 0.6rem", borderRadius: 10, background: "rgb(var(--c-surface) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "0.9rem", lineHeight: 1 }}>‹</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
         {!currentUser && chatHistory.length === 0 && (
@@ -5784,6 +5786,16 @@ export default function App({ onNavigate }) {
     try { localStorage.setItem("mydna_tour_seen", "1"); } catch { /* private mode; it may reappear */ }
   }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("mydna_sidebar_collapsed") === "1"; } catch { return false; }
+  });
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed(v => {
+      const next = !v;
+      try { localStorage.setItem("mydna_sidebar_collapsed", next ? "1" : "0"); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
   const [settings, setSettings] = useState(() => loadSettings());
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -6583,10 +6595,16 @@ export default function App({ onNavigate }) {
         .gc-sidebar {
           width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
           border-right: 1px solid rgb(var(--c-surface) / 0.8); background: rgb(var(--c-deep) / 0.97);
-          transition: transform 0.25s ease;
+          transition: transform 0.25s ease, width 0.2s ease;
         }
+        /* Collapsed on desktop: width, not transform. Sliding it off-screen
+           would leave a 220px gap where it used to be, because it is a flex
+           child rather than an overlay at this size. */
+        .gc-sidebar.collapsed { width: 0; overflow: hidden; border-right: none; }
         .gc-sidebar-overlay { display: none; }
         .gc-hamburger { display: none; }
+        .gc-collapse-btn { display: inline-flex; }
+        .gc-expand-btn { display: inline-flex; align-items: center; }
         .gc-header-subtitle { display: block; }
         .gc-header-status-text { display: inline; }
         .gc-export-btn { display: inline-flex !important; }
@@ -6623,6 +6641,8 @@ export default function App({ onNavigate }) {
             background: rgb(var(--c-shadow) / 0.6);
           }
           .gc-hamburger { display: flex; }
+          .gc-collapse-btn { display: none; }
+          .gc-expand-btn { display: none; }
           .gc-header-subtitle { display: none; }
           .gc-header-status-text { display: none; }
           .gc-export-btn { display: none !important; }
@@ -6682,6 +6702,7 @@ export default function App({ onNavigate }) {
           onDeleteProject={async id => { try { await apiFetch(`/projects/${id}`, { method: "DELETE" }); if (activeProjectId === id) setActiveProjectId(null); loadProjects(); } catch {} }}
           chatHistory={chatHistory} onNewChat={() => { setMessages([]); setSidebarOpen(false); }} onLoadHistory={id => { loadHistory(id); setSidebarOpen(false); }} onDeleteHistory={deleteHistory}
           currentUser={currentUser} open={sidebarOpen} onClose={() => setSidebarOpen(false)}
+          collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapsed}
         />
 
         {showDocModal && (
@@ -6717,6 +6738,14 @@ export default function App({ onNavigate }) {
             {/* Row 1 (desktop: everything; mobile: hamburger + title + user) */}
             <div className="gc-header-row1" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1.25rem", width: "100%", boxSizing: "border-box" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* Desktop-only, and only when the sidebar is collapsed — the
+                    collapse control lives inside the sidebar, which is zero
+                    width once collapsed, so without this there is no way back. */}
+                {sidebarCollapsed && (
+                  <button onClick={toggleSidebarCollapsed} className="gc-expand-btn"
+                    title="Show sidebar" aria-label="Show sidebar"
+                    style={{ padding: "0.3rem 0.45rem", borderRadius: 8, background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "0.95rem", lineHeight: 1 }}>›</button>
+                )}
                 <button className="gc-hamburger" onClick={() => setSidebarOpen(o => !o)}
                   style={{ padding: "0.3rem 0.4rem", borderRadius: 8, background: "none", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, alignItems: "center", justifyContent: "center" }}>
                   ☰
@@ -6971,7 +7000,16 @@ export default function App({ onNavigate }) {
                 </button>
               </div>
               <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 8 }}>
-                Ensembl · ClinVar · gnomAD · MedlinePlus · PanelApp · ClinicalTrials.gov · Claude AI
+                {/* The strongest thing about MyDNA is that every answer traces
+                    somewhere, and the footer was naming six of twenty-eight —
+                    understating the one argument worth making. The count is now
+                    the link, so the claim is checkable in one click. */}
+                Ensembl · ClinVar · gnomAD · MedlinePlus · PanelApp ·{" "}
+                <a href="/about"
+                  onClick={(e) => { if (onNavigate) { e.preventDefault(); onNavigate("/about"); } }}
+                  style={{ color: "var(--text-dim)", textDecoration: "underline", textUnderlineOffset: 2 }}>
+                  and 23 more
+                </a>{" "}· Claude AI
               </p>
               {/* Attribution above the rule, navigation below it. Without the
                   divider the two read as a single list, which is the same

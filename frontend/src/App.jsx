@@ -6982,13 +6982,16 @@ export default function App({ onNavigate }) {
                   ["/about", "About MyDNA"],
                   ["/privacy", "Privacy"],
                   ["/terms", "Terms"],
-                  ["#support", "Support"],
+                  ["mailto:support@mydna.chat", "Contact"],
+                  ["#support", "Support MyDNA"],
                 ].map(([href, label], n) => (
                   <span key={href} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
                     {n > 0 && <span aria-hidden="true" style={{ color: "var(--text-faintest)" }}>·</span>}
                     <a href={href}
                       onClick={(e) => {
                         if (href === "#support") { e.preventDefault(); setShowSupport(true); return; }
+                        // A mailto goes to the mail client, not the router.
+                        if (href.startsWith("mailto:")) return;
                         if (onNavigate) { e.preventDefault(); onNavigate(href); }
                       }}
                       style={{ color: "var(--text-dim)", textDecoration: "none" }}>

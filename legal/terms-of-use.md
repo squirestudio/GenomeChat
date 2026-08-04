@@ -231,4 +231,11 @@ revised date. Continuing to use MyDNA after that means you accept them.
 
 ## 18. Contact
 
-**privacy@mydna.chat**
+- **support@mydna.chat** — anything about using MyDNA: bugs, billing, account
+  problems, feature requests, partnerships.
+- **privacy@mydna.chat** — data protection only: access, export, erasure, or a
+  question about how your information is handled.
+
+They are kept separate deliberately. The privacy address is the channel named in
+the [Privacy Policy](./privacy-policy.md) for exercising your rights, and mixing
+it with support traffic is how a rights request goes unanswered in a queue.

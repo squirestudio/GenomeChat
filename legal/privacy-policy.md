@@ -306,7 +306,7 @@ exercising any right.
   active subscription, cancel it in Stripe as well — deleting the account
   removes our record of it but does not stop billing.
 
-For anything else about your data, contact **privacy@mydna.chat**. For help using MyDNA, billing or bugs, use **support@mydna.chat**. We will respond within 30
+For anything else about your data, contact **privacy@mydna.chat**. For anything else about MyDNA — partnerships, bugs, billing, or a question — use **support@mydna.chat**. We will respond within 30
 days (GDPR) or 45 days (CCPA). We do not charge for this.
 
 ## 10. Automated decision-making

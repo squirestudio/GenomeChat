@@ -15,7 +15,7 @@ Where a claim could not be verified, the document says so rather than guessing.
 | Item | Decision |
 |---|---|
 | Controller | **Ben Brown, trading as Squire Studio**, a sole proprietorship, Tennessee. See "Entity" and "How the name shortens" below |
-| Contact | **support@mydna.chat** for the product, **privacy@mydna.chat** for data rights — kept separate so a rights request cannot go unanswered in a support queue. Both Namecheap forwarders; MX, SPF and DMARC `p=reject` verified 3 Aug 2026. Old row: **privacy@mydna.chat** — live, forwarding verified 1 Aug 2026. DMARC `p=reject` set |
+| Contact | **support@mydna.chat** for everything about MyDNA, **privacy@mydna.chat** for data rights only. One general address on purpose — a second inbox is a triage tool, and an unmonitored one is worse than none; `hello@` earns its place when partnership mail arrives often enough to cost time, not before — kept separate so a rights request cannot go unanswered in a support queue. Both Namecheap forwarders; MX, SPF and DMARC `p=reject` verified 3 Aug 2026. Old row: **privacy@mydna.chat** — live, forwarding verified 1 Aug 2026. DMARC `p=reject` set |
 | Governing law | Tennessee |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
 | Refund window | 14 days |

@@ -75,9 +75,10 @@ export default function AboutPage({ onBack }) {
               belongs in the sentence that can afford to be specific. Losing it
               entirely would have dropped the strongest claim on the page. */}
           Welcome to MyDNA — an independent project, built by one person, for
-          anyone who wants to understand their own genetics. It reads data you
-          already have, answers questions about it in plain language, and shows
-          where every answer came from.
+          anyone who wants to understand their own genetics, or to dig into
+          genetic research without needing a specialist&rsquo;s interface. Ask
+          it questions in your own words. It reads data you already have,
+          answers in plain language, and shows where every answer came from.
         </P>
 
         <Section title="Why it exists">

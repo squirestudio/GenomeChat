@@ -37,6 +37,27 @@ with traceability, which is the strongest differentiator and the least used.
 
 ---
 
+## The name, and the one it nearly had
+
+**ChatHGP** — for Human Genome Project — was the near-miss, and the reason it
+was dropped is worth keeping: the tool outgrew the human genome almost
+immediately. It queries model organisms through Monarch, protein structure
+through AlphaFold and UniProt, drug candidates through Open Targets, and rare
+disease through Orphanet. A name pinned to one project would have been wrong
+within weeks.
+
+It also carried an obvious borrowed cadence, which is a poor foundation for
+something meant to outlast its author.
+
+What that name was reaching for is still worth saying, though — **the appeal is
+that you can talk to it.** Not a database with a search box, but something you
+ask in your own words. That is what "a format you can talk to" and "Ask your DNA
+Anything" are both doing, and it should never be phrased as a comparison to
+another product: the interesting claim is that *genetics* can be conversational,
+not that MyDNA resembles a chatbot.
+
+---
+
 ## The positioning statement
 
 The founder's formulation, kept as the **internal thesis** because it is accurate
@@ -102,7 +123,10 @@ two products:
   member's. Gets plain language by default, prevalence separated from carrier
   frequency, and an explicit refusal to diagnose.
 - **The researcher or clinician** — gets the same data with the terminology
-  unglossed, effect sizes stated, and evidence traceable to PMIDs.
+  unglossed, effect sizes stated, and evidence traceable to PMIDs. **This half
+  is easy to under-serve in the copy**, because the personal story is the more
+  affecting one; `/about` names both audiences in its opening paragraph for
+  that reason.
 
 The reading-level setting is what makes one product serve both. Its two options
 are **Plain English** and **Clinical** — "Clinical" names an audience rather than

@@ -91,8 +91,8 @@ export default function AboutPage({ onBack }) {
             It was a rare and aggressive leukemia, accelerated by a handful of
             genetic mutations we still know too little about. This was in 2023;
             70 years after the discovery of the double helix, 20 years after the
-            completion of the Human Genome Project, and 11 years after CRISPR
-            was first turned into a tool for editing genes.
+            completion of the Human Genome Project, and 10 years after CRISPR
+            was first used to edit human cells.
           </P>
           <P>
             There is something beautiful about the mystery of the human body.

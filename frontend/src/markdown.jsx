@@ -149,6 +149,34 @@ function Markdown({ content, gene }) {
       }
       elements.push(<ol key={`ol${i}`} style={{ paddingLeft: "1.35rem", listStyle: "decimal", margin: "0.5rem 0" }}>{items}</ol>);
       continue;
+    } else if (line.startsWith("> ") || line.trim() === ">") {
+      // Blockquotes, added when the postal address landed in the legal pages —
+      // the same gap the numbered lists came from, found the same way. Without
+      // a case here a quoted line renders its own "&gt;" on the page.
+      //
+      // Consecutive lines are kept as separate lines rather than joined into a
+      // paragraph. Standard markdown's lazy continuation would fold an address
+      // into one run-on line, which is wrong for the only thing quoted in these
+      // documents, and CommonMark's fix (two trailing spaces) is invisible and
+      // gets stripped by editors on save.
+      const quoted = [];
+      while (i < lines.length && (lines[i].startsWith("> ") || lines[i].trim() === ">")) {
+        quoted.push(lines[i].replace(/^>\s?/, ""));
+        i++;
+      }
+      elements.push(
+        <blockquote key={`bq${i}`} style={{
+          margin: "0.7rem 0", padding: "0.1rem 0 0.1rem 0.9rem",
+          borderLeft: "2px solid rgb(var(--c-border) / 0.6)",
+        }}>
+          {quoted.map((q, n) => (
+            <p key={n} style={{ color: "var(--text-faint)", fontSize: "0.875rem", lineHeight: 1.6, margin: 0 }}>
+              {renderInline(q, gene)}
+            </p>
+          ))}
+        </blockquote>
+      );
+      continue;
     } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
       elements.push(<hr key={i} style={{ border: "none", borderTop: "1px solid var(--border-solid)", margin: "1.5rem 0" }} />);
     } else if (line.trim() === "") {

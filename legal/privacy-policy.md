@@ -30,10 +30,17 @@ Details below, including the parts that are less flattering.
 
 ## 1. Who is responsible
 
-MyDNA ("we", "us") is operated by **Ben Brown, trading as Squire Studio**, a sole proprietorship,
-[MAILING ADDRESS], Tennessee, United States. For
-questions about this policy or to exercise any right described here, contact
-**privacy@mydna.chat**.
+MyDNA ("we", "us") is operated by **Ben Brown, trading as Squire Studio**, a
+sole proprietorship. Postal address:
+
+> Squire Studio
+> Ben Brown
+> 5013 S Louise Ave, Unit #803
+> Sioux Falls, SD 57108
+> United States
+
+For questions about this policy or to exercise any right described here,
+contact **privacy@mydna.chat** — email reaches us faster than post.
 
 We have not appointed a Data Protection Officer. Our processing does not meet
 the Article 37 thresholds that require one — we are a single-person operation

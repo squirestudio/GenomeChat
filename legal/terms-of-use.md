@@ -239,3 +239,11 @@ revised date. Continuing to use MyDNA after that means you accept them.
 The two are kept apart deliberately. The privacy address is the channel named in
 the [Privacy Policy](./privacy-policy.md) for exercising your rights, and mixing
 it with everything else is how a rights request goes unanswered in a queue.
+
+By post:
+
+> Squire Studio
+> Ben Brown
+> 5013 S Louise Ave, Unit #803
+> Sioux Falls, SD 57108
+> United States

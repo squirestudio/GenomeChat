@@ -53,9 +53,33 @@ describe("the published documents", () => {
     expect(numbers).toEqual(numbers.map((_, i) => i + 1));
   });
 
-  it("the mailing address is still the only thing outstanding", () => {
-    // When this fails because the list is empty, the draft banner has served
-    // its purpose and can come off the page.
-    expect(unresolved(privacyMd)).toEqual(["MAILING ADDRESS"]);
+  it("has no blanks left, so the draft banner no longer renders", () => {
+    // This assertion used to read `toEqual(["MAILING ADDRESS"])`, with a note
+    // that its failure would mean the banner had done its job. The address was
+    // published 4 Aug 2026 and it did. Kept inverted rather than deleted: a new
+    // placeholder appearing in a published legal document should fail loudly.
+    expect(unresolved(privacyMd)).toEqual([]);
+    expect(unresolved(termsMd)).toEqual([]);
+  });
+});
+
+describe("the postal address renders as an address", () => {
+  // The address is quoted in both documents, and the markdown renderer had no
+  // blockquote case until it landed — a quoted line printed a literal ">".
+  // These assert the lines exist and stay separate; joining them into standard
+  // markdown's lazy-continuation paragraph would produce one run-on line.
+
+  it("both documents carry every line of it", () => {
+    for (const doc of [privacyMd, termsMd]) {
+      expect(doc).toContain("> Squire Studio");
+      expect(doc).toContain("> 5013 S Louise Ave, Unit #803");
+      expect(doc).toContain("> Sioux Falls, SD 57108");
+    }
+  });
+
+  it("no residence or placeholder is left anywhere in them", () => {
+    for (const doc of [privacyMd, termsMd]) {
+      expect(doc).not.toMatch(/\[[A-Z][A-Z ]+\]/);
+    }
   });
 });

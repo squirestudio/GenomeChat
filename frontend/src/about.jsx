@@ -179,14 +179,8 @@ export default function AboutPage({ onBack }) {
 
         <Section title="Why it costs anything">
           <P>
-            Subscriptions cover hosting and the AI tokens each answer consumes.
-            MyDNA does not sell data, and the reason it can afford not to is
-            that the people using it pay for it instead.
-          </P>
-          <P>
-            Free, donation-funded and open source is the direction. How to get
-            there is not solved yet. The first task was finding out whether the
-            tool could work, become useful, and be beautiful.
+            MyDNA does not sell data. Subscriptions cover hosting and the AI
+            tokens each answer consumes.
           </P>
         </Section>
 

@@ -130,12 +130,8 @@ export default function AboutPage({ onBack }) {
           <P>
             That is not a hypothesis. While MyDNA was being built, half of its
             sources were quietly returning nothing at all — not broken, just
-            answering with less and less. Nobody would have noticed.
-          </P>
-          <P>
-            So MyDNA checks every source, every week, against things already
-            known to be true. When one stops answering properly, you are told —
-            rather than quietly given less.
+            answering with less and less. MyDNA checks every source, every week,
+            against things already known to be true, and lets you know.
           </P>
         </Section>
 

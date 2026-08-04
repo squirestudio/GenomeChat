@@ -128,21 +128,14 @@ export default function AboutPage({ onBack }) {
             together.
           </P>
           <P>
-            {/* "ten of its twenty" was true the week of the audit and reads as
-                stale beside a source count that is now 28. "Half" keeps the
-                finding accurate without pinning it to a number that moves. */}
             That is not a hypothesis. While MyDNA was being built, half of its
-            sources were found returning nothing at all while still reporting
-            success — an API retired, a hostname deleted, a field renamed.
-            Nothing broke loudly. The answers simply got thinner.
+            sources were quietly returning nothing at all — not broken, just
+            answering with less and less. Nobody would have noticed.
           </P>
           <P>
-            So MyDNA watches for it. Every source is checked each week against
-            answers that are not in reasonable doubt — BRCA1 belongs to the
-            DNA-repair pathways, CYP2C19 governs how clopidogrel is processed —
-            because a test that only asks whether a source replied will pass
-            long after the data behind it is gone. When one goes quiet, that
-            raises an alert rather than quietly narrowing what you are told.
+            So MyDNA checks every source, every week, against things already
+            known to be true. When one stops answering properly, you are told —
+            rather than quietly given less.
           </P>
         </Section>
 

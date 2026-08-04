@@ -9,11 +9,18 @@ logger = logging.getLogger(__name__)
 FREE_QUERY_LIMIT = 20
 CREDITS_PER_PACK = 200
 
-# What a scanned page costs, in credits. A question costs about $0.013 in model
-# tokens; a page of vision costs two to three times that, so it spends two.
-# Sections cost nothing and spend none — the pricing follows the measurement in
-# POSITIONING.md rather than charging a flat credit for everything.
-SCAN_CREDITS = 2
+# What a scanned page costs, in credits.
+#
+# Measured, not estimated, and the estimate was wrong. A question costs $0.0128
+# in model tokens; a page of Sonnet vision costs **$0.047** — 4,843 input tokens
+# once the image is encoded, plus ~2,200 of transcription. That is 3.7x a
+# question, not the 2-3x guessed, and at two credits the feature lost money on
+# every page (netting $0.046 against $0.047 of cost).
+#
+# Four credits puts a scan at roughly the same 1.8x margin as a query, which is
+# the point: price follows cost in both directions. Sections became free by the
+# same rule, because they call no model at all.
+SCAN_CREDITS = 4
 
 
 def is_test_mode_user(user) -> bool:

@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     # Stripe billing
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
-    stripe_price_unlock: str = ""   # $5 one-time unlimited unlock Price ID
-    stripe_price_credits: str = ""  # $3 fifty-query credits pack Price ID
+    stripe_price_unlock: str = ""   # unlimited access, currently $10/month recurring
+    stripe_price_credits: str = ""  # query credit pack, currently $5 for CREDITS_PER_PACK
     stripe_price_byok: str = ""     # one-time "bring your own key" Price ID
 
     # ── Test-mode allowlist ───────────────────────────────────────────────────

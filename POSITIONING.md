@@ -133,24 +133,35 @@ hosting do not already solve.
 
 ### Pricing, measured
 
-Real cost of one gene query, measured from billed token usage rather than
-estimated: **$0.0128** (4,617 input + 1,639 output tokens, Haiku 4.5). A credit
-nets **$0.052** after Stripe's 2.9% + 30c, which on a $3 pack is 10% of the sale.
+All figures from billed token usage and live Stripe prices, not estimates.
+Stripe takes 2.9% + 30c, which is why pack size matters as much as pack price.
 
-That is roughly 4× on queries — reasonable headroom for a tool subsidising a
-free tier. Two things in the structure are wrong and are worth fixing:
+| | Gross | Net | Against cost |
+|---|---|---|---|
+| **Credits** (200) | $5.00 | $4.55 | $0.0228/credit vs **$0.0128** per query = **1.78x** |
+| **Unlimited** | $10.00/mo | $9.41 | break-even at **735 queries/month** — about 25 a day |
+| **BYOK** | $25.00 once | $23.98 | the reader then pays Anthropic directly; your cost for them goes to ~$0 |
 
-- **Explore-further sections charge a credit and make no model call at all.**
-  Near-zero marginal cost. This is the one charge that could not be defended if
-  a reader worked it out.
-- **Document scans cost ~$0.03** (Sonnet vision) and charge the same one credit
-  as a $0.0128 query — nearly break-even.
+**Measured costs.** A question is **$0.0128** — 4,617 input and 1,639 output
+tokens on Haiku 4.5. A scanned page is **$0.047**: 4,843 input tokens once the
+image is encoded, plus ~2,200 of transcription on Sonnet. A section fetch is
+**$0.00**, because it calls no model at all.
 
-**Acted on 2 August 2026.** Sections are now free — they make no model call, so
-a credit bought nothing and it was the one charge that could not be defended.
-Scanned pages cost two credits. The pack is 200 credits, which both dilutes
-Stripe's flat 30c and brings the per-credit price to roughly 2x cost rather than
-4x.
+**What that bought, and what it cost.**
 
-Outstanding, and requires a Stripe dashboard change rather than code: the credits
-Price still says $3 for what is now a 200-credit pack. See the punch list.
+- **Sections are free.** They were charging a credit for zero marginal cost —
+  the one line in the pricing that could not be defended.
+- **Scans cost 4 credits.** First set at 2 on an estimate of ~$0.03. The real
+  figure is $0.047, so two credits *lost money on every page* — netting $0.046
+  against $0.047. Four puts a scan at roughly the same 1.8x as a query.
+- **The subscription is the healthy shape.** A one-time unlock meant a heavy
+  user cost money indefinitely against a single payment; $10/month recurs with
+  the usage it funds.
+- **BYOK is the best product on every axis.** Highest margin, and it is the
+  decentralisation lever: the reader pays the model provider directly and MyDNA
+  costs nothing to serve them.
+
+**Who subsidises whom.** A fully-consumed free tier is 20 queries = **$0.26**.
+One credit pack funds about **8** such users. One BYOK sale funds about **94**.
+Against roughly $6/month of hosting, the free tier is comfortably affordable —
+which was the goal, rather than margin.

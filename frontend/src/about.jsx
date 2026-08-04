@@ -76,8 +76,8 @@ export default function AboutPage({ onBack }) {
               entirely would have dropped the strongest claim on the page. */}
           Welcome to MyDNA — an independent project, built by one person, for
           anyone who wants to understand their own genetics, or to dig into
-          genetic research without needing a specialist&rsquo;s interface. Ask
-          it questions in your own words. It reads data you already have,
+          genetic research without needing a specialized interface. Ask it
+          questions in your own words. It reads data you already have,
           answers in plain language, and shows where every answer came from.
         </P>
 

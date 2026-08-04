@@ -138,24 +138,17 @@ export default function AboutPage({ onBack }) {
         <Section title="What it actually does">
           <P>
             Every answer is assembled from live queries to public research
-            databases, not from a model&rsquo;s memory. Each response names the
-            sources it reached and says which ones it could not, so &ldquo;no
-            data&rdquo; stays distinguishable from &ldquo;could not ask&rdquo;.
+            databases, not from a model&rsquo;s memory. MyDNA makes the
+            legitimate information easier to understand and wards off unfounded
+            opinions. The realistic alternative most people reach for is
+            searching their symptoms and reading whatever comes back, unsourced
+            and uncredited. This is meant to be the version you can verify.
             Findings link back to the record they came from, so anything here
             can be checked against the original.
           </P>
           <P>
-            MyDNA holds no genetic research of its own. It is, in the
-            founder&rsquo;s words, just a better shell — the science belongs to
-            the institutions that produced it, and the job here is to make it
-            legible.
-          </P>
-          <P>
-            The realistic alternative most people reach for is searching their
-            symptoms and reading whatever comes back, unsourced and
-            uncredited. This is meant to be the version you can verify. It is
-            worth saying plainly that the model can still be wrong, which is
-            exactly why every claim is traceable.
+            MyDNA holds no genetic research of its own. It is just a better
+            machine — the science belongs to the institutions that produced it.
           </P>
         </Section>
 

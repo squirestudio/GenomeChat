@@ -20,7 +20,11 @@ import sys
 # in production.
 PRODUCTS = [
     {"env": "STRIPE_PRICE_UNLOCK", "name": "MyDNA - Unlimited (Monthly)", "amount": 1000, "interval": "month"},
-    {"env": "STRIPE_PRICE_CREDITS", "name": "MyDNA - 50 Queries", "amount": 300, "interval": None},
+    # Must match CREDITS_PER_PACK in services/billing.py. The pack moved from 50
+    # to 200 when pricing was set against measured cost; the grant comes from
+    # the code, so a stale name here would put "50 Queries" on the receipt while
+    # the account gained 200.
+    {"env": "STRIPE_PRICE_CREDITS", "name": "MyDNA - 200 Query Pack", "amount": 500, "interval": None},
     {"env": "STRIPE_PRICE_BYOK", "name": "MyDNA - Bring Your Own Key", "amount": 2500, "interval": None},
 ]
 CURRENCY = "usd"
@@ -80,10 +84,18 @@ def main() -> int:
         lines.append(f"{spec['env']}={price['id']}")
 
     print("\n" + "=" * 62)
-    print("Put these in genomics_backend/.env:\n")
+    print("For LOCAL development — genomics_backend/.env:\n")
     print(f"STRIPE_SECRET_KEY={key}")
     for line in lines:
         print(line)
+    # Railway runs live keys and reads test prices from a parallel set of
+    # variables, so the same ids have to be entered under different names there.
+    # Getting this wrong is invisible: the purchase option simply does not
+    # appear, with no error anywhere.
+    print("\nFor PRODUCTION test-mode (Railway variables) — same ids, different names:\n")
+    print(f"STRIPE_TEST_SECRET_KEY={key}")
+    for line in lines:
+        print(line.replace("STRIPE_PRICE_", "STRIPE_TEST_PRICE_"))
     print("\nFor STRIPE_WEBHOOK_SECRET, run the Stripe CLI listener:")
     print("    stripe listen --forward-to localhost:8000/billing/webhook")
     print("and copy the whsec_... it prints. Keep it running while you test.")

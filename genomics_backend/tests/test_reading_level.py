@@ -98,3 +98,40 @@ def test_the_answer_cache_is_keyed_on_the_answer_shape():
     assert key, "the streaming cache key moved — re-point this test, do not delete it"
     assert "response_detail" in key.group(1)
     assert "reading_level" in key.group(1)
+
+
+def test_every_env_var_the_code_reads_is_declared_in_settings():
+    """Settings forbids extras, and pydantic treats the two config sources
+    asymmetrically: it pulls only *declared* fields from OS environment
+    variables, but loads **every** key out of a .env file and hands them all to
+    the model. So an undeclared variable works fine in production — where
+    Railway injects real env vars — and crash-loops the app the moment someone
+    adds the same line to their local .env.
+
+    NCBI_API_KEY did exactly that. It is read via os.environ in
+    genomics_api_real, was set in Railway for weeks, and took the container
+    down on boot the first time it was written into a .env file.
+    """
+    import pathlib
+    import re
+
+    from config import Settings
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    declared = {f.upper() for f in Settings.model_fields}
+    read = set()
+    for path in root.rglob("*.py"):
+        if "test" in path.parts or path.name.startswith("test_"):
+            continue
+        for m in re.finditer(r"os\.environ(?:\.get)?\(\s*[\"']([A-Z_]+)[\"']", path.read_text()):
+            read.add(m.group(1))
+
+    # Variables the app reads but never declares. PORT and friends are set by
+    # the platform and never appear in a .env, so they are exempt.
+    PLATFORM = {"PORT", "PATH", "HOME", "RAILWAY_ENVIRONMENT", "PYTHONPATH",
+                "MYDNA_TEST_BASE_URL", "STRIPE_TEST_KEY", "DATABASE_URL"}
+    missing = sorted(read - declared - PLATFORM)
+    assert not missing, (
+        f"read from os.environ but not declared in Settings: {missing}. "
+        "Adding any of these to a .env file will crash the app on boot."
+    )

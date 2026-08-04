@@ -464,6 +464,10 @@ disclaimers just as surely as under-flagging ships one.
 
 ### Config
 
+**Every variable the code reads from `os.environ` must also be declared in `Settings`, even when nothing reads it from there.** `Settings` forbids extras, and pydantic treats its two sources asymmetrically: it pulls only *declared* fields out of OS environment variables, but loads **every** key from a `.env` file and hands them all to the model. So an undeclared variable works indefinitely in production — where Railway injects real env vars — and crash-loops the app the moment someone writes the same line into their local `.env`.
+
+`NCBI_API_KEY` did exactly that: read via `os.environ`, set in Railway for weeks, and it took the container down on boot the first time it was added locally. The test that followed immediately found two more in the same state, `REDIS_URL` and `QUERY_PAYLOAD_RETENTION_DAYS`, both documented here as real settings and both latent traps. `test_every_env_var_the_code_reads_is_declared_in_settings` now walks the source for `os.environ` reads and fails on any that are undeclared.
+
 All config is [config.py](genomics_backend/config.py) `Settings` (pydantic-settings, reads `.env`, `@lru_cache`d). Add new settings there rather than reading `os.environ` directly. Note `backend_url` exists specifically because Railway's proxy strips https from `request.base_url`, which breaks the OAuth callback URL — leave that override path intact.
 
 ## Frontend architecture

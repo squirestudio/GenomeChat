@@ -8,6 +8,20 @@ logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
+    # Free from an NCBI account, and it moves the E-utilities cap from 3 to 10
+    # requests/sec. Declared here even though `genomics_api_real` reads it from
+    # os.environ directly: Settings forbids extras, and pydantic pulls only
+    # *declared* fields from OS env vars but loads **every** key out of a .env
+    # file — so an undeclared variable is invisible in production and crashes
+    # the app on boot the moment someone adds it locally.
+    ncbi_api_key: str = ""
+
+    # Declared for the same reason, and found by the test that followed from it:
+    # both are read via os.environ elsewhere, both are documented as real
+    # settings, and both would have taken the app down the first time anyone
+    # wrote them into a .env rather than the platform's variable panel.
+    redis_url: str = ""
+    query_payload_retention_days: int = 90
     database_url: str = "postgresql://genomechat:genomechat@localhost:5432/genomechat"
     # No "*" here: the CORS middleware runs with allow_credentials=True, and a
     # wildcard in that mode makes Starlette echo back whatever Origin it is

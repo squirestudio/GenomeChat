@@ -176,11 +176,11 @@ export default function AboutPage({ onBack }) {
 
         <Section title="Who it is for">
           <P>
-            For now: people trying to understand a diagnosis, and people
-            holding a raw data file with no way to ask it anything. Researchers
-            and students come next, once the visualisations are better than
-            what the source databases offer on their own. Anything clinical is
-            further out and will be said out loud when it arrives.
+            People trying to understand a diagnosis, or holding a raw data file
+            with no way to ask for more. Researchers and students wanting to
+            eliminate the scavenger hunt required to compile numerous sources.
+            In some cases, the visualizations are better than what the source
+            databases offer on their own.
           </P>
         </Section>
 

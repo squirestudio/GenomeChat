@@ -90,9 +90,9 @@ export default function AboutPage({ onBack }) {
               intentional, not an oversight. */}
           <P>
             <strong style={{ fontSize: "1.35rem", color: "var(--text)" }}>40.</strong>{" "}
-            That is the number of days my mother had between her diagnosis and
-            the day she died. It felt like an eternity while we were in it, and
-            an instant once it was over.
+            That&rsquo;s the number of days my mother had from her diagnosis to
+            the day she passed. It felt like an eternity in the midst of it, yet
+            when it was over, an instant.
           </P>
           <P>
             It was a rare and aggressive leukemia, accelerated by a handful of

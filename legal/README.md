@@ -16,8 +16,8 @@ Where a claim could not be verified, the document says so rather than guessing.
 |---|---|
 | Controller | **Ben Brown, trading as Squire Studio**, a sole proprietorship, Tennessee. See "Entity" and "How the name shortens" below |
 | Contact | **support@mydna.chat** for everything about MyDNA, **privacy@mydna.chat** for data rights only. One general address on purpose — a second inbox is a triage tool, and an unmonitored one is worse than none; `hello@` earns its place when partnership mail arrives often enough to cost time, not before — kept separate so a rights request cannot go unanswered in a support queue. Both Namecheap forwarders; MX, SPF and DMARC `p=reject` verified 3 Aug 2026. Old row: **privacy@mydna.chat** — live, forwarding verified 1 Aug 2026. DMARC `p=reject` set |
-| Postal address | **5013 S Louise Ave, Unit #803, Sioux Falls, SD 57108** — a CMRA, live 4 Aug 2026. Published in privacy §1 and terms §18. Deliberately not a residence; see "Entity" below for why it cannot be one. **Note the state mismatch with the row below** |
-| Governing law | Tennessee — **and the only published address is now in South Dakota.** Unresolved; see "Which state" below |
+| Postal address | **5013 S Louise Ave, Unit #803, Sioux Falls, SD 57108** — a CMRA, live 4 Aug 2026. Published in privacy §1 and terms §18. Deliberately not a residence; see "Entity" below. Cheapest non-residential option, not a domicile move — **both documents state that MyDNA is operated from Tennessee** so the out-of-state address cannot be misread |
+| Governing law | **Tennessee** — where the operator actually is, which is what makes the clause hold. See "Which state" below |
 | Minimum age | **18** — and uploading a child's genetic data is prohibited outright, since it describes a person for life and is not a consent to give on someone else's behalf |
 | Refund window | 14 days |
 | Liability cap | Fees paid in the preceding **6 months** |
@@ -111,37 +111,31 @@ Recommended, in order:
 Renaming the GitHub organisation, the email addresses or anything in the code
 changes no legal fact and is not worth doing.
 
-### Which state — open, and worth an hour
+### Which state — resolved 4 Aug 2026: Tennessee
 
-The CMRA is in **Sioux Falls, South Dakota**. Every other jurisdictional
-statement in these documents says **Tennessee**: the governing-law clause
-(terms §16), the sole proprietorship's home state, the county assumed-name
-registration route, and the recommended LLC.
+The CMRA is in **Sioux Falls, South Dakota**; every jurisdictional statement in
+these documents says **Tennessee**. Confirmed with the founder: **Tennessee is
+the real base.** The South Dakota box was the least expensive way to get a
+non-residential address, and nothing more — not a domicile move.
 
-**Nothing is wrong yet.** A contact address is not a statement of where a
-business operates, and a policy may name a mail-handling address in one state
-while the operator sits in another — this is ordinary and Railway does the same
-thing. The documents are internally consistent as published.
+So nothing about the entity plan changes. Governing law stays Tennessee, the
+assumed-name filing stays with the county register of deeds, and an LLC would be
+a Tennessee LLC.
 
-What is now true is that **the only address a reader can see is in a state the
-documents never mention.** Which way to fix it depends on a fact only the
-founder has:
+**Both documents now say so explicitly**, because the inference is not available
+to a reader who can only see the SD address: privacy §1 states MyDNA is operated
+from Tennessee and that the postal address is for correspondence, and terms §16
+opens with the operating state before naming the governing law, with a line
+pointing at §18 so the two cannot be read as contradicting each other.
 
-- **If Tennessee is still the real base** — the operator lives and works there —
-  then nothing changes. The SD box is a mail service, governing law stays
-  Tennessee, and the assumed-name filing and any LLC stay Tennessee. Consider
-  one clarifying clause saying the postal address is for correspondence and the
-  business operates from Tennessee, so the two facts do not look contradictory.
-- **If South Dakota is becoming the domicile** — Sioux Falls is *the* town for
-  this, and a mailbox there is often the first step — then the governing-law
-  clause, the assumed-name route and the LLC state should all move together,
-  and moving them after customers have accepted the terms is more awkward than
-  moving them now, while nobody has.
+That is the whole fix. **A governing-law clause is on far safer ground when the
+named state is where the operator actually is** — the risk was never the mailbox,
+it was a reader or a counterparty finding only a South Dakota address and no
+stated connection to Tennessee anywhere in the documents.
 
-**Do not let this drift.** A governing-law clause naming a state with no
-connection to the operator is the kind of thing that gets a whole clause
-disregarded, and the cheap moment to fix it is before the first paying
-customer outside the test allowlist.
+One consequence to remember: **a CMRA cannot accept service of process.** That is
+unchanged and is now the only thing the address does not do. A Tennessee LLC's
+registered agent covers it, which is one more reason the LLC is the real answer.
 
 ## Decisions taken, and why
 

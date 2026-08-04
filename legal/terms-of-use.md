@@ -220,9 +220,12 @@ the service or its data sources. Sections 3, 4, 6, 12 and 13 survive.
 
 ## 16. Governing law
 
-These terms are governed by the laws of **the State of Tennessee, United States**, and disputes are
-subject to the courts of **the State of Tennessee, United States**. If you are a consumer, this does
-not deprive you of the protection of your local law.
+MyDNA is operated from **the State of Tennessee, United States**. These terms are
+governed by its laws, and disputes are subject to its courts. If you are a
+consumer, this does not deprive you of the protection of your local law.
+
+The postal address in section 18 is a mail-handling service and does not change
+this — correspondence is received there; the service is operated from Tennessee.
 
 ## 17. Changes
 

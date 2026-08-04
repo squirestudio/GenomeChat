@@ -39,6 +39,9 @@ sole proprietorship. Postal address:
 > Sioux Falls, SD 57108
 > United States
 
+That is a mail-handling address for correspondence. **MyDNA is operated from
+Tennessee, United States**, which is where the responsible person is based.
+
 For questions about this policy or to exercise any right described here,
 contact **privacy@mydna.chat** — email reaches us faster than post.
 

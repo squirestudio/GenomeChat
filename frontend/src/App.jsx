@@ -7013,8 +7013,7 @@ export default function App({ onNavigate }) {
               </p>
               {/* Attribution above the rule, navigation below it. Without the
                   divider the two read as a single list, which is the same
-                  reason the link is named rather than a bare "About". FAQ joins
-                  this row once it exists. */}
+                  reason the link is named rather than a bare "About". */}
               <div style={{
                 height: 1, maxWidth: 220, margin: "9px auto 0",
                 background: "rgb(var(--c-border) / 0.45)",
@@ -7022,6 +7021,7 @@ export default function App({ onNavigate }) {
               <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 9, display: "flex", justifyContent: "center", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 {[
                   ["/about", "About MyDNA"],
+                  ["/faq", "FAQ"],
                   ["/privacy", "Privacy"],
                   ["/terms", "Terms"],
                   ["mailto:support@mydna.chat", "Contact"],

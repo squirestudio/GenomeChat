@@ -8,14 +8,19 @@ This repo is developed from more than one machine via `origin`. Claude Code sess
 
 ## Current state
 
-**Open, in priority order:**
+**Open:**
 
-1. **An FAQ page**, agreed and deferred. Same pattern again. It is where the expectation-setting questions belong so `/about` stays a statement rather than a support document: "will this test my DNA?" (no — you bring your own file), "will it tell me if I'm sick?" (no), "is this a medical service?" (no), "is this a research database?" (no — MyDNA queries other people's data and holds none of its own).
-2. **A Tennessee LLC** — recommended, not a blocker. There is no liability shield today; see the entity note in [legal/README.md](legal/README.md). It also does something the CMRA cannot: **a mail service cannot accept service of process**, and a registered agent can.
+1. **An LLC — deliberately deferred**, 4 Aug 2026: *"I will not be moving forward with the LLC for a while. I just need this to be a functioning and compliant prototype for the moment."* Not an oversight and not a blocker for a prototype. What it costs meanwhile: **there is no liability shield**, so a claim arising from MyDNA is a claim against personal assets, and **the CMRA cannot accept service of process** where a registered agent could. When it happens it is a **Tennessee** LLC, and Railway and Stripe get re-papered in the same pass — see the entity note in [legal/README.md](legal/README.md).
+
+Everything else that was open is closed. **The legal documents have no blanks left**, and `/faq` shipped 4 Aug 2026 — see below.
 
 **The published postal address is a CMRA: 5013 S Louise Ave, Unit #803, Sioux Falls, SD 57108**, live 4 Aug 2026 in privacy §1 and terms §18. It closed the last blank in the legal documents. The draft banner at `/privacy` and `/terms` **self-disabled** — `unresolved()` in [draft.js](frontend/src/draft.js) reads the document text, so filling the address in removed the banner with no code change, which is exactly what that design was for. `draft.test.js` now asserts *no* blanks remain in either document, so a new `[PLACEHOLDER]` in a published legal page fails CI rather than shipping. No residence appears anywhere on the site. **A CMRA cannot accept service of process** — if an LLC follows, its registered agent covers that, so do not buy a second service before then.
 
 **The box is in South Dakota and the business is in Tennessee, deliberately.** Sioux Falls was the least expensive non-residential address available; it is *not* a domicile move, and every jurisdictional statement stays Tennessee — governing law, the county assumed-name route, and the LLC. Because a reader can only see the SD address, **both documents now say outright that MyDNA is operated from Tennessee**: privacy §1 calls the postal address correspondence-only, and terms §16 names the operating state before the governing law and points at §18. Do not "tidy" either line away — a governing-law clause naming a state with no stated connection to the operator is exactly the kind of thing that gets disregarded.
+
+**`/faq` exists so `/about` can stay a statement.** Seventeen questions in six groups, in [faq.jsx](frontend/src/faq.jsx), collapsed by default — seventeen open answers is a wall in which the one being looked for is lost, the same reason Explore Further is grouped. Native `<details>`, so keyboard and screen-reader behaviour come for free. Two things about the copy are deliberate: **an answer that is "no" says no in the first word**, because a reader scanning for whether MyDNA diagnoses them should not have to parse a paragraph; and it is where *"can it be wrong?"* is answered plainly, which is the admission `/about` dropped when "What it actually does" was rewritten.
+
+**It is now a fifth place pricing is published**, alongside the Stripe dashboard, `billing.py`, the upgrade modal and POSITIONING.md. The free allowance, the pack size and the scan cost are restated in prose there and **no import would catch a drift** — changing `FREE_QUERY_LIMIT`, `CREDITS_PER_PACK` or `SCAN_CREDITS` means editing the FAQ copy in the same commit.
 
 **MyDNA publishes under Squire Studio** — the lab where products ship, alongside Tik Attack Toe and SudoSwap. Red Wolf Agency is the client-work side and is expected to be MyDNA's marketing agency later. Both are the same legal person, so the choice carries no legal weight; it decides the name in archived pages and shared links, and it matches the accounts that already exist. Squire Studio is an *informal* trading name rather than a registered assumed name, so the documents name a person too — a controller must be identifiable as a legal person, and an unregistered trading name identifies nobody.
 
@@ -50,6 +55,16 @@ Environment variables are set in the Railway and Vercel dashboards, not in the r
 The public site is **https://mydna.chat** (apex A record → Vercel; `www` CNAME → Vercel). `genomechat.vercel.app` still resolves and is kept in the CORS allowlist so older links keep working. The API stays on `genomechat-production.up.railway.app` — users never see it, and moving it would mean changing `BACKEND_URL`, `VITE_API_URL`, the Google OAuth redirect URI, and both Stripe webhook endpoints together.
 
 Adding a browser-facing domain means three coordinated changes, and missing any one fails quietly: the origin must be in `cors_origins` ([config.py](genomics_backend/config.py) — list apex *and* www, there is no wildcard), `FRONTEND_URL` must point at it (it builds the post-sign-in and post-checkout redirects, so a stale value silently moves users to the old domain mid-flow), and Vercel needs the domain plus DNS.
+
+**A commit touching only `legal/` deploys nothing, and that was live for one commit.** The legal pages are built from `legal/*.md` via Vite's `?raw`, so those files are frontend build inputs that sit *outside* the frontend directory. Vercel's root directory is `frontend` and it cancels a build when nothing inside it changed — so the commit correcting the governing-law clause reached `main`, passed CI, showed a green deployment for the backend, and **served the old text in production for half an hour** while looking entirely shipped. It was found by diffing the deployed bundle, which is a poor way to find it.
+
+`ignoreCommand` in [vercel.json](frontend/vercel.json) now covers both paths:
+
+```json
+"ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ../legal"
+```
+
+Exit 0 cancels the build and non-zero proceeds, which is exactly `git diff --quiet`'s contract; a git failure exits 128 and therefore builds, which is the safe direction. `draft.test.js` asserts `../legal` is still in there, because the next person to edit that file will have no idea why it matters. **Any other build input added outside `frontend/` has to join that path list.**
 
 ## Repository layout
 

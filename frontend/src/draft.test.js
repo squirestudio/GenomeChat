@@ -83,3 +83,22 @@ describe("the postal address renders as an address", () => {
     }
   });
 });
+
+describe("the legal documents actually reach production", () => {
+  // These live in ../legal and are pulled in with Vite's ?raw, so they are
+  // frontend build inputs that sit outside the frontend directory. Vercel's
+  // root directory is `frontend`, and it cancels a build when nothing inside
+  // it changed — so a commit touching only legal/*.md deployed nothing, and
+  // the corrected policy sat on main looking shipped while production served
+  // the old text. Found by diffing the live bundle, which is a poor way to
+  // find it.
+  //
+  // `ignoreCommand` exits 0 to cancel and non-zero to build, so `git diff
+  // --quiet` over both paths is exactly the right test. A git failure exits
+  // 128, which builds — the safe direction.
+  it("vercel is told legal/ is a build input", async () => {
+    const cfg = JSON.parse((await import("../vercel.json?raw")).default);
+    expect(cfg.ignoreCommand).toBeTruthy();
+    expect(cfg.ignoreCommand).toContain("../legal");
+  });
+});

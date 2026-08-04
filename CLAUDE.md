@@ -76,6 +76,14 @@ cd genomics_backend && uvicorn main:app --reload --port 8000
 # Backend — smoke-test the API end to end against a running server
 cd genomics_backend && python examples.py
 
+# Backend — the only safe way to run the suite after editing backend code.
+# The service tests hit the *running* server, so a bare pytest tests the code
+# uvicorn loaded at boot, not what is on disk. This has produced three false
+# green runs: a pricing constant, a classifier change, and a new API field all
+# "passed" locally and failed in CI. Restart first, always.
+cd genomics_backend && docker compose restart backend && sleep 8 && \
+  docker compose exec backend python -m pytest -m "not external"
+
 # Frontend
 cd frontend && npm install
 npm run dev        # Vite dev server

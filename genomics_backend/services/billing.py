@@ -104,7 +104,12 @@ def get_price_display(test_mode: bool = False) -> dict:
     what happened when Unlimited moved from $5 one-time to $10/month.
     """
     secret_key, prices = stripe_credentials_for(test_mode)
-    out = {"test_mode": test_mode, **{k: None for k in PURCHASE_TYPES}}
+    # The pack size travels with the prices for the same reason the prices come
+    # from Stripe rather than the frontend: a number hardcoded in the UI goes
+    # stale silently. It already had — the modal advertised "50 Queries" for a
+    # while after the pack became 200, so the card and the receipt disagreed.
+    out = {"test_mode": test_mode, "credits_per_pack": CREDITS_PER_PACK,
+           **{k: None for k in PURCHASE_TYPES}}
     if not secret_key:
         return out
     stripe.api_key = secret_key

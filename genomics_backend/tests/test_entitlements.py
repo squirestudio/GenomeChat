@@ -103,3 +103,13 @@ def test_resubscribing_is_allowed_after_cancellation(base_url, user, auth, grant
     send_webhook(f"evt_pytest_{user.id}_recancel", "customer.subscription.deleted",
                  {"status": "canceled", "metadata": {"user_id": str(user.id)}})
     assert checkout(base_url, user, auth, "unlock").status_code == 200
+
+
+def test_the_pack_size_is_published_with_the_prices(base_url):
+    """The purchase card reads the pack size from here rather than hardcoding
+    it. It was hardcoded, and said "50 Queries" for a while after the pack
+    became 200 — the card and the receipt disagreeing, with nothing to catch it.
+    Same reasoning as reading prices from Stripe instead of typing them in."""
+    r = httpx.get(f"{base_url}/billing/prices", timeout=30)
+    assert r.status_code == 200
+    assert r.json()["credits_per_pack"] == CREDITS_PER_PACK

@@ -743,7 +743,11 @@ function PurchaseOptions({ compact, testMode, currentUserHasBilling }) {
              prices?.unlock?.recurring
                ? "Unlimited queries every month, billed on your own card. Cancel any time."
                : "Unlimited queries.")}
-        {opt("credits", "50 Queries",
+        {/* Pack size comes from the server, not a literal here. It was "50
+            Queries" for a while after the pack became 200 — the card and the
+            receipt disagreeing, with nothing to catch it. Same reason the
+            prices are read from Stripe rather than typed in. */}
+        {opt("credits", `${(prices?.credits_per_pack ?? 200).toLocaleString()} Queries`,
              "A one-time top-up. No subscription, no renewal.")}
         {opt("byok", "Bring Your Own Key",
              "Store your own Anthropic API key and run unlimited queries billed directly to your Anthropic account. One-time purchase.")}

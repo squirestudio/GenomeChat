@@ -65,13 +65,19 @@ export default function AboutPage({ onBack }) {
           fontSize: "1.6rem", fontWeight: 700, color: "var(--text)",
           lineHeight: 1.3, margin: "0 0 1rem", textWrap: "balance",
         }}>
-          Your genetics, in language you can follow — with the sources shown.
+          Your genetics — in language you can understand, a format you can
+          talk to, and visuals that show what the numbers mean.
         </h1>
 
         <P>
-          MyDNA is an independent project. It reads genetic data you already
-          have, answers questions about it in plain language, and shows where
-          every answer came from.
+          {/* "Sources shown" left the headline and kept its meaning: the triad
+              is about the experience, and traceability is the proof, which
+              belongs in the sentence that can afford to be specific. Losing it
+              entirely would have dropped the strongest claim on the page. */}
+          Welcome to MyDNA — an independent project, built by one person, for
+          anyone who wants to understand their own genetics. It reads data you
+          already have, answers questions about it in plain language, and shows
+          where every answer came from.
         </P>
 
         <Section title="Why it exists">

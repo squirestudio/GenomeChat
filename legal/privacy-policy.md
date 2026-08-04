@@ -237,14 +237,17 @@ We use these processors. Each receives only what it needs.
 | **Railway** | Everything stored | Hosting and database |
 | **Vercel** | Requests for the site itself | Frontend hosting |
 
-**Public research databases.** To answer a question we query public databases
-including ClinVar, Ensembl, gnomAD, UniProt, dbSNP, dbVar, HPO, Monarch,
-Reactome, GTEx, STRING, Open Targets, the GWAS Catalog, ClinGen, MedGen, GTR,
-ClinPGx, NCI GDC, PubMed, PMC, MedlinePlus, ClinicalTrials.gov, Genomics
-England PanelApp and HGNC. These receive the **gene or condition** being
-asked about. They do not receive your identity, your account, or your file. The
-one exception is the explicit variant lookup described in section 3, which
-sends rsIDs to NCBI.
+**Public research databases.** To answer a question we query public databases:
+ClinVar, Ensembl, gnomAD, UniProt, AlphaFold, dbSNP, dbVar, HPO, Monarch,
+Reactome, GTEx, STRING, Open Targets, the GWAS Catalog, ClinGen, GenCC,
+Orphanet, MedGen, GTR, ClinPGx, NCI GDC, PubMed, PMC, MedlinePlus,
+ClinicalTrials.gov, Genomics England PanelApp, HGNC and Ensembl VEP. These
+receive the **gene or condition** being asked about. They do not receive your
+identity, your account, or your file.
+
+The one exception is the explicit variant lookup described in section 3, which
+sends the rsIDs you chose to look up to **NCBI** (dbSNP) and to **Ensembl**
+(the Variant Effect Predictor). Nothing else about you accompanies them.
 
 **We do not sell or share your personal information**, in the ordinary meaning
 of those words and as defined by the CCPA/CPRA. We have never done so.

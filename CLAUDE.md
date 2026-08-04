@@ -527,9 +527,13 @@ The hardcoded badge colours in the report HTML were always light-appropriate (da
 
 `API` is `import.meta.env.VITE_API_URL || "http://localhost:8000"`; set `VITE_API_URL` in Vercel.
 
-**The source list is published in four places and drifted in two.** `/about` carries the full roll-call, the footer names a handful plus a link, the privacy policy lists every database that receives the gene being asked about, and `legal/data-source-licensing.md` records each one's terms. GenCC, Orphanet and Ensembl VEP were connected without being added to `/about`, which is how the count reported here was wrong by one for a while. **Adding a fetcher means touching all four.**
+**[sources.js](frontend/src/sources.js) is the single source of truth for the source list and every count derived from it.** Adding a source is one line there; `/about`'s roll-call, the FAQ's count, the welcome tour, the Support modal and the footer's "and N more" all read from it. **Nothing user-facing hand-writes the number any more**, and `sources.test.js` scans `about.jsx`, `faq.jsx` and `App.jsx` for a literal count in prose and fails if one reappears.
 
-The footer deliberately names five and then links the remainder as a count. Traceability is the strongest argument MyDNA makes and it was being understated by naming six of twenty-eight; the count is the link so the claim is checkable in a click.
+That guard exists because four copies drifted independently and one of them was the first thing a new visitor read. The welcome tour said **23 public research databases** and the Support modal said **26**, while `/about` listed 28 and the FAQ said 28. The trap worth remembering: **the footer's "and 23 more" was correct** — 28 minus the five it names — so the site showed two 23s, one right and one wrong, which nobody was going to catch by reading. The Support modal's 26 was found only by the regex guard, not by grep for the number in the tour.
+
+**Three places still cannot import it and must be updated by hand.** The privacy policy lists every database that receives the gene being asked about, `legal/data-source-licensing.md` records each one's terms, and `POSITIONING.md` quotes the count in prose. The first two name sources rather than counting them, so they fail loudly rather than silently.
+
+**OMIM is deliberately absent from the list.** It is fetched and withheld for licensing, so listing it would advertise a section no reader can open — a test asserts it stays out.
 
 **`research_topics` answers what a publication count cannot.** A bar per year says a gene is studied, which the reader assumed. MeSH terms say what changed — NLM's curated vocabulary, assigned by indexers, so comparing two periods means something. **A word cloud was rejected**: title-word frequency tracks phrasing fashion as much as subject and gives no way to tell a rising topic from a common word.
 

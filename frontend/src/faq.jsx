@@ -17,12 +17,20 @@
  * for is lost. Native <details>, so it works with no JavaScript and keyboard
  * and screen-reader behaviour comes for free.
  *
+ * **"Query" is the billable unit; "question" is what the reader types.** The
+ * app is consistent about this — `plan.js` says "N of M free queries used" and
+ * the upgrade modal sells "200 Queries" — and this page was the one place that
+ * counted the unit in "questions", which reads as a different thing being sold.
+ * Conversational uses ("answer the question you asked") are left alone.
+ *
  * **Numbers in here are a fifth place pricing is published.** Free allowance,
  * credit pack size, and scan cost all restate backend constants
  * (`FREE_QUERY_LIMIT`, `CREDITS_PER_PACK`, `SCAN_CREDITS` in
  * `services/billing.py`) and live Stripe prices. Changing any of them means
  * changing the copy here too — there is no import that would catch it.
  */
+
+import { SOURCE_COUNT } from "./sources";
 
 function Group({ title, children }) {
   return (
@@ -123,7 +131,7 @@ export default function FaqPage({ onBack }) {
             <p>
               <strong>No</strong> — most of MyDNA works without one. You can ask
               about any gene, variant or condition and get the same research from
-              the same 28 databases.
+              the same {SOURCE_COUNT} databases.
             </p>
             <p>
               A file adds one thing, and it is the thing nothing else can do: it
@@ -255,9 +263,9 @@ export default function FaqPage({ onBack }) {
         <Group title="What it costs">
           <Q q="What does it cost?">
             <p>
-              There is a <strong>free allowance of 20 questions</strong> once you
+              There is a <strong>free allowance of 20 queries</strong> once you
               are signed in. After that, three options: <strong>$5</strong> for
-              200 questions, <strong>$10 a month</strong> for unlimited, or{" "}
+              200 queries, <strong>$10 a month</strong> for unlimited, or{" "}
               <strong>$25 once</strong> to use your own Anthropic API key — after
               which you pay Anthropic directly and MyDNA costs you nothing
               further.
@@ -269,14 +277,14 @@ export default function FaqPage({ onBack }) {
           </Q>
           <Q q="Why do some things cost a credit and others don't?">
             <p>
-              Price follows measured cost. A question runs a model, so it costs a
+              Price follows measured cost. A query runs a model, so it costs a
               credit. <strong>Opening one of the extra sections on an answer is
               free</strong> — it calls no model at all, just a database, so
               charging for it would have bought you nothing.
             </p>
             <p>
               A scanned page costs four credits, because reading an image runs a
-              considerably larger model than a question does.
+              considerably larger model than a query does.
             </p>
           </Q>
         </Group>

@@ -18,13 +18,7 @@
  *   - The founder's mother is described specifically but not named.
  */
 
-const SOURCES = [
-  "ClinVar", "Ensembl", "gnomAD", "UniProt", "AlphaFold", "dbSNP", "dbVar",
-  "ClinGen", "MedGen", "GTR", "HPO", "Monarch", "Reactome", "GTEx",
-  "STRING", "Open Targets", "GWAS Catalog", "ClinPGx", "NCI GDC", "PubMed", "PMC",
-  "MedlinePlus", "PanelApp", "ClinicalTrials.gov", "HGNC",
-  "GenCC", "Orphanet", "Ensembl VEP",
-];
+import { SOURCES } from "./sources";
 
 function Section({ title, children }) {
   return (

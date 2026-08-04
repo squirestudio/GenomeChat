@@ -4,7 +4,11 @@ What MyDNA is, who it is for, and the words used to say so. Kept because these
 decisions get re-litigated otherwise, and because several were made by rejecting
 a nearly-identical alternative for a specific reason worth remembering.
 
-**Status:** working document. Updated 2 August 2026.
+**Status:** working document. Updated 4 August 2026.
+
+**Counts in this file are hand-written and the code's are not.** `frontend/src/sources.js`
+is the single source of truth for the source list and every number derived from
+it; prose here has to be updated by hand when a source is added.
 
 ---
 
@@ -74,7 +78,7 @@ description.
 
 The same content, public-facing:
 
-> **MyDNA brings 26 public genomic databases together, shows you what they say,
+> **MyDNA brings 28 public genomic databases together, shows you what they say,
 > and explains it in plain English — whether you're a researcher or just
 > curious.**
 
@@ -90,8 +94,8 @@ The tagline is the invitation; this is the paragraph underneath it.
 
 1. **It shows its work.** Every answer traces to named public databases, and
    where curators disagree it says so rather than picking a winner. This is the
-   strongest asset and the most under-communicated — the footer names six
-   sources out of twenty-six.
+   strongest asset and the most under-communicated — the footer names five
+   sources and links the other 23.
 2. **It explains rather than reports.** Plain English by default, with the
    technical register available on request. The findings are identical at both
    settings; only the wording changes.

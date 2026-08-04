@@ -66,6 +66,7 @@ each answer's source list.
 |---|---|
 | **ClinVar, dbSNP, dbVar, MedGen, GTR, PubMed, PMC** (NCBI) | US Government work, public domain. Subject to NCBI usage policies — respect rate limits, use an API key |
 | **Ensembl** | Apache 2.0 / open, free for all uses |
+| **Ensembl VEP** | Apache 2.0, same terms as Ensembl. Its SIFT and PolyPhen scores are third-party predictions carried through unchanged; both are free for academic and commercial use. They are labelled as predictions rather than findings, and the score travels with the label — a "deleterious" at 0.04 is a much weaker claim than one at 0.00 |
 | **gnomAD** | Free, no restriction on use; citation requested |
 | **UniProt** | CC-BY 4.0 |
 | **AlphaFold** (EMBL-EBI/DeepMind) | CC-BY 4.0 |

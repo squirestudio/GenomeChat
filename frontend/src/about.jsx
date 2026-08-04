@@ -6,7 +6,11 @@
  * editable without scrolling past forty components to reach it.
  *
  * Editorial rules this page is written to, agreed with the founder:
- *   - Third person. MyDNA is the subject, not the person who built it.
+ *   - Third person, with one deliberate exception. MyDNA is the subject, not
+ *     the person who built it — except in "Why it exists", which is the
+ *     founder's own account and reads as evasive in the third person. Rewritten
+ *     to first person 3 Aug 2026. Everything else stays third person; the seam
+ *     is intentional.
  *   - No panic, no worry, no hype. This is a calm page about a frightening
  *     subject, and dramatising it would be a betrayal of the reader.
  *   - Nothing claimed that the product does not do. The trust argument is
@@ -71,17 +75,38 @@ export default function AboutPage({ onBack }) {
         </P>
 
         <Section title="Why it exists">
+          {/* First person, and deliberately. This section was third person on
+              the rule that MyDNA is the subject rather than the person who
+              built it — which is right for every other section and wrong for
+              this one. The story is the founder's and only carries in his own
+              voice. The rest of the page stays third person; the seam is
+              intentional, not an oversight. */}
           <P>
-            In 2024, the founder&rsquo;s mother died forty days after her
-            diagnosis — a rare leukaemia defined by three genetic mutations.
-            Close family and friends live with genetic conditions of their own.
+            <strong style={{ fontSize: "1.35rem", color: "var(--text)" }}>40.</strong>{" "}
+            That is the number of days my mother had between her diagnosis and
+            the day she died. It felt like an eternity while we were in it, and
+            an instant once it was over.
           </P>
           <P>
-            MyDNA is an expression of a hope: that AI can shorten the distance
-            between what medicine already knows and what a person is able to
-            find out about themselves. That it can lower costs, reach past
-            silos, and reconnect people to their own data in a form they can
-            actually read.
+            It was a rare and aggressive leukemia, accelerated by a handful of
+            genetic mutations we still know too little about. This was 2024 —
+            seven decades after the double helix was described, two after the
+            Human Genome Project was completed, and twelve years after CRISPR
+            was first turned into a tool for editing genes.
+          </P>
+          <P>
+            There is something beautiful about the mystery of the human body.
+            Something so complex it feels impossible to fully understand, and
+            yet discovery upon discovery yields a clearer picture of who we are,
+            how we are put together, and — for some — even why we are here. That
+            path is accelerating, and technology is why.
+          </P>
+          <P>
+            We are held back less by a shortage of data than by the
+            communication needed to make use of it. MyDNA is simply an
+            expression of hope: that new relationships, in the data and among
+            the people reading it, will lead to discoveries about ourselves and
+            ultimately change the world.
           </P>
         </Section>
 

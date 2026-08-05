@@ -99,8 +99,10 @@ export default function AboutPage({ onBack }) {
             There is something beautiful about the mystery of the human body.
             Something so complex it feels impossible to fully understand, and
             yet discovery upon discovery yields a clearer picture of who we are,
-            how we are put together, and — for some — even why we are here. That
-            path is accelerating, and technology is why.
+            how we are put together, and — for some — even why we are here. The
+            path to understanding is accelerating with the help of technology,
+            and my hope is that greater understanding leads to exciting
+            solutions and unimaginable breakthroughs.
           </P>
           <P>
             We are held back less by a shortage of data than by the

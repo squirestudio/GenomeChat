@@ -5,8 +5,8 @@
  * These documents were written from an audit of what the code actually does,
  * and `legal/README.md` is the decision log behind them — so a hand-converted
  * JSX copy would be a second original, free to drift from the one that gets
- * reviewed. Importing the same files the drafts live in makes drift impossible
- * rather than merely discouraged.
+ * reviewed. Importing the same files the documents live in makes drift
+ * impossible rather than merely discouraged.
  *
  * That means editing the policy is editing `legal/privacy-policy.md`, and the
  * page follows. It also means `vite.config.js` has to allow reading one level
@@ -17,6 +17,24 @@ import { unresolved } from "./draft";
 import privacyMd from "../../legal/privacy-policy.md?raw";
 import termsMd from "../../legal/terms-of-use.md?raw";
 
+/**
+ * Shown only when a published document still contains an unfilled `[BLANK]`.
+ *
+ * **It renders nothing today and should stay that way.** The documents are
+ * reviewed and approved, and the "draft pending legal review" line came out of
+ * both on 4 Aug 2026 — so this no longer says "draft", which would now
+ * contradict their status.
+ *
+ * Kept because it is a safety net rather than a status flag. It reads the
+ * document text through `unresolved()` rather than a flag someone can forget to
+ * clear, so it cannot be silenced by editing code — only by filling the blank
+ * in. That is exactly how it behaved: the mailing address was visible as an
+ * outstanding item while the pages were live, and the banner disappeared by
+ * itself the moment the address landed.
+ *
+ * `draft.test.js` fails on any blank reappearing, so this is the second line of
+ * defence, not the first.
+ */
 function DraftBanner({ blanks }) {
   if (!blanks.length) return null;
   return (
@@ -26,14 +44,12 @@ function DraftBanner({ blanks }) {
       border: "1px solid rgb(var(--c-warning) / 0.3)",
     }}>
       <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--warning)", margin: 0 }}>
-        Draft — not yet final
+        {blanks.length === 1 ? "One detail is incomplete" : `${blanks.length} details are incomplete`}
       </p>
       <p style={{ fontSize: "0.74rem", color: "var(--text-faint)", margin: "5px 0 0", lineHeight: 1.6 }}>
-        This document is published while still under review, and{" "}
-        {blanks.length === 1 ? "one detail is" : `${blanks.length} details are`}{" "}
-        outstanding: {blanks.map(b => b.toLowerCase()).join(", ")}. Everything else
-        describes how MyDNA actually behaves today. Questions to{" "}
-        <strong style={{ color: "var(--text-muted)" }}>privacy@mydna.chat</strong>.
+        This document is missing {blanks.map(b => b.toLowerCase()).join(", ")}.
+        Everything else describes how MyDNA actually behaves today. Please tell us
+        at <strong style={{ color: "var(--text-muted)" }}>privacy@mydna.chat</strong>.
       </p>
     </div>
   );

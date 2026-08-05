@@ -1,9 +1,22 @@
-# Legal drafts — open items
+# Legal documents — decision log
 
-`privacy-policy.md` and `terms-of-use.md` are **drafts written from an audit of
-what the code actually does**, not templates. They are not legal advice and have
-not been reviewed by a lawyer. Genetic data plus paying customers plus EU/UK and
-California users is a combination where a review is worth the money.
+`privacy-policy.md` and `terms-of-use.md` are **written from an audit of what
+the code actually does**, not from templates.
+
+**Reviewed and approved 4 Aug 2026.** The founder confirmed legal review is
+complete and is re-reviewing himself; the "draft pending legal review" line came
+out of both documents, and the dates were moved to 4 August because that same
+pass materially changed them — the postal address, the Tennessee operating-state
+clause, the full list of databases that receive the queried gene, and the
+corrected rsID recipient disclosure. Terms §17 promises a revised date on
+material change, so leaving 30 July would have broken a commitment the document
+makes about itself.
+
+**This file is not published** and should not be linked from either document —
+it is the reasoning behind them, including options that were rejected, and it
+names things (the full legal name, the unshipped entity plan) that deliberately
+appear nowhere on the site. The privacy policy used to point readers here; that
+line is gone with the draft notice.
 
 Every factual claim in them was checked against the schema and the request path.
 Where a claim could not be verified, the document says so rather than guessing.

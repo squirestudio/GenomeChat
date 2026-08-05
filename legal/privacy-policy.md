@@ -1,9 +1,7 @@
 # Privacy Policy
 
-**Draft pending legal review. See `legal/README.md` for what remains open.**
-
-**Last updated:** 30 July 2026
-**Effective:** 30 July 2026
+**Last updated:** 4 August 2026
+**Effective:** 4 August 2026
 
 ---
 

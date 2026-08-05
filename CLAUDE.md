@@ -97,7 +97,14 @@ cd genomics_backend && python examples.py
 # uvicorn loaded at boot, not what is on disk. This has produced three false
 # green runs: a pricing constant, a classifier change, and a new API field all
 # "passed" locally and failed in CI. Restart first, always.
+#
+# The pip install is not optional and not a one-off. The Dockerfile installs
+# `requirements.txt` only — pytest lives in `requirements-dev.txt` and is NOT in
+# the image. It survives `docker compose restart` because that reuses the
+# container, and vanishes on `docker compose up -d`, which recreates it. The
+# symptom is `No module named pytest` immediately after an unrelated change.
 cd genomics_backend && docker compose restart backend && sleep 8 && \
+  docker compose exec backend pip install -q -r requirements-dev.txt && \
   docker compose exec backend python -m pytest -m "not external"
 
 # Frontend
@@ -131,6 +138,8 @@ In production there is no bind mount, so the mounted and baked files are the sam
 **Price follows measured cost, and one charge was removed for that reason.** A question costs about **$0.013** in model tokens (measured: 4,617 in + 1,639 out on Haiku 4.5). **A section fetch makes no model call at all** — public API traffic and a database read — so charging a credit for one bought the reader nothing, and it was the only line in the pricing that could not be defended on cost. Sections are now free, and `/gene/section` no longer checks quota either: refusing someone out of credits would be charging twice for a question they already paid for. A **scanned page costs `SCAN_CREDITS` (2)**, because Sonnet vision runs 2–3x a question. `CREDITS_PER_PACK` is 200, which also dilutes Stripe's flat 30c — on a $3 sale that fee is 10%. Full working in [POSITIONING.md](POSITIONING.md).
 
 **Contributions grant nothing, and that is structural.** `create_support_session` is deliberately separate from `create_checkout_session`, and `purchase_type: "support"` is a value the webhook has no grant branch for. It is handled *before* the user lookup, because anyone can contribute signed out and a missing account there is normal rather than the paid-but-unmatched emergency that branch exists to shout about. Not called "Donate": a sole proprietorship is not a charity, so contributions are taxable income rather than deductible gifts, and the modal says both that and "unlocks nothing" on screen.
+
+**The test suite runs with the per-IP rate limit effectively disabled, and that is required rather than convenient.** Every request in the suite comes from one IP within about four seconds, so the production ceiling of 120/min is not a meaningful control there. It was left at the default until the suite sat at roughly **118 of 120** — then four new tests tipped it over and **thirty-one DB-backed tests failed with 429s**, in `test_access_control`, `test_entitlements` and `test_privacy_rights`, which reads exactly like a broken feature rather than a limit. `RATE_LIMIT_DEFAULT_PER_MIN` and `RATE_LIMIT_EXPENSIVE_PER_MIN` are set high in both `.github/workflows/tests.yml` and `docker-compose.yml`; `test_limits.py` sets its own values to test the limiter itself, so coverage of the real behaviour is unaffected. **Any suite failing wholesale with 429s is this, not your change.**
 
 **Abuse limits are server-side.** `ANON_QUERY_LIMIT` (default 3) is enforced per client IP in [services/limits.py](genomics_backend/services/limits.py), not just counted in `localStorage` — the browser copy only decides when to show the sign-in prompt early. Per-IP rate limits apply to every route except `/health` (so a limited client cannot take the healthcheck down with it) and `/billing/webhook` (Stripe retries in bursts and is already authenticated by signature); expensive paths get a tighter ceiling than the rest.
 

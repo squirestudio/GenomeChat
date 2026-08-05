@@ -5718,6 +5718,7 @@ function TypingIndicator({ stage }) {
 function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser, open, onClose, collapsed, onToggleCollapse }) {
   const [newName, setNewName] = useState("");
   const [hoveredId, setHoveredId] = useState(null);
+  const activeProject = projects.find(p => p.id === activeProjectId) || null;
   return (
     <aside className={`gc-sidebar${open ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
       <div style={{ padding: "1rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.6)", display: "flex", gap: 8 }}>
@@ -5734,9 +5735,20 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
             <p style={{ fontSize: "0.68rem", color: "var(--accent)", margin: 0 }}>Sign in to save history</p>
           </a>
         )}
-        {chatHistory.length > 0 && (
+        {(chatHistory.length > 0 || activeProject) && (
           <div style={{ marginBottom: "1.25rem" }}>
-            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>History</p>
+            {/* Naming the scope is what tells a reader the selection did
+                anything. Without it the list looked identical whichever
+                project was active, because it was. */}
+            <p style={{ fontSize: "0.65rem", fontWeight: 700, color: "var(--text-faintest)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              History{activeProject ? ` — ${activeProject.name}` : ""}
+            </p>
+            {chatHistory.length === 0 && activeProject && (
+              <p style={{ fontSize: "0.7rem", color: "var(--text-faintest)", lineHeight: 1.55, margin: "0 0 2px", padding: "0.35rem 0.5rem" }}>
+                Nothing filed here yet. Anything you ask while this project is
+                selected will be saved to it.
+              </p>
+            )}
             {chatHistory.slice(0, 20).map((item, i) => (
               <div key={item.id || i}
                 style={{ position: "relative", display: "flex", alignItems: "center", borderRadius: 6, marginBottom: 1 }}
@@ -5828,6 +5840,7 @@ export default function App({ onNavigate }) {
   const [exporting, setExporting] = useState(false);
   const [projects, setProjects] = useState([]);
   const [activeProjectId, setActiveProjectId] = useState(null);
+  const activeProjectName = projects.find(p => p.id === activeProjectId)?.name || null;
   const [apiStatus, setApiStatus] = useState("checking");
   const [chatHistory, setChatHistory] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
@@ -6154,12 +6167,27 @@ export default function App({ onNavigate }) {
     catch { /* background read on load — an empty project list is an acceptable degraded state */ }
   };
 
-  const loadChatHistory = async () => {
+  /**
+   * History for the selected project, or everything when none is selected.
+   *
+   * Takes the id as an argument rather than reading `activeProjectId` from the
+   * closure, because the effect below calls it in the same tick as the state
+   * change and would otherwise fetch the previous project's list.
+   */
+  const loadChatHistory = async (projectId = activeProjectId) => {
     try {
-      const r = await apiFetch("/projects/queries/recent?limit=30");
+      const scope = projectId == null ? "" : `&project_id=${projectId}`;
+      const r = await apiFetch(`/projects/queries/recent?limit=30${scope}`);
       if (r.ok) setChatHistory(await r.json());
     } catch { /* background read on load — history simply stays empty */ }
   };
+
+  useEffect(() => {
+    // Only once signed in — an anonymous visitor has no projects and the first
+    // load is already handled by the mount effect.
+    if (currentUser) loadChatHistory(activeProjectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, currentUser]);
 
   const loadSharedQuery = async (token) => {
     try {
@@ -7076,6 +7104,21 @@ export default function App({ onNavigate }) {
                   onOpen={() => { dismissAboutNudge(); setShowAboutNudge(false); if (onNavigate) onNavigate("/about"); }}
                   onDismiss={() => { dismissAboutNudge(); setShowAboutNudge(false); }}
                 />
+              )}
+              {/* Where this question will be filed.
+                  Selecting a project already decided this — `project_id` rides
+                  on the request and lands on the row — but nothing on screen
+                  said so, so the whole feature was invisible at the one moment
+                  it mattered. Shown only when a project is active: "filing into
+                  nothing" is the default and does not need announcing. */}
+              {activeProjectName && (
+                <p style={{ fontSize: "0.68rem", color: "var(--text-dimmer)", margin: "0 0 6px 2px", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span>Saving to <strong style={{ color: "var(--accent)", fontWeight: 600 }}>{activeProjectName}</strong></span>
+                  <button onClick={() => setActiveProjectId(null)}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "0.68rem", color: "var(--text-dim)", textDecoration: "underline", textUnderlineOffset: 2 }}>
+                    all queries instead
+                  </button>
+                </p>
               )}
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", background: "rgb(var(--c-surface) / 0.55)", border: "1px solid rgb(var(--c-border) / 0.5)", borderRadius: 16, padding: "0.75rem 0.875rem" }}>
                 <textarea

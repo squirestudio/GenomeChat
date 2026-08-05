@@ -33,6 +33,15 @@ jobs:
       STRIPE_PRICE_UNLOCK: price_ci_unlock
       STRIPE_PRICE_CREDITS: price_ci_credits
       STRIPE_PRICE_BYOK: price_ci_byok
+      # The suite fires every request from one IP within a few seconds, so the
+      # production per-IP ceiling (120/min) is not a meaningful control here —
+      # it is a fairness measure and a cost brake, never an authentication
+      # boundary, and `test_limits.py` sets its own values to test the limiter
+      # itself. Left at the default, the suite sat at roughly 118 of 120 and
+      # the next four tests added tipped it over: thirty-one DB-backed tests
+      # failed with 429s that read exactly like a broken feature.
+      RATE_LIMIT_DEFAULT_PER_MIN: "100000"
+      RATE_LIMIT_EXPENSIVE_PER_MIN: "100000"
 
     steps:
       - uses: actions/checkout@v4

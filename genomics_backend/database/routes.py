@@ -246,15 +246,33 @@ def add_query_to_project(
 @router.get("/queries/recent")
 def get_recent_queries(
     limit: int = 30,
+    project_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    """Return recent queries for the current user (or all anonymous if not signed in)."""
+    """Recent queries for the current user, optionally limited to one project.
+
+    `project_id` is what makes selecting a project in the sidebar mean anything.
+    Without it the history list was identical whichever project was selected —
+    every query was already being *stored* against the active project, so the
+    feature worked and nothing on screen ever reflected it.
+
+    Filtering here rather than through `GET /projects/{id}` is deliberate: that
+    route returns `ProjectWithQueries`, which carries the full `results` payload
+    of every query, and the sidebar needs one line each. Same shape as the
+    unfiltered list means one component renders both.
+
+    Ownership still comes from `_owned_by` on the JWT, never from this
+    parameter — asking for someone else's project id returns their rows only if
+    the ownership filter is dropped, so the two filters are kept independent.
+    """
     q = (
         db.query(Query)
         .filter(_owned_by(Query, current_user))
         .order_by(Query.created_at.desc())
     )
+    if project_id is not None:
+        q = q.filter(Query.project_id == project_id)
     queries = q.limit(limit).all()
     result = []
     for q in queries:

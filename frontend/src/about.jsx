@@ -104,13 +104,6 @@ export default function AboutPage({ onBack }) {
             and my hope is that greater understanding leads to exciting
             solutions and unimaginable breakthroughs.
           </P>
-          <P>
-            We are held back less by a shortage of data than by the
-            communication needed to make use of it. MyDNA is simply an
-            expression of hope: that new relationships, in the data and among
-            the people reading it, will lead to discoveries about ourselves and
-            ultimately change the world.
-          </P>
         </Section>
 
         <Section title="The problem is not a shortage of data">

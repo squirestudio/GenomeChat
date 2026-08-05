@@ -118,9 +118,10 @@ export default function AboutPage({ onBack }) {
           </P>
           <P>
             That is not a hypothesis. While MyDNA was being built, half of its
-            sources were quietly returning nothing at all — not broken, just
-            answering with less and less. MyDNA checks every source, every week,
-            against things already known to be true, and lets you know.
+            sources were quietly returning less — fewer variants, fewer
+            pathways, fewer of the known links between genes and conditions.
+            MyDNA checks every source, every week, against things already known
+            to be true, and lets you know.
           </P>
         </Section>
 

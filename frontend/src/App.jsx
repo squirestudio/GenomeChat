@@ -7099,7 +7099,26 @@ export default function App({ onNavigate }) {
                   </svg>
                 </button>
               </div>
-              <p style={{ textAlign: "center", fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 8 }}>
+              {/* Two rows doing different jobs, and they used to be one wall of
+                  thirteen dot-separated items in identical type — a divider
+                  between them separated two things that still looked like the
+                  same kind of thing. They are now different *registers*:
+                  attribution above, navigation below.
+
+                  Attribution is smaller, dimmer and labelled, so it reads as a
+                  credit line. Navigation is brighter with a hover underline, so
+                  it reads as somewhere to go. The label does most of the work —
+                  it says what the row is rather than leaving it to be inferred
+                  from its contents. */}
+              <p style={{
+                textAlign: "center", fontSize: "0.645rem", color: "var(--text-faintest)",
+                marginTop: 8, lineHeight: 1.7,
+              }}>
+                <span style={{
+                  fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.09em",
+                  textTransform: "uppercase", color: "var(--text-faintest)",
+                  opacity: 0.75, marginRight: 7,
+                }}>Sources</span>
                 {/* The strongest thing about MyDNA is that every answer traces
                     somewhere, and the footer was naming six of twenty-eight —
                     understating the one argument worth making. The count is now
@@ -7111,14 +7130,11 @@ export default function App({ onNavigate }) {
                   and {FOOTER_REMAINDER} more
                 </a>{" "}· Claude AI
               </p>
-              {/* Attribution above the rule, navigation below it. Without the
-                  divider the two read as a single list, which is the same
-                  reason the link is named rather than a bare "About". */}
               <div style={{
-                height: 1, maxWidth: 220, margin: "9px auto 0",
-                background: "rgb(var(--c-border) / 0.45)",
+                height: 1, margin: "11px auto 0",
+                background: "rgb(var(--c-border) / 0.35)",
               }} />
-              <p style={{ textAlign: "center", fontSize: "0.68rem", marginTop: 9, display: "flex", justifyContent: "center", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <p className="gc-footer-nav" style={{ textAlign: "center", fontSize: "0.7rem", marginTop: 11, display: "flex", justifyContent: "center", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 {[
                   ["/about", "About MyDNA"],
                   ["/faq", "FAQ"],
@@ -7136,7 +7152,7 @@ export default function App({ onNavigate }) {
                         if (href.startsWith("mailto:")) return;
                         if (onNavigate) { e.preventDefault(); onNavigate(href); }
                       }}
-                      style={{ color: "var(--text-dim)", textDecoration: "none" }}>
+                      style={{ color: "var(--text-muted)", textDecoration: "none" }}>
                       {label}
                     </a>
                   </span>

@@ -164,6 +164,17 @@ export default function AboutPage({ onBack }) {
             MyDNA also does not test your DNA. It reads a file you already have
             from a consumer testing service, and it works without one.
           </P>
+          <P>
+            {/* Moved here when "Why it costs anything" was cut. The pricing
+                belongs in the FAQ, which has the actual numbers — but this
+                claim is the single most important one a genomics product
+                makes, and in the FAQ it sits behind a collapsed answer most
+                readers never open. It is a plain negative, so it belongs with
+                the other plain negatives. */}
+            It does not sell data either. There is no advertising and no
+            analytics profile, and nothing is passed to anyone except the
+            public databases needed to answer the question.
+          </P>
         </Section>
 
         <Section title="Who it is for">
@@ -173,13 +184,6 @@ export default function AboutPage({ onBack }) {
             eliminate the scavenger hunt required to compile numerous sources.
             In some cases, the visualizations are better than what the source
             databases offer on their own.
-          </P>
-        </Section>
-
-        <Section title="Why it costs anything">
-          <P>
-            MyDNA does not sell data. Subscriptions cover hosting and the AI
-            tokens each answer consumes.
           </P>
         </Section>
 

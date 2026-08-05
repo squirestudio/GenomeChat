@@ -44,6 +44,15 @@ function P({ children }) {
 export default function AboutPage({ onBack }) {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", overflowY: "auto" }}>
+      <style>{`
+        .source-pill:hover {
+          color: var(--accent);
+          border-color: rgb(var(--c-accent) / 0.5);
+        }
+        .source-pill:focus-visible {
+          outline: 2px solid var(--accent); outline-offset: 2px;
+        }
+      `}</style>
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "2.5rem 1.5rem 4rem" }}>
 
         <button onClick={onBack}
@@ -175,20 +184,34 @@ export default function AboutPage({ onBack }) {
         </Section>
 
         <Section title="Where the answers come from">
+          {/* Links, not labels. A list of names that cannot be clicked is an
+              assertion, and the argument of this page is that nothing here has
+              to be taken on trust. Each goes to the project's root rather than
+              a deep link — the reader is being invited to see who these people
+              are, and a gene-specific page would land them mid-record.
+
+              No per-pill external-link arrow, deliberately. The convention
+              elsewhere marks the one or two outbound links in a panel of
+              internal ones; here every item is external and that is the whole
+              point of the section, so 28 arrows would mark nothing. The line
+              underneath says it once. */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
             {SOURCES.map(s => (
-              <span key={s} style={{
-                fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 100,
-                background: "rgb(var(--c-surface) / 0.6)",
-                border: "1px solid rgb(var(--c-border) / 0.35)",
-                color: "var(--text-dim)",
-              }}>{s}</span>
+              <a key={s.name} href={s.url} target="_blank" rel="noopener noreferrer"
+                className="source-pill" style={{
+                  fontSize: "0.68rem", padding: "0.2em 0.55em", borderRadius: 100,
+                  background: "rgb(var(--c-surface) / 0.6)",
+                  border: "1px solid rgb(var(--c-border) / 0.35)",
+                  color: "var(--text-dim)", textDecoration: "none",
+                  transition: "color 0.15s, border-color 0.15s",
+                }}>{s.name}</a>
             ))}
           </div>
           <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.6, marginTop: "0.9rem" }}>
             Public research databases maintained by NCBI, EMBL-EBI, the Broad
-            Institute, UniProt, the Monarch Initiative and others. Explanations
-            are written by Claude, from the data those sources return.
+            Institute, UniProt, the Monarch Initiative and others — each name
+            opens that project&rsquo;s own site. Explanations are written by
+            Claude, from the data those sources return.
           </p>
         </Section>
 

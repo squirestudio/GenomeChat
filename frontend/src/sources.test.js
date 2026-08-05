@@ -1,18 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { SOURCES, SOURCE_COUNT, FOOTER_NAMED, FOOTER_REMAINDER } from "./sources";
+import { SOURCES, SOURCE_NAMES, SOURCE_COUNT, FOOTER_NAMED, FOOTER_REMAINDER } from "./sources";
 import aboutSrc from "./about.jsx?raw";
 import faqSrc from "./faq.jsx?raw";
 import appSrc from "./App.jsx?raw";
 
 describe("the source list", () => {
   it("has no duplicates, which would inflate the count silently", () => {
-    expect(new Set(SOURCES).size).toBe(SOURCES.length);
+    expect(new Set(SOURCE_NAMES).size).toBe(SOURCES.length);
+  });
+
+  it("gives every source a link, so the roll-call is checkable", () => {
+    // A name with no URL renders as a dead pill — worse than a plain label,
+    // because it looks clickable. All 28 were verified reachable 4 Aug 2026.
+    for (const s of SOURCES) {
+      expect(s.name, JSON.stringify(s)).toBeTruthy();
+      expect(s.url, `${s.name} has no url`).toMatch(/^https:\/\/[^\s"']+$/);
+    }
+  });
+
+  it("links to distinct destinations", () => {
+    // Ensembl and Ensembl VEP are the near-miss: same host, and a copy-paste
+    // that pointed both at the same page would lose the VEP tool page.
+    expect(new Set(SOURCES.map(s => s.url)).size).toBe(SOURCES.length);
   });
 
   it("names every footer source in the full list", () => {
     // A typo here would not throw — it would just quietly make FOOTER_REMAINDER
     // one too many, and "and 24 more" beside five names is not obviously wrong.
-    for (const name of FOOTER_NAMED) expect(SOURCES).toContain(name);
+    for (const name of FOOTER_NAMED) expect(SOURCE_NAMES).toContain(name);
   });
 
   it("adds up: named + remainder is the whole list", () => {
@@ -21,7 +36,7 @@ describe("the source list", () => {
 
   it("excludes OMIM, which is fetched but withheld for licensing", () => {
     // Listing it would advertise a section no reader can open.
-    expect(SOURCES).not.toContain("OMIM");
+    expect(SOURCE_NAMES).not.toContain("OMIM");
   });
 });
 

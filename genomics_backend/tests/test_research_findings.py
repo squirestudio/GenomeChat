@@ -214,3 +214,21 @@ def test_a_verdict_list_that_is_junk_does_not_break_the_finding():
         "verdicts": [None, "not a dict", {"submitter": "Real", "classification": "Strong"}],
     }])
     assert [v["submitter"] for v in out[0]["evidence"][0]["verdicts"]] == ["Real"]
+
+
+def test_it_only_promises_papers_when_there_are_papers():
+    """Curators cite nothing surprisingly often. A sentence pointing at an
+    empty space reads as a rendering bug rather than as an absence of evidence
+    — which is exactly how it was first reported."""
+    with_papers = curator_disagreement([{
+        "disease": "D", "disputed": True, "spread": 2, "pmids": ["123"],
+        "verdicts": [{"classification": "Strong"}, {"classification": "Limited"}],
+    }])[0]
+    assert "listed below" in with_papers["detail"]
+
+    without = curator_disagreement([{
+        "disease": "D", "disputed": True, "spread": 2, "pmids": [],
+        "verdicts": [{"classification": "Strong"}, {"classification": "Limited"}],
+    }])[0]
+    assert "listed below" not in without["detail"]
+    assert "did not record" in without["detail"] or "recorded the papers" in without["detail"]

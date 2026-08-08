@@ -95,8 +95,15 @@ def curator_disagreement(gencc: Optional[list]) -> list[dict]:
                 f"{row.get('submitter_count', len(labels))} submitters, "
                 f"{len(set(labels))} different classifications "
                 f"({', '.join(sorted(set(labels)))}). "
-                "Disagreement usually means they weighed different evidence; the "
-                "cited papers below are where that becomes visible."
+                # Only promise the papers when there are papers. Curators cite
+                # nothing surprisingly often — Ambry recorded none on Caffey
+                # disease — and a sentence pointing at an empty space reads as a
+                # rendering bug rather than as an absence of evidence.
+                + ("Disagreement usually means they weighed different evidence; the "
+                   "papers each of them cited are listed below."
+                   if row.get("pmids") else
+                   "None of these submitters recorded the papers behind their call, "
+                   "which is itself worth knowing when weighing them.")
             ),
             evidence=[{
                 "disease": row.get("disease"),

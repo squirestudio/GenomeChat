@@ -585,6 +585,20 @@ A single-letter genotype is **hemizygous**, not homozygous. 23andMe reports one 
 
 Rungs sit at real coordinates so the gaps are literal, and thinning **pins both endpoints** — sampling at `i * length / max` never lands on the final element, so the helix used to stop short of the end of the gene, which is a small lie about where the data runs to. A test caught that.
 
+### Read-aloud — local voices only, and that is a privacy constraint
+
+Opt-in accessibility, **off by default**: speech starting unbidden is hostile in an open-plan office and worse in a waiting room, and this is a page people read about their own health on. Turning it off in Settings removes the header button entirely rather than leaving a dead control.
+
+**`speechSynthesis` sounds local and often is not.** Chrome ships network-backed Google voices alongside the operating system's, and selecting one sends the utterance text to Google to be synthesised. An answer names the reader's gene and frequently their own genotype, so a remote voice would quietly break the promise that DNA never leaves the browser — in the one place nobody would think to look. `pickVoice` in [speech.js](frontend/src/speech.js) accepts only `localService` voices and **returns null rather than falling back**; the caller must treat null as "speech unavailable" and render no button, never as "use the platform default". A test asserts a remote-only voice list yields null.
+
+**Speech input stays rejected.** `SpeechRecognition` streams microphone audio to Google's servers — the same objection with worse consequences — and dictation is poor at exactly this vocabulary. A misheard rsID is a different variant and nothing downstream can tell.
+
+**Three transformations exist because the naive version is unusable.** Gene symbols are spelled (`BRCA1` → "B R C A 1", since a synthesiser says "brocka one"); rsIDs are spoken as letters (`rs334` → "r s 334"); and scientific notation is expanded, because "5.58e-04" read literally is "five point five eight e zero four". **Tables are announced, not recited** — a listener cannot hear the difference between a column break and a decimal point.
+
+**Utterances are chunked.** Chrome has cut long ones off mid-sentence for years and the threshold moves between releases, so nothing relies on it; `chunkForSpeech` splits on sentence boundaries, which also makes stopping land somewhere sensible.
+
+**The voice list is an external store**, read through `useSyncExternalStore`. `getVoices()` is empty on the first call in every browser that fires `voiceschanged`, so asking once at mount concludes speech is unavailable forever — and the snapshot must be cached, because `getVoices()` returns a fresh array each call and a new reference per render is an infinite loop.
+
 ### Personal DNA data — the privacy invariant
 
 `parseDNAFile()` parses 23andMe, AncestryDNA, and VCF **entirely client-side**. Parsed variants live in React state and `sessionStorage` only, and are sent to `/chat` in the `personal_variants` field per-request. The backend passes them into the prompt and **never writes them to the database** — `main.py` stores `pipeline_result`, not `request.personal_variants`.

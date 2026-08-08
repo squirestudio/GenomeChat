@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import {
@@ -26,6 +26,7 @@ import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, fillOn, oneInPhrase } from "./frequency";
 import { Markdown } from "./markdown.jsx";
 import { SOURCE_COUNT, FOOTER_NAMED, FOOTER_REMAINDER } from "./sources";
+import { speakableText, chunkForSpeech, pickVoice } from "./speech";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -83,6 +84,11 @@ const DEFAULT_SETTINGS = {
   readingLevel: "plain",       // plain | clinical — how hard the words are
   variantDefault: "collapsed", // collapsed | expanded
   defaultSort: "default",      // default | pathogenic_first | frequency
+  // Off by default and opt-in on purpose. Speech starting unbidden is hostile
+  // in an open-plan office and worse in a waiting room, and this is a page
+  // people read about their own health on. Turning it off removes the icon
+  // entirely rather than leaving a dead control.
+  speech: false,               // read answers aloud, local voices only
   apiKey: "",                  // optional user-supplied Anthropic key
 };
 
@@ -617,6 +623,17 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
             <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
               {settings.readingLevel === "plain" && "Everyday words, short sentences, and any technical term defined where it appears. The findings are identical — only the wording is simpler."}
               {settings.readingLevel === "clinical" && "Standard clinical and molecular terminology, unglossed, with effect sizes and inheritance patterns stated precisely. Written for clinicians and researchers."}
+            </p>
+          </Section>
+
+          <Section label="Read Aloud" hint="Off by default — turning it on adds a speaker button to the header">
+            <SettingSegment value={settings.speech ? "on" : "off"}
+              options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]}
+              onChange={v => set("speech", v === "on")} />
+            <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
+              {settings.speech
+                ? "A speaker button appears in the header and reads the most recent answer. Only voices installed on this device are used, so nothing is sent anywhere to be spoken — if your browser offers no local voice, the button does not appear."
+                : "No speaker button is shown. Turn this on to have answers read aloud using a voice already installed on your device."}
             </p>
           </Section>
 
@@ -5883,6 +5900,89 @@ function Toast({ tone = "success", onDismiss, children }) {
   );
 }
 
+/**
+ * The browser's voice list, as an external store.
+ *
+ * `getVoices()` is empty on the first call in every browser that fires
+ * `voiceschanged` — Chrome loads them asynchronously — so anything that asks
+ * once at mount concludes speech is unavailable and never recovers.
+ *
+ * It is a mutable store with a change event, which is exactly what
+ * `useSyncExternalStore` is for. The snapshot has to be cached rather than
+ * calling `getVoices()` per read: that returns a fresh array every time, and a
+ * new reference on every render is an infinite loop.
+ */
+let _voiceCache = [];
+
+function _subscribeVoices(onChange) {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+  if (!synth) return () => {};
+  const update = () => { _voiceCache = synth.getVoices() || []; onChange(); };
+  update();
+  synth.addEventListener("voiceschanged", update);
+  return () => synth.removeEventListener("voiceschanged", update);
+}
+
+const _voicesSnapshot = () => _voiceCache;
+const _noVoices = () => [];
+
+/**
+ * Read-aloud, wired to the browser's own synthesiser.
+ *
+ * `voice` being null is the load-bearing state: it means no *local* voice
+ * exists, and the caller must not speak at all rather than fall back to the
+ * platform default, which may be the remote one `pickVoice` exists to avoid.
+ * See the note at the top of speech.js.
+ */
+function useSpeech(enabled) {
+  const voices = useSyncExternalStore(_subscribeVoices, _voicesSnapshot, _noVoices);
+  const [speaking, setSpeaking] = useState(false);
+  const cancelled = useRef(false);
+
+  const voice = useMemo(
+    () => (enabled ? pickVoice(voices, typeof navigator !== "undefined" ? navigator.language : "en") : null),
+    [enabled, voices],
+  );
+
+  const stop = useCallback(() => {
+    cancelled.current = true;
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }, []);
+
+  const speak = useCallback((markdown) => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+    if (!synth || !voice) return;
+
+    synth.cancel();
+    cancelled.current = false;
+    const chunks = chunkForSpeech(speakableText(markdown));
+    if (!chunks.length) return;
+
+    setSpeaking(true);
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.voice = voice;
+      u.lang = voice.lang;
+      // Only the last utterance clears the flag; the queue is one logical read
+      // and flipping state per chunk makes the button flicker.
+      if (i === chunks.length - 1) {
+        u.onend = () => { if (!cancelled.current) setSpeaking(false); };
+      }
+      u.onerror = () => setSpeaking(false);
+      synth.speak(u);
+    });
+  }, [voice]);
+
+  // Leaving the page mid-sentence and having the machine keep talking is the
+  // one failure mode people find genuinely alarming.
+  useEffect(() => () => {
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+  }, []);
+
+  return { available: !!voice, speaking, speak, stop };
+}
+
 export default function App({ onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -5927,6 +6027,21 @@ export default function App({ onNavigate }) {
   const [paymentToast, setPaymentToast] = useState(null); // "success_unlock" | "success_credits" | null
   const [creditBalance, setCreditBalance] = useState(null); // read back from /auth/me, never assumed
   const [notice, setNotice] = useState(null);               // a failed action the reader started
+  const speech = useSpeech(settings.speech);
+
+  /** The newest assistant answer, which is what the read-aloud button reads. */
+  const lastAnswer = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "assistant" && messages[i]?.content) return messages[i].content;
+    }
+    return null;
+  }, [messages]);
+
+  // A new question arriving means the answer being read is no longer the
+  // current one. Reading yesterday's answer over today's is worse than silence.
+  useEffect(() => {
+    if (loading) speech.stop();
+  }, [loading, speech]);
   // Evaluated once per mount rather than watched: the tally only advances on
   // send, and a card that appeared mid-sentence would be exactly the
   // interruption this is designed not to be.
@@ -6979,6 +7094,31 @@ export default function App({ onNavigate }) {
                 >
                   {documents.length ? `${documents.length} document${documents.length === 1 ? "" : "s"}` : "Add documents"}
                 </button>
+                {/* Only rendered when the reader has turned speech on *and* a
+                    local voice exists. Turning it off removes the icon rather
+                    than leaving a dead control, which is what was asked for —
+                    and a machine with no local voice gets no button rather than
+                    a button that silently does nothing. */}
+                {settings.speech && speech.available && lastAnswer && (
+                  <button
+                    onClick={() => speech.speaking ? speech.stop() : speech.speak(lastAnswer)}
+                    aria-label={speech.speaking ? "Stop reading" : "Read the latest answer aloud"}
+                    title={speech.speaking ? "Stop reading" : "Read the latest answer aloud"}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: speech.speaking ? "rgb(var(--c-accent) / 0.1)" : "none", border: `1px solid ${speech.speaking ? "rgb(var(--c-accent) / 0.35)" : "rgb(var(--c-border) / 0.4)"}`, color: speech.speaking ? "var(--accent)" : "var(--text-dim)", cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
+                  >
+                    {speech.speaking ? (
+                      <svg viewBox="0 0 20 20" width="13" height="13" fill="currentColor" aria-hidden="true">
+                        <rect x="5" y="5" width="10" height="10" rx="1.5" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                        <path d="M4 8v4h2.5L10 15V5L6.5 8H4z" fill="currentColor" stroke="none" />
+                        <path d="M13 7.5a3.5 3.5 0 010 5" strokeLinecap="round" />
+                        <path d="M15.2 5.4a6.5 6.5 0 010 9.2" strokeLinecap="round" />
+                      </svg>
+                    )}
+                  </button>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                   <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)", textTransform: "capitalize" }}>{apiStatus}</span>

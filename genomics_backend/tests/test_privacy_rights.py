@@ -121,8 +121,14 @@ def test_deleting_an_account_removes_its_projects(base_url, make_user, auth, db)
     project = Project(name="A project", user_id=user_id)
     db.add(project)
     db.commit()
-    db.add(QueryModel(user_id=user_id, project_id=project.id, query_text="q",
-                      query_type="gene_query", target="BRCA1", results={}))
+    filed = QueryModel(user_id=user_id, query_text="q",
+                       query_type="gene_query", target="BRCA1", results={})
+    # Filed through the link table now. This is the case that proves account
+    # deletion still works with the association in place: the bulk delete of
+    # queries does not fire an ORM cascade, so it relies on the DB-level
+    # ON DELETE CASCADE on query_projects.
+    filed.projects = [project]
+    db.add(filed)
     db.commit()
 
     assert httpx.delete(f"{base_url}/user/account", headers=auth(user), timeout=30).status_code == 200

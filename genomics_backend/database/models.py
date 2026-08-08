@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float, Boolean, Table
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 import os
 from datetime import datetime
@@ -75,6 +75,26 @@ class User(Base):
     audit_logs = relationship("AuditLog", back_populates="user")
 
 
+# ─── Queries belong to many projects ──────────────────────────────────────────
+# `queries.project_id` was a single nullable FK, so a query could live in exactly
+# one project. Research does not divide that way — BRCA1 belongs under "breast
+# cancer" and "DNA repair" at the same time — and the alternative on offer was a
+# Duplicate button, which produces two rows that diverge from each other the
+# moment either is touched.
+#
+# **ON DELETE CASCADE is not decoration.** Account deletion removes queries with
+# a bulk `.delete(synchronize_session=False)`, which does not load rows and so
+# never fires an ORM-level cascade. Without the database enforcing it, that
+# delete violates this table's foreign key and account erasure fails outright —
+# a published data-protection commitment broken by a missing two words.
+query_projects = Table(
+    "query_projects",
+    Base.metadata,
+    Column("query_id", Integer, ForeignKey("queries.id", ondelete="CASCADE"), primary_key=True),
+    Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -86,23 +106,16 @@ class Project(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="projects")
-    # **No delete-orphan, deliberately.** This carried `cascade="all,
-    # delete-orphan"`, so deleting a project destroyed every query filed in it —
-    # tolerable while nothing could be filed after the fact, and a real
-    # data-loss risk the moment queries became movable. SQLAlchemy's default on
-    # parent delete is to null the child's FK, which is what we want: the
-    # queries survive and reappear under "All queries".
-    #
-    # Account deletion is unaffected. It removes the user's queries explicitly
-    # before it touches projects, so nothing depended on this cascade.
-    queries = relationship("Query", back_populates="project")
+    # Through the association table, so deleting a project removes the links
+    # and never the research. This carried `cascade="all, delete-orphan"` on a
+    # direct FK, which meant deleting a project destroyed every query in it.
+    queries = relationship("Query", secondary=query_projects, back_populates="projects")
 
 
 class Query(Base):
     __tablename__ = "queries"
 
     id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     query_text = Column(Text, nullable=False)
     query_type = Column(String(50))
@@ -115,7 +128,7 @@ class Query(Base):
     share_token = Column(String(64), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    project = relationship("Project", back_populates="queries")
+    projects = relationship("Project", secondary=query_projects, back_populates="queries")
 
 
 class ProcessedStripeEvent(Base):
@@ -207,6 +220,86 @@ def create_tables_safe() -> None:
         log.warning(f"Schema init skipped ({type(e).__name__}: {e}) — retrying on next start")
 
 
+def _migrate_to_many_projects():
+    """Move `queries.project_id` into the `query_projects` link table.
+
+    Expand, **verify**, then contract — in that order, and the verify is the
+    whole point. These three statements cannot be appended to the ordinary
+    migration list, because every statement there is individually try/excepted:
+    a backfill that failed silently followed by a drop that succeeded would
+    destroy every project association in the database with nothing in the log
+    but a debug line.
+
+    So the drop is guarded by a count. If the number of rows carrying a
+    `project_id` does not match the number of links now standing for them, the
+    column stays and the next boot tries again. Losing the column is
+    unrecoverable; leaving it one deploy longer costs nothing.
+    """
+    import logging
+    import sqlalchemy as _sa
+    log = logging.getLogger(__name__)
+
+    with engine.connect() as conn:
+        try:
+            conn.execute(_sa.text("""
+                CREATE TABLE IF NOT EXISTS query_projects (
+                    query_id INTEGER NOT NULL REFERENCES queries(id) ON DELETE CASCADE,
+                    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    PRIMARY KEY (query_id, project_id)
+                )
+            """))
+            conn.commit()
+            conn.execute(_sa.text(
+                "CREATE INDEX IF NOT EXISTS ix_query_projects_project ON query_projects (project_id)"
+            ))
+            conn.commit()
+        except Exception as e:
+            log.warning(f"query_projects table not created: {e}")
+            return
+
+        # Nothing to move once the column is gone — the normal state after the
+        # first successful run.
+        try:
+            has_col = conn.execute(_sa.text("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'queries' AND column_name = 'project_id'
+            """)).first()
+        except Exception:
+            return
+        if not has_col:
+            return
+
+        try:
+            conn.execute(_sa.text("""
+                INSERT INTO query_projects (query_id, project_id)
+                SELECT id, project_id FROM queries WHERE project_id IS NOT NULL
+                ON CONFLICT DO NOTHING
+            """))
+            conn.commit()
+
+            expected = conn.execute(_sa.text(
+                "SELECT count(*) FROM queries WHERE project_id IS NOT NULL"
+            )).scalar() or 0
+            actual = conn.execute(_sa.text("""
+                SELECT count(*) FROM query_projects qp
+                JOIN queries q ON q.id = qp.query_id AND q.project_id = qp.project_id
+            """)).scalar() or 0
+
+            if actual < expected:
+                log.error(
+                    f"query_projects backfill incomplete ({actual}/{expected}) — "
+                    "keeping queries.project_id and retrying next boot"
+                )
+                return
+
+            conn.execute(_sa.text("ALTER TABLE queries DROP COLUMN IF EXISTS project_id"))
+            conn.commit()
+            log.info(f"queries.project_id migrated to query_projects ({expected} links) and dropped")
+        except Exception as e:
+            conn.rollback()
+            log.error(f"query_projects backfill failed, column left in place: {e}")
+
+
 def _run_migrations():
     """Apply ALTER TABLE migrations that are safe to run repeatedly (IF NOT EXISTS)."""
     migrations = [
@@ -244,3 +337,4 @@ def _run_migrations():
                 # Column may already exist or DB may not support IF NOT EXISTS — skip
                 import logging
                 logging.getLogger(__name__).debug(f"Migration skipped: {e}")
+    _migrate_to_many_projects()

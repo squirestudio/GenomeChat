@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
 from datetime import datetime
-from .models import get_db, Project, Query, AuditLog, User
+from .models import get_db, Project, Query, AuditLog, User, query_projects
 from auth import get_current_user
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -57,7 +57,7 @@ class ProjectResponse(BaseModel):
 
 class QueryResponse(BaseModel):
     id: int
-    project_id: Optional[int]
+    project_ids: list[int] = []
     query_text: str
     query_type: Optional[str]
     target: Optional[str]
@@ -136,7 +136,7 @@ def get_project(
     queries = [
         QueryResponse(
             id=q.id,
-            project_id=q.project_id,
+            project_ids=[p.id for p in q.projects],
             query_text=q.query_text,
             query_type=q.query_type,
             target=q.target,
@@ -199,11 +199,9 @@ def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     _require_owner(project, current_user)
-    # Unfile rather than destroy. The queries outlive the project and show up
-    # under "All queries" — see the note on Project.queries in models.py.
-    db.query(Query).filter(Query.project_id == project_id).update(
-        {Query.project_id: None}, synchronize_session=False
-    )
+    # Only the links go. `query_projects` cascades on the project's deletion at
+    # the database level, so the queries survive and reappear under "All
+    # queries" — deleting a folder must never delete the research inside it.
     db.delete(project)
     db.commit()
 
@@ -220,7 +218,6 @@ def add_query_to_project(
         raise HTTPException(status_code=404, detail="Project not found")
     _require_owner(project, current_user)
     query = Query(
-        project_id=project_id,
         user_id=current_user.id if current_user else None,
         query_text=query_data.get("query_text", ""),
         query_type=query_data.get("query_type"),
@@ -230,13 +227,14 @@ def add_query_to_project(
         sources=query_data.get("sources", []),
         cached=0,
     )
+    query.projects = [project]
     db.add(query)
     project.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(query)
     return QueryResponse(
         id=query.id,
-        project_id=query.project_id,
+        project_ids=[p.id for p in query.projects],
         query_text=query.query_text,
         query_type=query.query_type,
         target=query.target,
@@ -249,9 +247,14 @@ def add_query_to_project(
 
 
 class AssignQueries(BaseModel):
-    """Move one or more existing queries into a project, or out of every project."""
+    """Add or remove queries from a project.
+
+    `member` decides the direction. `project_id: null` means "remove from every
+    project", which is the only operation that does not name one.
+    """
     query_ids: list[int]
     project_id: Optional[int] = None
+    member: bool = True
 
 
 @router.patch("/queries/assign")
@@ -260,7 +263,7 @@ def assign_queries_to_project(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    """File existing queries into a project. `project_id: null` unfiles them.
+    """File existing queries into a project, or take them out of one.
 
     Attribution used to be fixed at ask-time: whatever project was selected when
     the question was sent, forever. Anything asked before a project existed
@@ -272,7 +275,12 @@ def assign_queries_to_project(
     and the destination project is verified to belong to the caller too —
     without that second check, a valid id of *someone else's* project would file
     your queries into it.
+
+    Membership is a set, so adding twice is not an error and removing something
+    that was never there is not either. The UI toggles, and a toggle that can
+    fail on a double-click is a worse UI.
     """
+    project = None
     if body.project_id is not None:
         project = db.query(Project).filter(Project.id == body.project_id).first()
         if not project:
@@ -280,16 +288,35 @@ def assign_queries_to_project(
         _require_owner(project, current_user)
 
     if not body.query_ids:
-        return {"moved": 0, "project_id": body.project_id}
+        return {"changed": 0, "project_id": body.project_id, "member": body.member}
 
-    moved = (
+    owned = (
         db.query(Query)
         .filter(Query.id.in_(body.query_ids))
         .filter(_owned_by(Query, current_user))
-        .update({Query.project_id: body.project_id}, synchronize_session=False)
+        .all()
     )
-    db.commit()
-    return {"moved": moved, "project_id": body.project_id}
+
+    changed = 0
+    for q in owned:
+        if project is None:
+            # "Remove from every project" — the multi-project equivalent of the
+            # old `project_id: null`.
+            if q.projects:
+                q.projects = []
+                changed += 1
+        elif body.member:
+            if project not in q.projects:
+                q.projects.append(project)
+                changed += 1
+        else:
+            if project in q.projects:
+                q.projects.remove(project)
+                changed += 1
+
+    if changed:
+        db.commit()
+    return {"changed": changed, "project_id": body.project_id, "member": body.member}
 
 
 @router.get("/queries/recent")
@@ -321,17 +348,20 @@ def get_recent_queries(
         .order_by(Query.created_at.desc())
     )
     if project_id is not None:
-        q = q.filter(Query.project_id == project_id)
+        # Through the link table now. `.join` rather than `.any()` because the
+        # link table is indexed on project_id and this is the sidebar's hot path.
+        q = q.join(query_projects, query_projects.c.query_id == Query.id).filter(
+            query_projects.c.project_id == project_id
+        )
     queries = q.limit(limit).all()
     result = []
     for q in queries:
         stored = q.results if isinstance(q.results, dict) else {}
         result.append({
             "id": q.id,
-            # Needed by the sidebar's file-menu to mark where a query already
-            # lives. Without it every project reads as unselected and "file
-            # here" looks available for the project it is already in.
-            "project_id": q.project_id,
+            # Needed by the sidebar's file-menu to tick every project a query
+            # is already in. Without it they all read as unselected.
+            "project_ids": [p.id for p in q.projects],
             "query_text": q.query_text,
             "query_type": q.query_type,
             "target": q.target,
@@ -346,21 +376,36 @@ def get_recent_queries(
 
 
 @router.delete("/{project_id}/queries/{query_id}", status_code=204)
-def delete_query(
+def remove_query_from_project(
     project_id: int,
     query_id: int,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    query = db.query(Query).filter(
-        Query.id == query_id,
-        Query.project_id == project_id,
-        _owned_by(Query, current_user),
-    ).first()
+    """Take a query out of one project. It stays in any others, and in history.
+
+    This used to delete the row outright, which was defensible when a query
+    belonged to exactly one project — "remove from the only place it lives" and
+    "delete" were the same act. With membership a set they are not: removing
+    BRCA1 from "DNA repair" must leave it under "breast cancer". Deleting a
+    query for real is `DELETE /queries/{id}`.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    _require_owner(project, current_user)
+
+    query = (
+        db.query(Query)
+        .filter(Query.id == query_id)
+        .filter(_owned_by(Query, current_user))
+        .first()
+    )
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
-    db.delete(query)
-    db.commit()
+    if project in query.projects:
+        query.projects.remove(project)
+        db.commit()
 
 
 # ─── Shared link endpoints (no /projects prefix) ─────────────────────────────

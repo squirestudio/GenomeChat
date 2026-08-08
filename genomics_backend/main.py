@@ -589,7 +589,6 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                 save_db = stream_db or SessionLocal()
                 try:
                     row = QueryModel(
-                        project_id=body.project_id,
                         user_id=user_id_for_stream,
                         query_text=body.message,
                         query_type=interpreted.query_type.value,
@@ -597,6 +596,19 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
                         results=stored, result_count=len(raw_results),
                         sources=sources, cached=0,
                     )
+                    # Membership is a link row now, and the project is only
+                    # attached once it is confirmed to belong to this user —
+                    # project_id arrives from the client and must never be
+                    # trusted to name somebody else's project.
+                    if body.project_id is not None:
+                        proj = (
+                            save_db.query(Project)
+                            .filter(Project.id == body.project_id,
+                                    Project.user_id == user_id_for_stream)
+                            .first()
+                        )
+                        if proj:
+                            row.projects = [proj]
                     save_db.add(row); save_db.commit(); save_db.refresh(row)
                     query_id = row.id
                 except Exception as e:

@@ -5790,25 +5790,34 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
                     background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)",
                     boxShadow: "0 10px 28px rgb(var(--c-shadow) / 0.45)",
                   }}>
+                    {/* Toggles, and the menu stays open between them — a
+                        query can be in several projects, so closing after the
+                        first tick would make the second one a second trip. */}
                     <p style={{ fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-faintest)", margin: "3px 6px 5px" }}>File in</p>
                     {projects.length === 0 && (
                       <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", margin: "0 6px 6px", lineHeight: 1.5 }}>
                         No projects yet — create one below.
                       </p>
                     )}
-                    {projects.map(pr => (
-                      <button key={pr.id}
-                        onClick={e => { e.stopPropagation(); onFileQuery(item.id, pr.id); setMenuFor(null); }}
-                        style={{ display: "block", width: "100%", textAlign: "left", padding: "0.3rem 0.4rem", borderRadius: 5, fontSize: "0.72rem", color: item.project_id === pr.id ? "var(--accent)" : "var(--text-dim)", background: "none", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-surface) / 0.6)"}
-                        onMouseLeave={e => e.currentTarget.style.background = "none"}
-                      >{item.project_id === pr.id ? "✓ " : ""}{pr.name}</button>
-                    ))}
-                    {item.project_id != null && (
+                    {projects.map(pr => {
+                      const inIt = (item.project_ids || []).includes(pr.id);
+                      return (
+                        <button key={pr.id}
+                          onClick={e => { e.stopPropagation(); onFileQuery(item.id, pr.id, !inIt); }}
+                          style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", padding: "0.3rem 0.4rem", borderRadius: 5, fontSize: "0.72rem", color: inIt ? "var(--accent)" : "var(--text-dim)", background: "none", border: "none", cursor: "pointer" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-surface) / 0.6)"}
+                          onMouseLeave={e => e.currentTarget.style.background = "none"}
+                        >
+                          <span aria-hidden="true" style={{ width: 10, flexShrink: 0 }}>{inIt ? "✓" : ""}</span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.name}</span>
+                        </button>
+                      );
+                    })}
+                    {(item.project_ids || []).length > 0 && (
                       <button
                         onClick={e => { e.stopPropagation(); onFileQuery(item.id, null); setMenuFor(null); }}
-                        style={{ display: "block", width: "100%", textAlign: "left", padding: "0.3rem 0.4rem", marginTop: 3, borderTop: "1px solid rgb(var(--c-border) / 0.4)", paddingTop: "0.35rem", borderRadius: 5, fontSize: "0.72rem", color: "var(--text-dimmer)", background: "none", border: "none", borderLeft: "none", borderRight: "none", borderBottom: "none", cursor: "pointer" }}
-                      >Remove from project</button>
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "0.35rem 0.4rem 0.3rem", marginTop: 3, borderTop: "1px solid rgb(var(--c-border) / 0.4)", borderLeft: "none", borderRight: "none", borderBottom: "none", borderRadius: 5, fontSize: "0.72rem", color: "var(--text-dimmer)", background: "none", cursor: "pointer" }}
+                      >Remove from all</button>
                     )}
                   </div>
                 )}
@@ -6238,11 +6247,11 @@ export default function App({ onNavigate }) {
    * out of the project you are looking at), and guessing that locally is how
    * the sidebar ends up disagreeing with the database.
    */
-  const fileQuery = async (queryId, projectId) => {
+  const fileQuery = async (queryId, projectId, member = true) => {
     try {
       const r = await apiFetch("/projects/queries/assign", {
         method: "PATCH",
-        body: JSON.stringify({ query_ids: [queryId], project_id: projectId }),
+        body: JSON.stringify({ query_ids: [queryId], project_id: projectId, member }),
       });
       if (!r.ok) throw new Error(String(r.status));
       loadChatHistory(activeProjectId);

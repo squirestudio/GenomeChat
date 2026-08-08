@@ -22,9 +22,11 @@ def two_projects_with_queries(db, make_user, auth):
     db.add_all([a, b])
     db.commit()
 
-    in_a = QueryModel(query_text="BRCA1 in A", user_id=user.id, project_id=a.id)
-    in_b = QueryModel(query_text="TP53 in B", user_id=user.id, project_id=b.id)
-    loose = QueryModel(query_text="unfiled", user_id=user.id, project_id=None)
+    in_a = QueryModel(query_text="BRCA1 in A", user_id=user.id)
+    in_b = QueryModel(query_text="TP53 in B", user_id=user.id)
+    loose = QueryModel(query_text="unfiled", user_id=user.id)
+    in_a.projects = [a]
+    in_b.projects = [b]
     db.add_all([in_a, in_b, loose])
     db.commit()
     for row in (a, b, in_a, in_b, loose):
@@ -66,7 +68,8 @@ def test_the_project_filter_cannot_reach_another_users_rows(base_url, db, make_u
     theirs = Project(name="Private", user_id=owner.id)
     db.add(theirs)
     db.commit()
-    secret = QueryModel(query_text="confidential", user_id=owner.id, project_id=theirs.id)
+    secret = QueryModel(query_text="confidential", user_id=owner.id)
+    secret.projects = [theirs]
     db.add(secret)
     db.commit()
     db.refresh(secret)

@@ -73,11 +73,10 @@ Sign-in uses Google. We receive, and store:
 We do **not** receive your Google password, contacts, calendar or Drive.
 
 **Referrals do not build a picture of who you know.** If you share your link, we
-record that *a* referral converted and add credits to your account — we do not
-keep a record of who joined through you. When someone signs up through a link,
-the code is held on their account only until their first question, purely so the
-right person can be credited, and is erased at that moment. Nothing afterwards
-connects the two accounts.
+record that *a* referral happened and add credits to your account — we do not
+keep a record of who joined through you. The credit is applied while the new
+account is being created and the code is discarded in the same moment, so
+nothing in our records connects the two accounts at any point.
 
 ### 2.2 If you are signed in — your questions
 

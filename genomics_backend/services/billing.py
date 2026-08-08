@@ -320,46 +320,33 @@ def ensure_referral_code(user, db):
     return user.referral_code
 
 
-def attach_pending_referral(user, code, db):
-    """Record who to credit, for a brand-new account only.
+def credit_referral(new_user, code, db):
+    """Credit a referrer the moment a new account is created.
 
-    Guarded three ways, and each guard closes a real hole: an existing account
-    cannot claim a code later (`total_queries` must be zero), a code cannot be
-    swapped after the fact (`pending_referral_code` must be unset), and nobody
-    can refer themselves.
+    **Nothing linking the two accounts is ever written.** The code arrives with
+    the sign-in, the referrer's counter goes up inside this call, and the code is
+    discarded — there is no column holding "who referred this account", not even
+    briefly. An earlier version credited on the referee's first question, which
+    meant parking the code on their row until then; a few minutes is not long,
+    but it is long enough to appear in a backup, and a record of who introduced
+    whom is a map of who knows whom.
+
+    Guarded so it can only ever apply to a genuinely new account: `total_queries`
+    must be zero, and nobody can refer themselves. Returns whether credit was
+    granted, which is used for logging and nothing else.
     """
-    if not code or user.pending_referral_code or (user.total_queries or 0) > 0:
+    if not code or (new_user.total_queries or 0) > 0:
         return False
-    if user.referral_code and code == user.referral_code:
+    if new_user.referral_code and code == new_user.referral_code:
         return False
-    referrer = db.query(type(user)).filter(type(user).referral_code == code).first()
-    if not referrer or referrer.id == user.id:
+
+    referrer = db.query(type(new_user)).filter(type(new_user).referral_code == code).first()
+    if not referrer or referrer.id == new_user.id:
         return False
-    user.pending_referral_code = code
+    if (referrer.referrals_converted or 0) >= REFERRAL_CAP:
+        return False
+
+    referrer.query_credits = (referrer.query_credits or 0) + REFERRAL_CREDITS
+    referrer.referrals_converted = (referrer.referrals_converted or 0) + 1
     db.commit()
     return True
-
-
-def convert_referral(user, db):
-    """Credit the referrer, once, on the referee's first query.
-
-    **The pending code is cleared whichever way this goes** — including when the
-    referrer is already at the cap. Leaving it set would keep a record of who
-    introduced this account for the life of the row, which is exactly the graph
-    this design exists to avoid, and would retry forever against a capped
-    referrer.
-    """
-    code = user.pending_referral_code
-    if not code:
-        return False
-
-    user.pending_referral_code = None
-    referrer = db.query(type(user)).filter(type(user).referral_code == code).first()
-
-    granted = False
-    if referrer and referrer.id != user.id and (referrer.referrals_converted or 0) < REFERRAL_CAP:
-        referrer.query_credits = (referrer.query_credits or 0) + REFERRAL_CREDITS
-        referrer.referrals_converted = (referrer.referrals_converted or 0) + 1
-        granted = True
-    db.commit()
-    return granted

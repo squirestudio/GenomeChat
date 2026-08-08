@@ -10,8 +10,7 @@ import pytest
 
 from database.models import User
 from services.billing import (
-    ensure_referral_code, attach_pending_referral, convert_referral,
-    REFERRAL_CREDITS, REFERRAL_CAP,
+    ensure_referral_code, credit_referral, REFERRAL_CREDITS, REFERRAL_CAP,
 )
 
 
@@ -23,9 +22,10 @@ def referrer(db, make_user):
     return u
 
 
-def _new_referee(db, make_user, email, code):
+def _join_via(db, make_user, email, code):
+    """A new account arriving with a referral code, as OAuth signup does it."""
     u = make_user(email)
-    attach_pending_referral(u, code, db)
+    credit_referral(u, code, db)
     db.refresh(u)
     return u
 
@@ -45,89 +45,59 @@ def test_the_code_is_stable_once_issued(db, referrer):
     assert ensure_referral_code(referrer, db) == referrer.referral_code
 
 
-def test_credit_lands_on_the_first_query_not_at_signup(db, make_user, referrer):
+def test_credit_lands_when_the_code_is_used(db, make_user, referrer):
     before = referrer.query_credits or 0
-    referee = _new_referee(db, make_user, "referee1@example.com", referrer.referral_code)
-
-    # Signing up alone pays nothing.
-    db.refresh(referrer)
-    assert (referrer.query_credits or 0) == before
-    assert referee.pending_referral_code == referrer.referral_code
-
-    assert convert_referral(referee, db) is True
+    _join_via(db, make_user, "referee1@example.com", referrer.referral_code)
     db.refresh(referrer)
     assert (referrer.query_credits or 0) == before + REFERRAL_CREDITS
     assert referrer.referrals_converted == 1
 
 
-def test_conversion_leaves_no_record_of_who_referred_whom(db, make_user, referrer):
-    """The pending code is the only link, and it is erased on conversion.
+def test_nothing_records_who_joined_through_whom(db, make_user, referrer):
+    """The property the whole design exists for.
 
     A durable "A referred B" is a social graph, and in a genomics product that
-    is a real inference — people refer family, and genetics is familial.
+    is a real inference — people refer family, and genetics is familial. An
+    earlier version parked the code on the referee's row until their first
+    question; crediting at signup means no column holds it at all.
     """
-    referee = _new_referee(db, make_user, "referee-graph@example.com", referrer.referral_code)
-    convert_referral(referee, db)
+    referee = _join_via(db, make_user, "referee-graph@example.com", referrer.referral_code)
     db.refresh(referee)
-    assert referee.pending_referral_code is None
-
-
-def test_it_converts_once_however_often_it_is_called(db, make_user, referrer):
-    referee = _new_referee(db, make_user, "referee2@example.com", referrer.referral_code)
-    assert convert_referral(referee, db) is True
-    assert convert_referral(referee, db) is False
-    db.refresh(referrer)
-    assert referrer.referrals_converted == 1
+    for column in referee.__table__.columns.keys():
+        if column == "referral_code":
+            continue  # the referee's own code, not the referrer's
+        assert getattr(referee, column) != referrer.referral_code, column
 
 
 def test_the_cap_holds(db, make_user, referrer):
     """The ceiling on what farming can earn, which is the whole cost control."""
     for i in range(REFERRAL_CAP + 2):
-        r = _new_referee(db, make_user, f"capped{i}@example.com", referrer.referral_code)
-        convert_referral(r, db)
+        _join_via(db, make_user, f"capped{i}@example.com", referrer.referral_code)
     db.refresh(referrer)
     assert referrer.referrals_converted == REFERRAL_CAP
     assert (referrer.query_credits or 0) == REFERRAL_CREDITS * REFERRAL_CAP
 
 
-def test_a_capped_referrer_still_clears_the_referees_pending_code(db, make_user, referrer):
-    """Otherwise it retries forever and keeps the link on the row."""
-    for i in range(REFERRAL_CAP):
-        convert_referral(_new_referee(db, make_user, f"fill{i}@example.com", referrer.referral_code), db)
-
-    late = _new_referee(db, make_user, "late@example.com", referrer.referral_code)
-    assert convert_referral(late, db) is False
-    db.refresh(late)
-    assert late.pending_referral_code is None
-
-
-def test_nobody_can_refer_themselves(db, make_user, referrer):
-    assert attach_pending_referral(referrer, referrer.referral_code, db) is False
-    db.refresh(referrer)
-    assert referrer.pending_referral_code is None
-
-
-def test_an_established_account_cannot_claim_a_code_later(db, make_user, referrer):
-    """The hole this closes: sign up, use it for months, then paste a friend's code."""
+def test_an_established_account_cannot_claim_a_code(db, make_user, referrer):
+    """Sign up, use it for months, then try to attach a friend's code."""
     old = make_user("established@example.com")
     old.total_queries = 7
     db.commit()
-    assert attach_pending_referral(old, referrer.referral_code, db) is False
+    assert credit_referral(old, referrer.referral_code, db) is False
+    db.refresh(referrer)
+    assert referrer.referrals_converted == 0
 
 
-def test_a_code_cannot_be_swapped_after_it_is_set(db, make_user, referrer):
-    other = make_user("other-referrer@example.com")
-    ensure_referral_code(other, db)
-    referee = _new_referee(db, make_user, "swap@example.com", referrer.referral_code)
-    assert attach_pending_referral(referee, other.referral_code, db) is False
-    db.refresh(referee)
-    assert referee.pending_referral_code == referrer.referral_code
+def test_nobody_can_refer_themselves(db, make_user, referrer):
+    assert credit_referral(referrer, referrer.referral_code, db) is False
+    db.refresh(referrer)
+    assert (referrer.referrals_converted or 0) == 0
 
 
 def test_an_unknown_code_is_ignored_rather_than_erroring(db, make_user):
     u = make_user("badcode@example.com")
-    assert attach_pending_referral(u, "notarealcode", db) is False
-    assert convert_referral(u, db) is False
+    assert credit_referral(u, "notarealcode", db) is False
+    assert credit_referral(u, "", db) is False
 
 
 def test_auth_me_publishes_the_code_and_progress(base_url, db, make_user, auth):

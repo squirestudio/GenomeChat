@@ -257,11 +257,11 @@ export default function FaqPage({ onBack }) {
               do not keep a record of who it was.
             </p>
             <p>
-              Their account holds your code only until they ask their first
-              question — long enough to credit the right person — and it is
-              erased at that moment. Nothing afterwards connects the two
-              accounts. A list of who introduced whom is a map of who knows whom,
-              and that is not a thing worth keeping next to genetic questions.
+              The credit is applied as their account is created, and the code is
+              discarded in the same moment. No column anywhere holds who
+              introduced whom — not even briefly. A list of that is a map of who
+              knows whom, which is not a thing worth keeping next to genetic
+              questions.
             </p>
           </Q>
           <Q q="Do you sell my data?">

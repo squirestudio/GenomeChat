@@ -80,14 +80,13 @@ class User(Base):
     #
     # `referral_code` is random and reveals nothing about its owner.
     # `referrals_converted` is a count, never a list.
-    # `pending_referral_code` is the one temporary exception: credit lands on the
-    # referee's *first query* rather than at signup, so the referrer has to be
-    # remembered across that gap. It is **nulled the moment credit is granted**,
-    # so the link exists for minutes and is then gone. Nothing durable records
-    # who introduced whom.
+    # There is no third column, and there used to be. Credit once landed on the
+    # referee's first question, which meant parking the referrer's code on their
+    # row until then — a few minutes, but long enough to reach a backup. Credit
+    # now happens inside account creation, so **nothing linking two accounts is
+    # ever written at all**.
     referral_code = Column(String(16), unique=True, nullable=True, index=True)
     referrals_converted = Column(Integer, default=0)
-    pending_referral_code = Column(String(16), nullable=True)
 
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
@@ -332,7 +331,8 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(16)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS referrals_converted INTEGER DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_referral_code VARCHAR(16)",
+        # Referrals are credited at signup now, so nothing is parked on the row.
+        "ALTER TABLE users DROP COLUMN IF EXISTS pending_referral_code",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code)",
         # Columns added by ALTER TABLE do not get the index the model declares,
         # so these were never created and every history load and ownership check

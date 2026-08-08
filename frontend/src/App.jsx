@@ -1395,7 +1395,7 @@ function ReferralCard({ currentUser }) {
       <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.55, margin: "0 0 9px" }}>
         {maxed
           ? "Thanks for spreading the word. Your link still works for anyone you send it to."
-          : <>Share MyDNA with a friend. When they sign in and ask their first question, you get <strong style={{ color: "var(--accent)" }}>{each} credits</strong> — up to {cap} friends.</>}
+          : <>Share MyDNA with a friend. When they join through your link, you get <strong style={{ color: "var(--accent)" }}>{each} credits</strong> — up to {cap} friends.</>}
       </p>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <button onClick={copy}

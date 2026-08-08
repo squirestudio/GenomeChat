@@ -163,12 +163,14 @@ async def google_callback(code: str, request: Request, state: str = "", db: Sess
         db.commit()
         db.refresh(user)
         logger.info(f"New user registered: {email}")
-        # Only a brand-new account can carry a referral. attach_pending_referral
-        # re-checks that regardless, but not calling it for returning users
-        # keeps the intent obvious at the call site.
+        # Credit the referrer here and now. Only reachable for a brand-new
+        # account — a returning sign-in never enters this branch — and
+        # `credit_referral` re-checks anyway. Nothing about the referral is
+        # written to this account; the code is used and discarded.
         if state:
-            from services.billing import attach_pending_referral
-            attach_pending_referral(user, state, db)
+            from services.billing import credit_referral
+            if credit_referral(user, state, db):
+                logger.info("Referral credited")
     else:
         if user.name != name:
             user.name = name

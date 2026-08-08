@@ -580,6 +580,7 @@ async def fetch_protein_domains(uniprot_accession: str) -> list[dict]:
         return []
 
 
+
 async def fetch_pubmed_count(gene_symbol: str) -> int:
     async with httpx.AsyncClient() as client:
         params = {

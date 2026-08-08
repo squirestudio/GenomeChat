@@ -5953,12 +5953,13 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
           />
         )}
 
-        {/* Research mode only, and gated on the answer having a gene — a
-            conversational follow-up has nothing to cross-check. */}
-        <ResearchFindings
-          gene={msg.data?.gene_symbol || msg.target}
-          enabled={!!settings?.researchMode}
-        />
+        {/* Shown to everyone, gated only on the answer having a gene — a
+            conversational follow-up has nothing to cross-check. These are
+            computed from named sources and link the records behind them, which
+            is the same contract as every other panel; someone reading about
+            their own condition has as much business knowing that experts
+            disagree as a researcher does. */}
+        <ResearchFindings gene={msg.data?.gene_symbol || msg.target} enabled />
 
         <MessageFooter msg={msg} />
       </div>
@@ -6001,9 +6002,11 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
 function FindingRow({ finding, last, tone }) {
   const ev = finding.evidence?.[0] || {};
   const verdicts = ev.verdicts || [];
-  const pmids = ev.pmids || [];
+  // `papers` carries titles; `pmids` is the pre-title shape, kept so an answer
+  // cached before titles existed still renders links rather than nothing.
+  const papers = ev.papers || (ev.pmids || []).map(pmid => ({ pmid }));
   const rows = finding.kind === "unsupported_assertions" ? finding.evidence : [];
-  const hasDetail = verdicts.length > 0 || pmids.length > 0 || rows.length > 0;
+  const hasDetail = verdicts.length > 0 || papers.length > 0 || rows.length > 0;
 
   return (
     <div style={{ marginBottom: last ? 0 : 14 }}>
@@ -6041,19 +6044,32 @@ function FindingRow({ finding, last, tone }) {
         </ul>
       )}
 
-      {pmids.length > 0 && (
-        <p style={{ fontSize: "0.66rem", color: "var(--text-faintest)", margin: "6px 0 0", lineHeight: 1.7 }}>
-          {/* The papers behind the disagreement. Reading the ones cited at each
-              end is the fastest way to see what actually changed. */}
-          Papers cited:{" "}
-          {pmids.slice(0, 10).map((pm, n) => (
-            <span key={pm}>
-              {n > 0 && " · "}
-              <a href={`https://pubmed.ncbi.nlm.nih.gov/${pm}/`} target="_blank" rel="noopener noreferrer"
-                style={{ color: "var(--accent)", textDecoration: "none" }}>{pm}</a>
-            </span>
-          ))}
-        </p>
+      {papers.length > 0 && (
+        <div style={{ margin: "7px 0 0" }}>
+          {/* Titles, not numbers. A bare PMID is a receipt — "15864348" tells a
+              reader nothing about which side of a disagreement read what, which
+              is the entire reason the citation list is here. The number stays
+              as a fallback when a title cannot be resolved, so the link never
+              disappears. */}
+          <p style={{ fontSize: "0.64rem", color: "var(--text-faintest)", margin: "0 0 3px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Papers cited
+          </p>
+          <ul style={{ margin: 0, paddingLeft: "0.9rem", listStyle: "disc" }}>
+            {papers.slice(0, 8).map(pm => (
+              <li key={pm.pmid} style={{ fontSize: "0.68rem", lineHeight: 1.55, marginBottom: 2, color: "var(--text-faintest)" }}>
+                <a href={pm.url || `https://pubmed.ncbi.nlm.nih.gov/${pm.pmid}/`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ color: "var(--accent)", textDecoration: "none" }}>
+                  {pm.title || `PMID ${pm.pmid}`}
+                </a>
+                {pm.journal && <span> · {pm.journal}{pm.year ? ` ${pm.year}` : ""}</span>}
+              </li>
+            ))}
+            {papers.length > 8 && (
+              <li style={{ fontSize: "0.66rem", color: "var(--text-faintest)" }}>and {papers.length - 8} more</li>
+            )}
+          </ul>
+        </div>
       )}
 
       <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", margin: "5px 0 0" }}>

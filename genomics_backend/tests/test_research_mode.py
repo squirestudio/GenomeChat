@@ -27,11 +27,23 @@ def test_a_wrong_password_does_not_unlock(base_url, make_user, auth):
     assert r.status_code in (403, 501)
 
 
-def test_findings_are_refused_until_unlocked(base_url, make_user, auth):
-    u = make_user("research-locked@example.com")
-    r = httpx.get(f"{base_url}/research/findings", params={"gene": "BRCA1"},
+def test_findings_are_open_to_any_signed_in_account(base_url, make_user, auth):
+    """Ungated on 8 Aug 2026, deliberately.
+
+    Every finding is computed from named sources and links the records behind
+    it — the same contract as every other panel — and it makes the underlying
+    research easier to reach rather than harder. Someone reading about their own
+    condition has as much business knowing that experts disagree as a researcher
+    does, and hiding it would be paternalistic.
+
+    What stays behind the gate is the other half: open-ended commentary and
+    anything resembling a hypothesis.
+    """
+    u = make_user("research-open@example.com")
+    assert not u.research_unlocked
+    r = httpx.get(f"{base_url}/research/findings", params={"gene": "NOTAGENE"},
                   headers=auth(u), timeout=30)
-    assert r.status_code == 403
+    assert r.status_code != 403
 
 
 def test_an_unset_password_fails_closed(base_url, make_user, auth):

@@ -1295,7 +1295,19 @@ def unlock_research(body: ResearchUnlock, current_user: User = Depends(require_u
 @app.get("/research/findings")
 async def research_findings_for_gene(gene: str, current_user: User = Depends(require_user),
                                      db: Session = Depends(get_db)):
-    """Cross-source findings for one gene.
+    """Cross-source findings for one gene. Available in ordinary MyDNA.
+
+    **Not gated behind research mode, deliberately.** Everything here is
+    computed from named sources and every finding links the records behind it —
+    the same contract as every other panel. It makes the underlying research
+    easier to reach rather than harder, and someone reading about their own
+    condition has as much business knowing that experts disagree as a researcher
+    does. Hiding that from them would be paternalistic, and this product's whole
+    argument is that uncertainty gets shown rather than smoothed over.
+
+    What research mode is for is the *other* half — open-ended commentary and
+    anything resembling a hypothesis. That line is worth keeping sharp: computed
+    findings are for everyone, generated speculation is not.
 
     **Every finding is computed, not generated.** The model's role in research
     mode is to explain and prioritise what this returns, never to invent
@@ -1305,9 +1317,6 @@ async def research_findings_for_gene(gene: str, current_user: User = Depends(req
     Charged nothing: it runs no model. The pipeline behind it is cached, so
     asking about a gene already discussed costs one dictionary lookup.
     """
-    if not current_user.research_unlocked:
-        raise HTTPException(status_code=403, detail="Research mode is not unlocked for this account")
-
     symbol = (gene or "").strip().upper()
     if not symbol or not re.fullmatch(r"[A-Z0-9\-]{1,20}", symbol):
         raise HTTPException(status_code=400, detail="Gene symbol required")
@@ -1319,5 +1328,36 @@ async def research_findings_for_gene(gene: str, current_user: User = Depends(req
 
     pipeline = await run_gene_pipeline(symbol)
     result = research_findings(pipeline)
+    result = await _attach_paper_titles(result)
     cache.set(cache_key_, result)
+    return result
+
+
+async def _attach_paper_titles(result: dict) -> dict:
+    """Turn the PMIDs on each finding into titles.
+
+    A bare PMID is a receipt, not a paper — the number tells a reader nothing
+    about which side of a disagreement read what. Titles are looked up in one
+    batched call across every finding rather than per id, and a lookup that
+    fails leaves the numbers in place rather than losing the links.
+    """
+    pmids = []
+    for f in result.get("findings", []):
+        for ev in f.get("evidence", []):
+            pmids.extend(ev.get("pmids") or [])
+            for v in ev.get("verdicts") or []:
+                pmids.extend(v.get("pmids") or [])
+    if not pmids:
+        return result
+
+    titles = await fetch_pubmed_titles(list(dict.fromkeys(pmids)))
+    if not titles:
+        return result
+
+    for f in result.get("findings", []):
+        for ev in f.get("evidence", []):
+            ev["papers"] = [
+                {"pmid": pm, **titles.get(str(pm), {})}
+                for pm in (ev.get("pmids") or [])
+            ]
     return result

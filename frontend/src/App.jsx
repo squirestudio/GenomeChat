@@ -26,7 +26,7 @@ import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, fillOn, oneInPhrase } from "./frequency";
 import { Markdown } from "./markdown.jsx";
 import { SOURCE_COUNT, FOOTER_NAMED, FOOTER_REMAINDER } from "./sources";
-import { speakableText, chunkForSpeech, pickVoice } from "./speech";
+import { speakableText, chunkForSpeech, pickVoice, describeVoiceSupport, installHint } from "./speech";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -528,6 +528,188 @@ function SettingSegment({ value, options, onChange }) {
   );
 }
 
+/**
+ * The browser's voice list, as an external store.
+ *
+ * `getVoices()` is empty on the first call in every browser that fires
+ * `voiceschanged` — Chrome loads them asynchronously — so anything that asks
+ * once at mount concludes speech is unavailable and never recovers.
+ *
+ * It is a mutable store with a change event, which is exactly what
+ * `useSyncExternalStore` is for. The snapshot has to be cached rather than
+ * calling `getVoices()` per read: that returns a fresh array every time, and a
+ * new reference on every render is an infinite loop.
+ */
+let _voiceCache = [];
+
+function _subscribeVoices(onChange) {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+  if (!synth) return () => {};
+  const update = () => { _voiceCache = synth.getVoices() || []; onChange(); };
+  update();
+  synth.addEventListener("voiceschanged", update);
+  return () => synth.removeEventListener("voiceschanged", update);
+}
+
+const _voicesSnapshot = () => _voiceCache;
+const _noVoices = () => [];
+
+/**
+ * Read-aloud, wired to the browser's own synthesiser.
+ *
+ * `voice` being null is the load-bearing state: it means no *local* voice
+ * exists, and the caller must not speak at all rather than fall back to the
+ * platform default, which may be the remote one `pickVoice` exists to avoid.
+ * See the note at the top of speech.js.
+ */
+function useSpeech(enabled) {
+  const voices = useSyncExternalStore(_subscribeVoices, _voicesSnapshot, _noVoices);
+  const [speaking, setSpeaking] = useState(false);
+  const cancelled = useRef(false);
+
+  const voice = useMemo(
+    () => (enabled ? pickVoice(voices, typeof navigator !== "undefined" ? navigator.language : "en") : null),
+    [enabled, voices],
+  );
+
+  const stop = useCallback(() => {
+    cancelled.current = true;
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }, []);
+
+  const speak = useCallback((markdown) => {
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+    if (!synth || !voice) return;
+
+    synth.cancel();
+    cancelled.current = false;
+    const chunks = chunkForSpeech(speakableText(markdown));
+    if (!chunks.length) return;
+
+    setSpeaking(true);
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.voice = voice;
+      u.lang = voice.lang;
+      // Only the last utterance clears the flag; the queue is one logical read
+      // and flipping state per chunk makes the button flicker.
+      if (i === chunks.length - 1) {
+        u.onend = () => { if (!cancelled.current) setSpeaking(false); };
+      }
+      u.onerror = () => setSpeaking(false);
+      synth.speak(u);
+    });
+  }, [voice]);
+
+  // Leaving the page mid-sentence and having the machine keep talking is the
+  // one failure mode people find genuinely alarming.
+  useEffect(() => () => {
+    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
+  }, []);
+
+  return { available: !!voice, speaking, speak, stop };
+}
+
+/**
+ * The same store, reported for Settings rather than for speaking.
+ *
+ * Settings needs this whether or not read-aloud is switched on: a reader who
+ * has just turned it on and seen no button needs to be told which of the three
+ * reasons applies, and "turn it on to find out" is not an answer.
+ */
+function useVoiceReport() {
+  const voices = useSyncExternalStore(_subscribeVoices, _voicesSnapshot, _noVoices);
+  const hasApi = typeof window !== "undefined" && !!window.speechSynthesis;
+  return useMemo(() => describeVoiceSupport(voices, hasApi), [voices, hasApi]);
+}
+
+/**
+ * What read-aloud will actually do on this machine, said plainly.
+ *
+ * The button is hidden when there is nothing to read, which is right — a
+ * permanently disabled control in the header is clutter — but it means a reader
+ * who enables speech on an empty chat sees no change and concludes it is
+ * broken. That is what happened. This says so.
+ */
+function VoiceStatus({ enabled }) {
+  const report = useVoiceReport();
+  const [testing, setTesting] = useState(false);
+
+  const test = () => {
+    if (!report.voice || typeof window === "undefined") return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance("Read aloud is working. This is the voice MyDNA will use.");
+    u.voice = report.voice;
+    u.lang = report.voice.lang;
+    u.onend = () => setTesting(false);
+    u.onerror = () => setTesting(false);
+    setTesting(true);
+    window.speechSynthesis.speak(u);
+  };
+
+  const line = { fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.55 };
+
+  if (report.status === "ready") {
+    return (
+      <div style={{ marginTop: 6 }}>
+        <p style={{ ...line, marginTop: 0, color: "var(--success)" }}>
+          Ready — using <strong>{report.voice.name}</strong> ({report.voice.lang}), installed on this device.
+        </p>
+        <p style={line}>
+          {enabled
+            ? "A speaker button appears in the header once there is an answer to read. It will not show on an empty chat, which is why it may look missing."
+            : "Switch this on to add a speaker button to the header."}
+        </p>
+        <button onClick={test} disabled={testing}
+          style={{ marginTop: 8, fontSize: "0.68rem", padding: "0.3rem 0.6rem", borderRadius: 7, background: "none", border: "1px solid rgb(var(--c-border) / 0.5)", color: testing ? "var(--text-disabled)" : "var(--text-dim)", cursor: testing ? "default" : "pointer" }}>
+          {testing ? "Speaking…" : "Test this voice"}
+        </button>
+      </div>
+    );
+  }
+
+  const hint = installHint(
+    typeof navigator !== "undefined" ? navigator.userAgent : "",
+    typeof navigator !== "undefined" ? navigator.platform : "",
+  );
+
+  if (report.status === "remote_only") {
+    // The surprising one. The reader plainly has voices, so telling them there
+    // are none would read as a bug — they need to know these are being refused.
+    return (
+      <div style={{ marginTop: 6 }}>
+        <p style={{ ...line, marginTop: 0, color: "var(--warning)" }}>
+          Not available — your browser offers {report.remote} {report.remote === 1 ? "voice" : "voices"}, but
+          {report.remote === 1 ? " it is a network voice" : " all of them are network voices"}.
+        </p>
+        <p style={line}>
+          Those synthesise speech on a server, which would send the text of your
+          answer — including your gene, and sometimes your own genotype — off
+          this device. MyDNA will not use them. Installing a system voice fixes
+          it: {hint}
+        </p>
+      </div>
+    );
+  }
+
+  if (report.status === "unsupported") {
+    return <p style={{ ...line, color: "var(--warning)" }}>
+      Not available — this browser has no speech support at all. Safari, Chrome and Edge all do.
+    </p>;
+  }
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      <p style={{ ...line, marginTop: 0, color: "var(--warning)" }}>
+        Not available — no voice is installed on this device.
+      </p>
+      <p style={line}>{hint}</p>
+      <p style={line}>Once installed, reload this page and it will appear here.</p>
+    </div>
+  );
+}
+
 function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh }) {
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaving, setKeySaving] = useState(false);
@@ -630,11 +812,11 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
             <SettingSegment value={settings.speech ? "on" : "off"}
               options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]}
               onChange={v => set("speech", v === "on")} />
-            <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
-              {settings.speech
-                ? "A speaker button appears in the header and reads the most recent answer. Only voices installed on this device are used, so nothing is sent anywhere to be spoken — if your browser offers no local voice, the button does not appear."
-                : "No speaker button is shown. Turn this on to have answers read aloud using a voice already installed on your device."}
-            </p>
+            {/* Say which of the three states this machine is in, rather than
+                leaving a reader who turned it on and saw no button to guess.
+                Shown whether or not the setting is on: "switch it on to find
+                out whether it works" is not an answer. */}
+            <VoiceStatus enabled={settings.speech} />
           </Section>
 
           <Section label="Variant Cards" hint="Default state when results load">
@@ -5898,89 +6080,6 @@ function Toast({ tone = "success", onDismiss, children }) {
       {children}
     </div>
   );
-}
-
-/**
- * The browser's voice list, as an external store.
- *
- * `getVoices()` is empty on the first call in every browser that fires
- * `voiceschanged` — Chrome loads them asynchronously — so anything that asks
- * once at mount concludes speech is unavailable and never recovers.
- *
- * It is a mutable store with a change event, which is exactly what
- * `useSyncExternalStore` is for. The snapshot has to be cached rather than
- * calling `getVoices()` per read: that returns a fresh array every time, and a
- * new reference on every render is an infinite loop.
- */
-let _voiceCache = [];
-
-function _subscribeVoices(onChange) {
-  const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
-  if (!synth) return () => {};
-  const update = () => { _voiceCache = synth.getVoices() || []; onChange(); };
-  update();
-  synth.addEventListener("voiceschanged", update);
-  return () => synth.removeEventListener("voiceschanged", update);
-}
-
-const _voicesSnapshot = () => _voiceCache;
-const _noVoices = () => [];
-
-/**
- * Read-aloud, wired to the browser's own synthesiser.
- *
- * `voice` being null is the load-bearing state: it means no *local* voice
- * exists, and the caller must not speak at all rather than fall back to the
- * platform default, which may be the remote one `pickVoice` exists to avoid.
- * See the note at the top of speech.js.
- */
-function useSpeech(enabled) {
-  const voices = useSyncExternalStore(_subscribeVoices, _voicesSnapshot, _noVoices);
-  const [speaking, setSpeaking] = useState(false);
-  const cancelled = useRef(false);
-
-  const voice = useMemo(
-    () => (enabled ? pickVoice(voices, typeof navigator !== "undefined" ? navigator.language : "en") : null),
-    [enabled, voices],
-  );
-
-  const stop = useCallback(() => {
-    cancelled.current = true;
-    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
-    setSpeaking(false);
-  }, []);
-
-  const speak = useCallback((markdown) => {
-    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
-    if (!synth || !voice) return;
-
-    synth.cancel();
-    cancelled.current = false;
-    const chunks = chunkForSpeech(speakableText(markdown));
-    if (!chunks.length) return;
-
-    setSpeaking(true);
-    chunks.forEach((chunk, i) => {
-      const u = new SpeechSynthesisUtterance(chunk);
-      u.voice = voice;
-      u.lang = voice.lang;
-      // Only the last utterance clears the flag; the queue is one logical read
-      // and flipping state per chunk makes the button flicker.
-      if (i === chunks.length - 1) {
-        u.onend = () => { if (!cancelled.current) setSpeaking(false); };
-      }
-      u.onerror = () => setSpeaking(false);
-      synth.speak(u);
-    });
-  }, [voice]);
-
-  // Leaving the page mid-sentence and having the machine keep talking is the
-  // one failure mode people find genuinely alarming.
-  useEffect(() => () => {
-    if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
-  }, []);
-
-  return { available: !!voice, speaking, speak, stop };
 }
 
 export default function App({ onNavigate }) {

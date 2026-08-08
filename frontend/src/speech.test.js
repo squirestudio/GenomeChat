@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { speakableText, chunkForSpeech, pickVoice, speechAvailable, spellToken } from "./speech";
+import { speakableText, chunkForSpeech, pickVoice, speechAvailable, spellToken,
+         describeVoiceSupport, installHint, platformKey } from "./speech";
 
 describe("pickVoice", () => {
   // The privacy-critical part. Chrome ships network-backed Google voices next
@@ -132,5 +133,52 @@ describe("chunkForSpeech", () => {
   it("is safe on nothing", () => {
     expect(chunkForSpeech("")).toEqual([]);
     expect(chunkForSpeech(null)).toEqual([]);
+  });
+});
+
+describe("describeVoiceSupport", () => {
+  // "No button appeared" has three causes needing three different answers.
+  const local = { name: "Samantha", lang: "en-US", localService: true, default: true };
+  const remote = { name: "Google US English", lang: "en-US", localService: false };
+
+  it("distinguishes no API from no voices", () => {
+    expect(describeVoiceSupport([], false).status).toBe("unsupported");
+    expect(describeVoiceSupport([], true).status).toBe("none");
+  });
+
+  it("calls out the surprising case: voices exist but all are remote", () => {
+    // The reader plainly has voices, so telling them there are none reads as
+    // a bug. They need to know we are refusing these ones, and why.
+    const r = describeVoiceSupport([remote, remote]);
+    expect(r.status).toBe("remote_only");
+    expect(r.remote).toBe(2);
+    expect(r.voice).toBeNull();
+  });
+
+  it("reports the chosen voice when one is usable", () => {
+    const r = describeVoiceSupport([remote, local]);
+    expect(r.status).toBe("ready");
+    expect(r.local).toBe(1);
+    expect(r.voice).toBe(local);
+  });
+});
+
+describe("installHint", () => {
+  it("names the actual setting for each platform", () => {
+    expect(installHint("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")).toMatch(/Spoken Content/);
+    expect(installHint("Mozilla/5.0 (Windows NT 10.0; Win64)")).toMatch(/Manage voices/);
+    expect(installHint("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)")).toMatch(/Spoken Content/);
+    expect(installHint("Mozilla/5.0 (Linux; Android 14)")).toMatch(/Text-to-speech/);
+    expect(installHint("Mozilla/5.0 (X11; Linux x86_64)")).toMatch(/espeak/);
+  });
+
+  it("falls back rather than returning nothing", () => {
+    expect(installHint("", "")).toBeTruthy();
+    expect(installHint(undefined, undefined)).toBeTruthy();
+  });
+
+  it("checks iOS before mac, since an iPhone UA contains neither cleanly", () => {
+    // "iPhone" and "Mac OS X" both appear in an iOS user-agent string.
+    expect(platformKey("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)")).toBe("ios");
   });
 });

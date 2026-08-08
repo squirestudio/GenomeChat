@@ -597,6 +597,10 @@ Opt-in accessibility, **off by default**: speech starting unbidden is hostile in
 
 **Utterances are chunked.** Chrome has cut long ones off mid-sentence for years and the threshold moves between releases, so nothing relies on it; `chunkForSpeech` splits on sentence boundaries, which also makes stopping land somewhere sensible.
 
+**Settings reports which of three states this machine is in**, because "no button appeared" has three causes needing three different answers: no speech API, no voices installed, or voices that are *all* network voices. The last is the surprising one — the reader plainly has voices, so saying there are none reads as a bug. `VoiceStatus` names the chosen voice, offers a Test button, and gives platform-specific install instructions from `installHint`.
+
+**The header button is hidden when there is nothing to read, and that is worth knowing.** A permanently disabled control in the header is clutter, but it means enabling speech on an empty chat produces no visible change — which reads as broken. That is exactly how it was first reported. The Settings status line says so explicitly.
+
 **The voice list is an external store**, read through `useSyncExternalStore`. `getVoices()` is empty on the first call in every browser that fires `voiceschanged`, so asking once at mount concludes speech is unavailable forever — and the snapshot must be cached, because `getVoices()` returns a fresh array each call and a new reference per render is an infinite loop.
 
 ### Personal DNA data — the privacy invariant

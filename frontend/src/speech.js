@@ -155,3 +155,63 @@ function speechAvailable(voices) {
 }
 
 export { speakableText, chunkForSpeech, pickVoice, speechAvailable, spellToken };
+
+/**
+ * What is actually available, in enough detail to tell a reader what to do.
+ *
+ * "No button appeared" has three different causes and they need three different
+ * answers: the browser has no speech API at all, it has no voices installed, or
+ * it has voices but every one of them is a network voice we refuse to use. The
+ * last is the surprising one — the reader plainly *has* voices, so being told
+ * there are none would read as a bug.
+ */
+function describeVoiceSupport(voices, hasApi = true) {
+  if (!hasApi) return { status: "unsupported", local: 0, remote: 0, voice: null };
+
+  const list = voices || [];
+  const local = list.filter(v => v && v.localService);
+  const remote = list.filter(v => v && !v.localService);
+
+  if (!list.length) return { status: "none", local: 0, remote: 0, voice: null };
+  if (!local.length) return { status: "remote_only", local: 0, remote: remote.length, voice: null };
+
+  return {
+    status: "ready",
+    local: local.length,
+    remote: remote.length,
+    voice: pickVoice(list, typeof navigator !== "undefined" ? navigator.language : "en"),
+  };
+}
+
+/**
+ * Where this platform keeps its voices.
+ *
+ * Deliberately names the setting rather than describing it vaguely — someone
+ * who has just been told a feature cannot work wants the next click, not a
+ * suggestion to look around. Kept as data so it can be tested without a DOM.
+ */
+const INSTALL_HINTS = {
+  mac: "System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, then download any voice.",
+  windows: "Settings → Time & Language → Speech → Manage voices → Add voices.",
+  ios: "Settings → Accessibility → Spoken Content → Voices, then download a voice.",
+  android: "Settings → Accessibility → Text-to-speech output, then install or enable an engine.",
+  linux: "Install a speech-dispatcher backend such as espeak-ng, then restart the browser.",
+  unknown: "Look for text-to-speech or spoken content in your operating system's accessibility settings.",
+};
+
+function platformKey(ua = "", platform = "") {
+  const s = `${ua} ${platform}`.toLowerCase();
+  if (/iphone|ipad|ipod/.test(s)) return "ios";
+  if (/android/.test(s)) return "android";
+  if (/mac/.test(s)) return "mac";
+  if (/win/.test(s)) return "windows";
+  if (/linux|x11|cros/.test(s)) return "linux";
+  return "unknown";
+}
+
+function installHint(ua, platform) {
+  return INSTALL_HINTS[platformKey(ua, platform)];
+}
+
+export { describeVoiceSupport, installHint, platformKey, INSTALL_HINTS };
+

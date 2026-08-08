@@ -300,6 +300,16 @@ Cost is a 26 MB TSV parsed into a gene-keyed index and held resident, which is w
 
 The remaining links are attribution rather than exits — AlphaFold and Reactome are interactive artefacts, PMC is full text — but any new panel should be built on the same question: is the reader being sent away for something we already have?
 
+**The model can ask for a picture, and could not before.** It had prose, tables and collapsibles and nothing else — so a reader asking for an interactive genome map got improvised HTML, because from where the model sits that is the only thing resembling a UI primitive. Meanwhile the frontend already had a zoomable variant map, a karyogram, a helix and a personal-variants panel that it had no way to name.
+
+A view block is a fenced ` ```mydna-view ` with a JSON spec: `{"view": "karyogram"}`. [views.js](frontend/src/views.js) parses and resolves it; `ModelView` in App.jsx maps the name to the component, which is the only part needing React.
+
+**It names a component and never carries data.** The page already holds the pipeline result and the reader's DNA, so passing values back through the model would cost tokens twice and let a transcribed number reach a chart that looks every bit as authoritative as a real one. The model chooses *what to show*, never *what the values are*.
+
+**An unavailable view states why, and is never dropped.** The model will have written "here is your genome map" above it either way, so a view that silently vanishes leaves a dangling sentence pointing at nothing — the exact shape of the bug this replaced. The reason is written to the reader ("Upload your DNA file…"), never to a developer.
+
+**`tests/test_view_grammar.py` guards both directions**: a view the prompt advertises must exist in the renderer, and a renderable view nobody is told about is dead code. It reads `frontend/src/views.js` from the backend suite, so it **skips inside the backend container** — which mounts only `genomics_backend` — and runs in CI, where the whole repo is checked out. That is the run that matters.
+
 **The model writes `<details>`/`<summary>` and the renderer now understands them.** It reaches for collapsibles whenever an answer has many repeating parts — 23 personal variants, each with four lines about it — because markdown has none and it wants one. Without a case for it the tags printed as literal text and the content underneath looked broken, which is how a reader found it.
 
 **Parsed, never injected.** Only those two tags are understood and their text goes through the normal inline renderer, so this adds a structure the model can use with no path from model output to `dangerouslySetInnerHTML`. Any *other* lone tag — an improvised `<div>`, a `<br/>` — is dropped rather than printed, because a literal `<div>` in an answer reads as a bug and tells the reader nothing.

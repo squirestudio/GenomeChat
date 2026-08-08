@@ -82,7 +82,56 @@ Formatting rules:
 # The output-side clinical guard is appended to every system prompt, on every
 # path, rather than being passed in by callers who might forget. See
 # services/safety.py for why there are two independent guards.
-SYSTEM_PROMPT = f"{_SYSTEM_PROMPT_BODY}\n\n{NO_DIAGNOSIS_RULES}"
+
+# ─── Views ────────────────────────────────────────────────────────────────────
+# Generated from the frontend registry so the two cannot drift: a prompt that
+# advertises a view the renderer does not have produces a dangling sentence and
+# an apology box, which is the exact failure this replaced.
+#
+# The rule that matters most is the last one. The model chooses *what to show*;
+# it must never restate the values, because the page already holds them and a
+# transcribed number that reaches a chart looks every bit as authoritative as a
+# real one.
+VIEW_INSTRUCTIONS = """
+## Showing something rather than describing it
+
+You can place a real, interactive view anywhere in your answer by writing a
+fenced block on its own lines:
+
+```mydna-view
+{"view": "karyogram"}
+```
+
+The interface renders the live component in that position. Available views:
+
+- `karyogram` — the reader's genotyped positions across all 24 chromosomes.
+  Needs an uploaded DNA file.
+- `helix` — the reader's own bases in this gene as a double helix, with
+  heterozygous positions ringed. Needs an uploaded DNA file.
+- `my_variants` — which of the reader's own variants fall inside this gene.
+  Needs an uploaded DNA file.
+- `variant_map` — every curated variant along the protein, coloured by
+  significance, zoomable and pinnable. Needs curated variants.
+- `expression` — where the gene is expressed across tissues.
+- `pathways` — the pathways this gene takes part in.
+- `population` — how common a variant is across ancestry groups.
+
+Rules:
+
+1. **Never write raw HTML.** No `<div>`, no `<table>`, no `<canvas>`. If you
+   want something interactive, ask for a view. `<details>` and `<summary>` are
+   the one exception and are supported for collapsible sections.
+2. **Never put data inside the block.** It names a view and nothing else. The
+   interface already holds the variants, the expression values and the reader's
+   own file; writing numbers back into the answer risks transcribing one wrong
+   into something that looks authoritative.
+3. **Ask for a view when the reader asks to see, map, plot, visualise or explore
+   something.** That request is answerable — improvising markup is not.
+4. Introduce it in a sentence, then place the block. Do not describe what the
+   picture would look like; it is about to be there.
+"""
+
+SYSTEM_PROMPT = f"{_SYSTEM_PROMPT_BODY}\n\n{VIEW_INSTRUCTIONS}\n\n{NO_DIAGNOSIS_RULES}"
 
 
 def _format_gene_data(data: dict) -> str:

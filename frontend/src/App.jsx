@@ -26,6 +26,7 @@ import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, fillOn, oneInPhrase } from "./frequency";
 import { Markdown } from "./markdown.jsx";
 import { SOURCE_COUNT, FOOTER_NAMED, FOOTER_REMAINDER } from "./sources";
+import { resolveView } from "./views";
 import { shareTargets } from "./referral";
 import {
   consequenceClass, significanceClass, evidenceLevel,
@@ -5707,6 +5708,51 @@ function SuggestedQueries({ queries, onAsk }) {
   );
 }
 
+/**
+ * Renders a view the model asked for, or says why it cannot.
+ *
+ * The mapping from name to component lives here rather than in `views.js`
+ * because that module is pure and testable; this is the part that needs React.
+ *
+ * **An unavailable view is stated, never dropped.** The model will have written
+ * "here is your genome map" above it either way, so a view that silently
+ * vanishes leaves a dangling sentence pointing at nothing — which is precisely
+ * the shape of the bug this whole feature came out of.
+ */
+function ModelView({ spec, data, dnaData, gene }) {
+  const locus = data?.gene_locus_grch37;
+  const resolved = resolveView(spec, {
+    dna: !!dnaData,
+    locus: !!locus,
+    variants: !!(data?.variants?.length),
+    expression: !!(data?.expression?.length),
+    pathways: !!(data?.pathways?.length),
+    populations: !!(data?.population_summary?.length),
+  });
+
+  if (resolved.status !== "render") {
+    return (
+      <p style={{ fontSize: "0.72rem", color: "var(--text-faintest)", lineHeight: 1.55, margin: "0.6rem 0", padding: "0.5rem 0.7rem", borderRadius: 8, border: "1px dashed rgb(var(--c-border) / 0.5)" }}>
+        {resolved.reason}
+      </p>
+    );
+  }
+
+  switch (resolved.view) {
+    case "karyogram":    return <Karyogram dnaData={dnaData} locus={locus} gene={gene} />;
+    case "helix":        return <HelixView dnaData={dnaData} locus={locus} gene={gene} />;
+    case "my_variants":  return <MyVariantsPanel dnaData={dnaData} locus={locus} gene={gene} />;
+    case "variant_map":  return (
+      <LollipopMap variants={data.variants} domains={data.domains || []}
+        proteinLength={data.protein_info?.length} geneName={gene} dnaData={dnaData} />
+    );
+    case "expression":   return <ExpressionChart expression={data.expression} />;
+    case "pathways":     return <PathwayViewer pathways={data.pathways} />;
+    case "population":   return <PopulationFrequencyChart populations={data.population_summary} />;
+    default:             return null;
+  }
+}
+
 function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSection, onAsk, onGene, sectionState }) {
   // Data-backed symbols are certain; linkifyGenes falls back to shape for
   // genes that arrived in prose, such as one read out of an uploaded paper.
@@ -5739,16 +5785,19 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
             rather than receiving every dataset at once. */}
         {(() => {
           const { mode, body, lead, overview, findings, popfreqProse } = proseLayout(msg);
+          const onView = spec => (
+            <ModelView spec={spec} data={msg.data} dnaData={dnaData} gene={gene} />
+          );
 
           // No pipeline data means no Explore further menu to hold the rest of
           // the answer, so splitting it would discard everything that is not
           // Overview or Key Findings. See proseLayout in response.js.
-          if (mode === "whole") return <Markdown content={body} gene={gene} />;
+          if (mode === "whole") return <Markdown content={body} gene={gene} onView={onView} />;
 
           return (
             <>
-              {lead && <Markdown content={lead} gene={gene} />}
-              {overview && <Markdown content={`## ${overview.title}\n${overview.body}`} gene={gene} />}
+              {lead && <Markdown content={lead} gene={gene} onView={onView} />}
+              {overview && <Markdown content={`## ${overview.title}\n${overview.body}`} gene={gene} onView={onView} />}
 
               {msg.data?.alphafold?.pdb_url && (
                 <ProteinViewer

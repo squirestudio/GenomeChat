@@ -13,6 +13,7 @@
 import { parseTable, isNumeric } from "./table";
 import { linkifyGenes } from "./genes";
 import { parseDetails, isStrayTag } from "./markdown-parse";
+import { VIEW_FENCE, parseViewBlock } from "./views";
 
 /**
  * Gene symbols as buttons that put the symbol in the input box.
@@ -62,7 +63,7 @@ function renderInline(text, gene) {
   return parts;
 }
 
-function Markdown({ content, gene }) {
+function Markdown({ content, gene, onView }) {
   if (!content) return null;
   const lines = content.split("\n");
   const elements = [];
@@ -83,6 +84,16 @@ function Markdown({ content, gene }) {
           {renderInline(line.slice(3), gene)}
         </h2>
       );
+    } else if (VIEW_FENCE.test(line)) {
+      // The model asking for a picture. It names a component and never carries
+      // data — the page already holds the pipeline result and the reader's DNA,
+      // so passing values back through the model would cost tokens twice and
+      // let a transcription error reach a chart that looks authoritative.
+      const v = parseViewBlock(lines, i);
+      i = v.endsAt;
+      const node = v.spec && onView ? onView(v.spec) : null;
+      if (node) elements.push(<div key={`v${i}`}>{node}</div>);
+      continue;
     } else if (/^\s*<details\b/i.test(line)) {
       // **Parsed, never injected.** Only these two tags are understood and the
       // text inside goes through the normal renderer, so this adds a structure
@@ -92,7 +103,7 @@ function Markdown({ content, gene }) {
       elements.push(
         <details key={`d${i}`} className="md-details">
           <summary>{renderInline(d.summary || "Details", gene)}</summary>
-          <div className="md-details-body"><Markdown content={d.body.join("\n")} gene={gene} /></div>
+          <div className="md-details-body"><Markdown content={d.body.join("\n")} gene={gene} onView={onView} /></div>
         </details>
       );
       continue;

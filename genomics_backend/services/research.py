@@ -102,7 +102,17 @@ def curator_disagreement(gencc: Optional[list]) -> list[dict]:
                 "disease": row.get("disease"),
                 "classifications": labels,
                 "spread": spread,
-                "pmids": (row.get("pmids") or [])[:10],
+                # Who said what, when. "Curators disagree" is a headline; this
+                # is the research lead — the two ends of a disagreement usually
+                # read different papers, and naming them lets someone go and
+                # find out which. Carried through from GenCC, where it was
+                # already fetched and previously discarded here.
+                "verdicts": [
+                    {"submitter": v.get("submitter"), "classification": v.get("classification"),
+                     "date": v.get("date"), "pmids": (v.get("pmids") or [])[:6]}
+                    for v in verdicts if isinstance(v, dict)
+                ][:12],
+                "pmids": (row.get("pmids") or [])[:12],
                 "moi": row.get("moi"),
             }],
             sources=["GenCC"],

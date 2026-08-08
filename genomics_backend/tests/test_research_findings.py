@@ -185,3 +185,32 @@ def test_every_finding_names_the_sources_behind_it():
     for f in out["findings"]:
         assert f["sources"], f["kind"]
         assert f["evidence"], f["kind"]
+
+
+def test_disagreement_carries_who_said_what():
+    """"Curators disagree" is a headline; the verdicts are the research lead.
+
+    The two ends of a disagreement usually read different papers, and naming
+    them is what lets someone go and find out which. This was fetched from
+    GenCC and discarded before being shown.
+    """
+    out = curator_disagreement([{
+        "disease": "Caffey disease", "disputed": True, "spread": 3, "submitter_count": 2,
+        "pmids": ["1", "2"],
+        "verdicts": [
+            {"submitter": "Invitae", "classification": "Definitive", "date": "2019-04-01", "pmids": ["111"]},
+            {"submitter": "PanelApp", "classification": "Limited", "date": "2023-09-01", "pmids": ["222"]},
+        ],
+    }])
+    ev = out[0]["evidence"][0]
+    assert [v["submitter"] for v in ev["verdicts"]] == ["Invitae", "PanelApp"]
+    assert ev["verdicts"][0]["date"] == "2019-04-01"
+    assert ev["verdicts"][1]["pmids"] == ["222"]
+
+
+def test_a_verdict_list_that_is_junk_does_not_break_the_finding():
+    out = curator_disagreement([{
+        "disease": "D", "disputed": True, "spread": 2,
+        "verdicts": [None, "not a dict", {"submitter": "Real", "classification": "Strong"}],
+    }])
+    assert [v["submitter"] for v in out[0]["evidence"][0]["verdicts"]] == ["Real"]

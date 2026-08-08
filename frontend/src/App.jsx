@@ -5987,6 +5987,82 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
  * mistake the upstream-drift audit exists to prevent — a clean panel would
  * otherwise read as a clean bill of health on checks that never ran.
  */
+/**
+ * One finding, with the evidence that produced it.
+ *
+ * The headline alone was the complaint that prompted this: "curators disagree"
+ * tells a researcher there is a disagreement and nothing they can do with it.
+ * Who classified it as what, when, and which papers each of them cited is the
+ * research lead — the two ends of a disagreement have usually read different
+ * evidence, and naming it lets someone go and find out which.
+ *
+ * All of it was already fetched and thrown away at the panel.
+ */
+function FindingRow({ finding, last, tone }) {
+  const ev = finding.evidence?.[0] || {};
+  const verdicts = ev.verdicts || [];
+  const pmids = ev.pmids || [];
+  const rows = finding.kind === "unsupported_assertions" ? finding.evidence : [];
+  const hasDetail = verdicts.length > 0 || pmids.length > 0 || rows.length > 0;
+
+  return (
+    <div style={{ marginBottom: last ? 0 : 14 }}>
+      <p style={{ fontSize: "0.75rem", fontWeight: 600, color: tone[finding.severity] || "var(--text-muted)", margin: "0 0 3px" }}>
+        {finding.headline}
+      </p>
+      <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.6, margin: 0 }}>
+        {finding.detail}
+      </p>
+
+      {verdicts.length > 0 && (
+        <div style={{ margin: "7px 0 0", overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: "0.68rem", width: "100%" }}>
+            <tbody>
+              {verdicts.map((v, n) => (
+                <tr key={n}>
+                  <td style={{ padding: "2px 8px 2px 0", color: "var(--text-secondary)", fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {v.classification}
+                  </td>
+                  <td style={{ padding: "2px 8px 2px 0", color: "var(--text-faint)" }}>{v.submitter}</td>
+                  <td style={{ padding: "2px 0", color: "var(--text-faintest)", whiteSpace: "nowrap" }}>{v.date || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <ul style={{ margin: "6px 0 0", paddingLeft: "1rem", fontSize: "0.68rem", color: "var(--text-faint)", lineHeight: 1.6 }}>
+          {rows.slice(0, 8).map((r, n) => (
+            <li key={n}>{r.hgvs || r.rsid || r.variant_id}{r.condition ? ` — ${r.condition}` : ""}</li>
+          ))}
+          {rows.length > 8 && <li style={{ color: "var(--text-faintest)" }}>and {rows.length - 8} more</li>}
+        </ul>
+      )}
+
+      {pmids.length > 0 && (
+        <p style={{ fontSize: "0.66rem", color: "var(--text-faintest)", margin: "6px 0 0", lineHeight: 1.7 }}>
+          {/* The papers behind the disagreement. Reading the ones cited at each
+              end is the fastest way to see what actually changed. */}
+          Papers cited:{" "}
+          {pmids.slice(0, 10).map((pm, n) => (
+            <span key={pm}>
+              {n > 0 && " · "}
+              <a href={`https://pubmed.ncbi.nlm.nih.gov/${pm}/`} target="_blank" rel="noopener noreferrer"
+                style={{ color: "var(--accent)", textDecoration: "none" }}>{pm}</a>
+            </span>
+          ))}
+        </p>
+      )}
+
+      <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", margin: "5px 0 0" }}>
+        {finding.sources.join(" × ")}{hasDetail ? "" : " · no further detail available"}
+      </p>
+    </div>
+  );
+}
+
 function ResearchFindings({ gene, enabled }) {
   const [state, setState] = useState(null);
   const key = enabled && gene ? gene : null;
@@ -6026,17 +6102,7 @@ function ResearchFindings({ gene, enabled }) {
 
       <div style={{ padding: "0.7rem 0.85rem" }}>
         {findings.map((f, i) => (
-          <div key={i} style={{ marginBottom: i === findings.length - 1 ? 0 : 12 }}>
-            <p style={{ fontSize: "0.75rem", fontWeight: 600, color: tone[f.severity] || "var(--text-muted)", margin: "0 0 3px" }}>
-              {f.headline}
-            </p>
-            <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.6, margin: 0 }}>
-              {f.detail}
-            </p>
-            <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", margin: "4px 0 0" }}>
-              {f.sources.join(" × ")}
-            </p>
-          </div>
+          <FindingRow key={i} finding={f} last={i === findings.length - 1} tone={tone} />
         ))}
 
         {findings.length === 0 && checked.length > 0 && (

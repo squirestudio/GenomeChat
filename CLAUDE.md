@@ -383,6 +383,8 @@ The first version credited on the referee's *first question*, which meant parkin
 
 **Share buttons are hand-rolled intent URLs, never widgets.** `shareTargets()` in [referral.js](frontend/src/referral.js) returns plain `mailto:` and `https:` links that open a platform's own compose window with an editable draft. The official share buttons all load third-party JavaScript that then runs on the page it sits on, and a tracking script on a page about someone's genome is not a trade worth making. Nothing is measured as a result — no click count, no channel attribution — which is the point rather than a limitation. A test asserts every href is `mailto:` or `https:` and matches no SDK.
 
+**Never write "share MyDNA".** The product is called MyDNA, so the phrase reads as *"share my DNA"* — the exact opposite of what it promises, in the one place a reader is being asked to click something. The referral card says "Introduce MyDNA to your friends" for that reason. Any copy pairing that verb with the product name has the same trap.
+
 **The pitch says nothing about the sharer.** "This helped me understand my diagnosis" would disclose a health condition to everyone who reads it, which is a strange thing for this product to compose on someone's behalf. It describes the tool and stops; a test pins that too.
 
 **SMS is deliberately absent.** The no-recipient form is `sms:&body=` on iOS and `sms:?body=` on Android, the tolerant `sms:?&body=` is not reliable across both, and a button that silently opens an empty message on one of the two big platforms is worse than not offering it.

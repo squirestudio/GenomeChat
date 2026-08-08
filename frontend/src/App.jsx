@@ -1361,6 +1361,11 @@ function signInUrl() {
 /**
  * "Get up to 150 free credits" — the referral card in the purchase dialog.
  *
+ * **Never "share MyDNA".** The product is called MyDNA, so that phrase reads as
+ * "share my DNA" — the precise opposite of what the product promises, in the one
+ * place a reader is being asked to click something. "Introduce" carries the same
+ * meaning with none of it. Any future copy here has the same trap.
+ *
  * One button, one link, and no social anything: the link is a plain URL the
  * reader can paste wherever they like. There is no share-to-network integration
  * because every one of those needs a third-party script, and a tracking script
@@ -1395,7 +1400,7 @@ function ReferralCard({ currentUser }) {
       <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.55, margin: "0 0 9px" }}>
         {maxed
           ? "Thanks for spreading the word. Your link still works for anyone you send it to."
-          : <>Share MyDNA with a friend. When they join through your link, you get <strong style={{ color: "var(--accent)" }}>{each} credits</strong> — up to {cap} friends.</>}
+          : <>Introduce MyDNA to your friends. When they join through your link, you get <strong style={{ color: "var(--accent)" }}>{each} credits</strong> — up to {cap} friends.</>}
       </p>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <button onClick={copy}

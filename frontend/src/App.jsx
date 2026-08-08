@@ -84,6 +84,8 @@ const DEFAULT_SETTINGS = {
   readingLevel: "plain",       // plain | clinical — how hard the words are
   variantDefault: "collapsed", // collapsed | expanded
   defaultSort: "default",      // default | pathogenic_first | frequency
+  // Off by default and only reachable once an access code has been entered.
+  researchMode: false,         // cross-source findings + open-ended analysis
   apiKey: "",                  // optional user-supplied Anthropic key
 };
 
@@ -523,6 +525,162 @@ function SettingSegment({ value, options, onChange }) {
   );
 }
 
+/**
+ * Research mode — unlock, then the notice, then the toggle.
+ *
+ * **Invisible to accounts that have not unlocked it.** Someone who has never
+ * heard of research mode should see no trace of it in Settings; the entry field
+ * only appears once, and only for people who came looking.
+ *
+ * The notice is not decoration and is not dismissible-by-default. Research mode
+ * puts open-ended, generated commentary in front of someone, over findings that
+ * are real but that nobody has clinically reviewed. A reader arriving from the
+ * personal side of the product has been trained by every other screen to expect
+ * conservative, sourced answers, and this is the one place that changes.
+ */
+/**
+ * Shown the first time an account switches into research mode.
+ *
+ * **Consent, not decoration.** Every other screen in this product has trained
+ * the reader to expect conservative, sourced, hedged answers — and research mode
+ * is the one place that changes. Someone arriving from the personal side
+ * carrying assumptions from it would be badly served by a footnote.
+ *
+ * Acknowledged once per account rather than per session: a wall that appears
+ * every time is a wall people learn to click through without reading, which is
+ * worse than no wall.
+ */
+const RESEARCH_ACK_KEY = "mydna_research_ack";
+
+function ResearchNotice({ onAccept, onDecline }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgb(var(--c-shadow) / 0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+      <div style={{ background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "1.6rem", width: 480, maxWidth: "calc(100vw - 2rem)", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
+        <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: "0 0 0.7rem" }}>
+          Before you turn on Research mode
+        </h2>
+
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 1.65, margin: "0 0 0.8rem" }}>
+          Research mode changes what MyDNA does. It joins the source databases
+          against each other and surfaces where they contradict one another, then
+          discusses what it found — openly, and at length.
+        </p>
+
+        <div style={{ padding: "0.8rem 0.9rem", borderRadius: 10, background: "rgb(var(--c-warning) / 0.08)", border: "1px solid rgb(var(--c-warning) / 0.3)", marginBottom: "0.9rem" }}>
+          <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--warning)", margin: "0 0 6px" }}>
+            The findings are computed. The reasoning about them is not.
+          </p>
+          <p style={{ fontSize: "0.76rem", color: "var(--text-faint)", lineHeight: 1.6, margin: 0 }}>
+            Every contradiction it reports is calculated from named sources and
+            can be checked. The interpretation, the suggested directions and
+            anything resembling a hypothesis are <strong>generated</strong>, have
+            been reviewed by nobody, and can be confidently wrong. Treat them as
+            a prompt for your own judgement, never as a result.
+          </p>
+        </div>
+
+        <ul style={{ fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.65, margin: "0 0 1rem", paddingLeft: "1.1rem" }}>
+          <li>Not medical advice, and not for clinical decisions.</li>
+          <li>Not a substitute for review by a qualified curator.</li>
+          <li>A flagged classification is a variant worth a human look — never a reclassification.</li>
+          <li>Verify anything you intend to act on against the original record.</li>
+        </ul>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onDecline}
+            style={{ padding: "0.5rem 0.9rem", borderRadius: 9, fontSize: "0.76rem", background: "none", border: "1px solid rgb(var(--c-border) / 0.45)", color: "var(--text-muted)", cursor: "pointer" }}>
+            Not now
+          </button>
+          <button onClick={onAccept}
+            style={{ padding: "0.5rem 0.9rem", borderRadius: 9, fontSize: "0.76rem", fontWeight: 600, background: "var(--accent-deep)", border: "none", color: "white", cursor: "pointer" }}>
+            I understand — turn it on
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResearchSection({ currentUser, settings, set, onUserRefresh }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [showNotice, setShowNotice] = useState(false);
+  const unlocked = !!currentUser?.research_unlocked;
+
+  const unlock = async () => {
+    if (!code.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await apiFetch("/research/unlock", {
+        method: "POST",
+        body: JSON.stringify({ password: code.trim() }),
+      });
+      if (r.ok) { setCode(""); onUserRefresh(); }
+      else if (r.status === 501) setError("Research mode is not enabled on this server.");
+      else setError("That code is not right.");
+    } catch { setError("Could not reach the server. Check your connection."); }
+    finally { setBusy(false); }
+  };
+
+  const hint = { fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 };
+
+  if (!currentUser) return null;
+
+  if (!unlocked) {
+    return (
+      <Section label="Research Mode" hint="For researchers and lab staff — requires an access code">
+        <div style={{ display: "flex", gap: 6 }}>
+          <input type="password" value={code} onChange={e => setCode(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") unlock(); }}
+            placeholder="Access code"
+            style={{ flex: 1, padding: "0.4rem 0.55rem", borderRadius: 8, fontSize: "0.75rem", background: "rgb(var(--c-deep) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text)" }} />
+          <button onClick={unlock} disabled={busy || !code.trim()}
+            style={{ padding: "0.4rem 0.7rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.35)", color: busy || !code.trim() ? "var(--text-disabled)" : "var(--accent)", cursor: busy || !code.trim() ? "default" : "pointer" }}>
+            {busy ? "Checking…" : "Unlock"}
+          </button>
+        </div>
+        {error && <p style={{ ...hint, color: "var(--danger)" }}>{error}</p>}
+        <p style={hint}>
+          Research mode surfaces contradictions between the source databases —
+          classifications that disagree, calls that predate the frequency data,
+          evidence that has not been revisited in years. It is not part of the
+          normal experience and is not needed to use MyDNA.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section label="Research Mode" hint="Cross-source analysis — findings are computed, commentary is generated">
+      {showNotice && (
+        <ResearchNotice
+          onAccept={() => {
+            try { localStorage.setItem(RESEARCH_ACK_KEY, "1"); } catch { /* private mode; the notice simply shows again */ }
+            setShowNotice(false);
+            set("researchMode", true);
+          }}
+          onDecline={() => setShowNotice(false)}
+        />
+      )}
+      <SettingSegment value={settings.researchMode ? "on" : "off"}
+        options={[{ value: "off", label: "Personal" }, { value: "on", label: "Research" }]}
+        onChange={v => {
+          if (v !== "on") { set("researchMode", false); return; }
+          let acked = false;
+          try { acked = localStorage.getItem(RESEARCH_ACK_KEY) === "1"; } catch { /* private mode */ }
+          if (acked) set("researchMode", true);
+          else setShowNotice(true);
+        }} />
+      <p style={hint}>
+        {settings.researchMode
+          ? "Answers include contradictions found between the source databases, and the commentary on them is open-ended. Findings are computed and every one names its sources; the reasoning about them is generated and has not been reviewed by anyone. Verify before acting on it. Not medical advice, and not for clinical decisions."
+          : "MyDNA behaves normally. Switch to Research to add cross-source findings and open-ended analysis to answers."}
+      </p>
+    </Section>
+  );
+}
+
 function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh }) {
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaving, setKeySaving] = useState(false);
@@ -634,6 +792,8 @@ function SettingsPanel({ settings, onChange, onClose, currentUser, onUserRefresh
           </Section>
 
           <PlanSection currentUser={currentUser} />
+
+          <ResearchSection currentUser={currentUser} settings={settings} set={set} onUserRefresh={onUserRefresh} />
 
           <Section label="Your Anthropic API Key" hint="Use your own key — bypasses the query limit. Stored encrypted on your account.">
             {!currentUser?.has_stored_key && !currentUser?.byok_purchased ? (

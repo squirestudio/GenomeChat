@@ -407,7 +407,11 @@ Five analyses, all pure over the pipeline dict and all tested without network:
 
 **`checked` and `skipped` are returned separately, and the interface must not render them alike.** Empty findings with a populated `skipped` means "could not look", which is not "nothing found" — the same distinction the upstream-drift audit exists to preserve. `frequency_conflict` in particular yields nothing when ClinVar carries no per-variant frequency, which is common, and that silence must never be presented as a clean bill.
 
-**Still to build:** the research-mode notice (open-ended, generated, cross-source outputs that are *not* medical advice and must be verified before acting), the frontend mode toggle, and the chart grammar. The long-term shape the founder has in mind is **MyLab.chat** — researchers uploading their own work and notes to cross-reference against the public corpus.
+**The Settings control is invisible until unlocked.** An account that has never entered the code sees an "Access code" field only; `research_unlocked` on `/auth/me` drives it. Once unlocked it becomes a Personal/Research segment.
+
+**The entry notice is consent rather than decoration**, and it gates the first switch into the mode. Every other screen trains the reader to expect conservative, sourced, hedged answers — research mode is the one place that changes, and someone arriving from the personal side carrying those assumptions would be badly served by a footnote. It states the distinction the whole design rests on: **the findings are computed and checkable; the reasoning about them is generated, reviewed by nobody, and can be confidently wrong.** Acknowledged once per account, because a wall that appears every time is one people learn to click through without reading.
+
+**Still to build:** wiring findings into answers (open-ended, generated, cross-source outputs that are *not* medical advice and must be verified before acting), the frontend mode toggle, and the chart grammar. The long-term shape the founder has in mind is **MyLab.chat** — researchers uploading their own work and notes to cross-reference against the public corpus.
 
 ### Access control
 

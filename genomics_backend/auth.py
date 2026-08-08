@@ -205,6 +205,9 @@ def get_me(user: Optional[User] = Depends(get_current_user), db: Session = Depen
         # open the referral card, and an unused code is a row nobody needed.
         "referral_code": ensure_referral_code(user, db),
         "referrals_converted": user.referrals_converted or 0,
+        # Drives the Settings control. False for almost everyone, and the
+        # frontend must show no trace of research mode when it is.
+        "research_unlocked": bool(user.research_unlocked),
         "referral_cap": REFERRAL_CAP,
         "referral_credits": REFERRAL_CREDITS,
         "free_limit": FREE_QUERY_LIMIT,

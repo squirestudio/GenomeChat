@@ -5840,43 +5840,26 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
   );
 }
 
+/**
+ * The source pills under an answer.
+ *
+ * Carried a Share button until 8 Aug 2026. It minted a permanent, unauthenticated
+ * link to the whole stored answer, with no way to withdraw it — and with a DNA
+ * file loaded, the stored prose routinely names a genotype. Removed rather than
+ * patched; see the note in database/routes.py. Export PDF still covers sharing a
+ * finding deliberately, and puts the reader in control of where it goes.
+ */
 function MessageFooter({ msg }) {
-  const [shareUrl, setShareUrl] = useState(null);
-  const [sharing, setSharing] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const share = async () => {
-    if (!msg.query_id) return;
-    setSharing(true);
-    try {
-      const r = await apiFetch(`/queries/${msg.query_id}/share`, { method: "POST" });
-      if (r.ok) {
-        const { token } = await r.json();
-        const url = `${window.location.origin}${window.location.pathname}?share=${token}`;
-        setShareUrl(url);
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2500);
-      }
-    } finally { setSharing(false); }
-  };
-
+  if (!msg.sources?.length) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
-      {msg.sources?.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)" }}>Sources:</span>
-          {msg.sources.map(s => {
-            const c = SOURCE_COLORS[s] || { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" };
-            return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
-          })}
-        </div>
-      )}
-      {msg.query_id && (
-        <button onClick={share} disabled={sharing} style={{ fontSize: "0.68rem", color: copied ? "var(--success)" : "var(--text-dimmer)", background: "none", border: "1px solid rgb(var(--c-border) / 0.35)", borderRadius: 6, padding: "0.2rem 0.55rem", cursor: "pointer", flexShrink: 0 }}>
-          {copied ? "Link copied!" : sharing ? "Sharing…" : shareUrl ? "Copy link" : "Share"}
-        </button>
-      )}
+    <div style={{ display: "flex", alignItems: "center", marginTop: 14, flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)" }}>Sources:</span>
+        {msg.sources.map(s => {
+          const c = SOURCE_COLORS[s] || { color: "var(--text-faint)", bg: "rgb(var(--c-surface) / 0.5)", border: "rgb(var(--c-border) / 0.4)" };
+          return <span key={s} style={{ fontSize: "0.7rem", padding: "0.2em 0.6em", borderRadius: 100, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>{s}</span>;
+        })}
+      </div>
     </div>
   );
 }
@@ -6292,10 +6275,6 @@ export default function App({ onNavigate }) {
       setToken(authToken);
       window.history.replaceState({}, "", window.location.pathname);
     }
-    // Handle shared query
-    const shareToken = params.get("share");
-    if (shareToken) loadSharedQuery(shareToken);
-
     // Handle Stripe payment return.
     // ?payment=success only means Stripe redirected us — it says nothing about
     // whether the webhook ran and actually granted anything. Confirm against
@@ -6525,26 +6504,6 @@ export default function App({ onNavigate }) {
     }
   };
 
-  const loadSharedQuery = async (token) => {
-    try {
-      const r = await apiFetch(`/share/${token}`);
-      if (!r.ok) return;
-      const item = await r.json();
-      const userMsg = { role: "user", content: item.query_text };
-      const assistantMsg = {
-        role: "assistant",
-        content: item.content || "",
-        data: item.data,
-        query_type: item.query_type,
-        target: item.target,
-        sources: item.sources || [],
-        result_count: item.result_count || 0,
-        cached: true,
-      };
-      setMessages([userMsg, assistantMsg]);
-      window.history.replaceState({}, "", window.location.pathname);
-    } catch { /* a dead or malformed share token lands on an ordinary empty chat */ }
-  };
 
   const deleteHistory = async (queryId) => {
     try {

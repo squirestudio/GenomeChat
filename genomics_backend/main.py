@@ -20,7 +20,7 @@ from services.ai_explainer import explain_results, explain_comparison, answer_fo
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
 from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
-from database.routes import router as projects_router, share_router
+from database.routes import router as projects_router, queries_router
 from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK, SCAN_CREDITS
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
@@ -366,7 +366,7 @@ async def rate_limit(request: Request, call_next):
 
 
 app.include_router(projects_router)
-app.include_router(share_router)
+app.include_router(queries_router)
 app.include_router(auth_router)
 
 

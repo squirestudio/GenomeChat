@@ -318,6 +318,11 @@ def _run_migrations():
         # read: filtered by owner, newest first.
         "CREATE INDEX IF NOT EXISTS ix_queries_user_created ON queries (user_id, created_at DESC)",
         "CREATE INDEX IF NOT EXISTS ix_projects_user_id ON projects (user_id)",
+        # Sharing was removed 8 Aug 2026. Nulling the tokens revokes every link
+        # that was ever minted and stops the table holding secrets for a feature
+        # that no longer exists. The column stays, so reinstating sharing — with
+        # revocation and a warning, which is what it lacked — is a small change.
+        "UPDATE queries SET share_token = NULL WHERE share_token IS NOT NULL",
         # Anyone who already stored a key did so when it was free — keep them.
         "UPDATE users SET byok_purchased = TRUE WHERE encrypted_api_key IS NOT NULL AND byok_purchased IS NOT TRUE",
     ]

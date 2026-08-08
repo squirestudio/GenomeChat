@@ -8,7 +8,9 @@ from .models import get_db, Project, Query, AuditLog, User, query_projects
 from auth import get_current_user
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-share_router = APIRouter(tags=["sharing"])
+# Was `share_router`. Sharing is gone; this now carries only the top-level
+# query routes that do not sit under /projects.
+queries_router = APIRouter(tags=["queries"])
 
 
 # ─── Ownership ────────────────────────────────────────────────────────────────
@@ -410,7 +412,7 @@ def remove_query_from_project(
 
 # ─── Shared link endpoints (no /projects prefix) ─────────────────────────────
 
-@share_router.delete("/queries/{query_id}", status_code=204)
+@queries_router.delete("/queries/{query_id}", status_code=204)
 def delete_query_by_id(
     query_id: int,
     db: Session = Depends(get_db),
@@ -432,45 +434,23 @@ def delete_query_by_id(
     db.commit()
 
 
-@share_router.post("/queries/{query_id}/share")
-def create_share_link(
-    query_id: int,
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
-):
-    """Generate or return existing share token for a query the caller owns.
+# ─── Sharing removed, 8 Aug 2026 ─────────────────────────────────────────────
+# `POST /queries/{id}/share` minted a token and `GET /share/{token}` served the
+# whole stored answer to anyone holding it, with no sign-in. Three things made
+# that worse than it looked and none had a fix in place:
+#
+#   - **No revocation.** The token was set once and never cleared. There was no
+#     endpoint to withdraw a link and no control that offered to, so a click was
+#     permanent and irreversible.
+#   - **It could carry more than the reader expected.** Variants are never
+#     stored, but the *model's prose* is, and with a DNA file loaded that prose
+#     routinely names a genotype. The question text went too, and questions are
+#     often the revealing part.
+#   - The 404 said "not found or expired" and nothing ever expired.
+#
+# Removing the routes revokes every link that was ever minted, which is the
+# point. `queries.share_token` is nulled by a migration rather than left lying
+# in the table, since keeping secrets for a feature that no longer exists is
+# retention without a purpose. The column stays so this is easy to reinstate —
+# with revocation and a warning before minting, which is what it needed.
 
-    Without the ownership filter this was a read primitive for the whole table:
-    query ids are sequential, so anyone could mint a token for any id and then
-    fetch the full stored response through GET /share/{token}.
-    """
-    query = db.query(Query).filter(
-        Query.id == query_id,
-        _owned_by(Query, current_user),
-    ).first()
-    if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
-    if not query.share_token:
-        query.share_token = secrets.token_urlsafe(16)
-        db.commit()
-        db.refresh(query)
-    return {"token": query.share_token, "query_id": query_id}
-
-
-@share_router.get("/share/{token}")
-def get_shared_query(token: str, db: Session = Depends(get_db)):
-    """Return full stored response for a shared query token."""
-    query = db.query(Query).filter(Query.share_token == token).first()
-    if not query:
-        raise HTTPException(status_code=404, detail="Shared link not found or expired")
-    stored = query.results if isinstance(query.results, dict) else {}
-    return {
-        "query_text": query.query_text,
-        "query_type": query.query_type,
-        "target": query.target,
-        "sources": query.sources or [],
-        "result_count": query.result_count or 0,
-        "created_at": query.created_at.isoformat() if query.created_at else None,
-        "content": stored.get("content"),
-        "data": stored.get("data"),
-    }

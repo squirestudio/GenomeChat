@@ -80,20 +80,27 @@ def a_query(db, two_users):
     return q
 
 
-def test_nobody_else_can_mint_a_share_link(base_url, a_query, two_users):
-    """Query ids are sequential, so this was a read primitive for the whole table."""
-    _, _, _, hb = two_users
-    assert httpx.post(f"{base_url}/queries/{a_query.id}/share", timeout=30).status_code == 404
-    assert httpx.post(f"{base_url}/queries/{a_query.id}/share", headers=hb, timeout=30).status_code == 404
+def test_sharing_is_gone(base_url, a_query, two_users):
+    """Removed 8 Aug 2026 — see the note in database/routes.py.
 
-
-def test_owner_can_mint_and_the_link_is_public(base_url, a_query, two_users):
+    Asserted rather than merely deleted, because the failure mode of putting it
+    back is silent: the route would resolve for anyone holding a token, with no
+    revocation and no expiry, and nothing else in the suite would notice.
+    """
     _, ha, _, _ = two_users
-    r = httpx.post(f"{base_url}/queries/{a_query.id}/share", headers=ha, timeout=30)
-    assert r.status_code == 200
-    token = r.json()["token"]
-    shared = httpx.get(f"{base_url}/share/{token}", timeout=30)
-    assert shared.status_code == 200 and shared.json()["content"] == "SECRET"
+    assert httpx.post(f"{base_url}/queries/{a_query.id}/share", headers=ha, timeout=30).status_code == 404
+    assert httpx.get(f"{base_url}/share/anything", timeout=30).status_code == 404
+
+
+def test_no_query_retains_a_share_token(base_url, db, a_query):
+    """Old tokens are nulled at boot rather than left in the table.
+
+    Keeping secrets for a feature that no longer exists is retention without a
+    purpose, and a token left behind is one route away from working again.
+    """
+    from database.models import Query as QueryModel
+    db.expire_all()
+    assert db.query(QueryModel).filter(QueryModel.share_token.isnot(None)).count() == 0
 
 
 def test_anonymous_cannot_delete_someone_elses_query(base_url, a_query, db):

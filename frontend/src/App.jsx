@@ -1395,7 +1395,7 @@ function ReferralCard({ currentUser }) {
   return (
     <div style={{ marginTop: 14, padding: "0.85rem 0.9rem", borderRadius: 12, background: "rgb(var(--c-surface) / 0.35)", border: "1px solid rgb(var(--c-border) / 0.4)" }}>
       <p style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text)", margin: "0 0 4px" }}>
-        {maxed ? `You have earned all ${cap * each} credits` : `Get up to ${cap * each} free credits`}
+        {maxed ? `You have earned all ${cap * each} Credits` : `Earn up to ${cap * each} Credits`}
       </p>
       <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.55, margin: "0 0 9px" }}>
         {maxed

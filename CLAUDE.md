@@ -379,7 +379,11 @@ Two separate limits, enforced in different places:
 
 **The code travels through OAuth `state`**, which is the parameter that exists to survive that round trip. An endpoint to claim a code after the fact would let an established account backdate one; threading it through sign-in means it cannot outlive the sign-in it arrived with. On the browser side `captureReferral()` puts an arriving `?r=` in `localStorage` and **sends nothing** — so "signed-out visitors are never recorded" holds without a special case, and a click that never becomes an account leaves no trace.
 
-**No social-network share buttons**, and that is a decision rather than an omission: every one of them needs a third-party script, and a tracking script on a page about someone's genome is not a trade worth making. One button copies a plain URL.
+**Share buttons are hand-rolled intent URLs, never widgets.** `shareTargets()` in [referral.js](frontend/src/referral.js) returns plain `mailto:` and `https:` links that open a platform's own compose window with an editable draft. The official share buttons all load third-party JavaScript that then runs on the page it sits on, and a tracking script on a page about someone's genome is not a trade worth making. Nothing is measured as a result — there is no click count and no attribution beyond the code itself, which is the point rather than a limitation. A test asserts every href is `mailto:` or `https:` and matches no SDK.
+
+**The pitch says nothing about the sharer.** "This helped me understand my diagnosis" would disclose a health condition to everyone who reads it, which is a strange thing for this product to compose on someone's behalf. It describes the tool and stops; a test pins that too.
+
+**SMS is deliberately absent.** The no-recipient form is `sms:&body=` on iOS and `sms:?body=` on Android, the tolerant `sms:?&body=` is not reliable across both, and a button that silently opens an empty message on one of the two big platforms is worse than not offering it.
 
 ### Access control
 

@@ -26,6 +26,7 @@ import { variantColorBands } from "./lollipop";
 import { comparePopulations, sharedPictogramScale, fillOn, oneInPhrase } from "./frequency";
 import { Markdown } from "./markdown.jsx";
 import { SOURCE_COUNT, FOOTER_NAMED, FOOTER_REMAINDER } from "./sources";
+import { shareTargets } from "./referral";
 import {
   consequenceClass, significanceClass, evidenceLevel,
   fullView, clampView, zoomView, panView, isFullView,
@@ -1396,15 +1397,25 @@ function ReferralCard({ currentUser }) {
           ? "Thanks for spreading the word. Your link still works for anyone you send it to."
           : <>Share MyDNA with a friend. When they sign in and ask their first question, you get <strong style={{ color: "var(--accent)" }}>{each} credits</strong> — up to {cap} friends.</>}
       </p>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <button onClick={copy}
           style={{ fontSize: "0.72rem", fontWeight: 600, padding: "0.4rem 0.7rem", borderRadius: 8, background: copied ? "rgb(var(--c-success) / 0.12)" : "rgb(var(--c-accent) / 0.1)", border: `1px solid ${copied ? "rgb(var(--c-success) / 0.4)" : "rgb(var(--c-accent) / 0.35)"}`, color: copied ? "var(--success)" : "var(--accent)", cursor: "pointer", flexShrink: 0 }}>
-          {copied ? "Link copied" : "Copy your link"}
+          {copied ? "Link copied" : "Copy link"}
         </button>
-        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
-          {done} of {cap} friends joined
-        </span>
+        {/* Plain links, not widgets. Each opens the platform's own compose
+            window with an editable draft; nothing is loaded onto this page and
+            nothing is counted. `noreferrer` keeps the destination from learning
+            which page the reader came from. */}
+        {shareTargets(url).map(t => (
+          <a key={t.id} href={t.href} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: "0.72rem", padding: "0.4rem 0.65rem", borderRadius: 8, background: "none", border: "1px solid rgb(var(--c-border) / 0.45)", color: "var(--text-dim)", textDecoration: "none", flexShrink: 0 }}>
+            {t.label}
+          </a>
+        ))}
       </div>
+      <p style={{ fontSize: "0.66rem", color: "var(--text-faintest)", margin: "8px 0 0" }}>
+        {done} of {cap} friends joined · nothing is tracked, and the draft is yours to edit
+      </p>
     </div>
   );
 }

@@ -5715,10 +5715,11 @@ function TypingIndicator({ stage }) {
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, currentUser, open, onClose, collapsed, onToggleCollapse }) {
+function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, onDeleteProject, chatHistory, onNewChat, onLoadHistory, onDeleteHistory, onFileQuery, currentUser, open, onClose, collapsed, onToggleCollapse }) {
   const [newName, setNewName] = useState("");
   const [hoveredId, setHoveredId] = useState(null);
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
+  const [menuFor, setMenuFor] = useState(null);   // history row whose file-menu is open
   return (
     <aside className={`gc-sidebar${open ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
       <div style={{ padding: "1rem", borderBottom: "1px solid rgb(var(--c-surface) / 0.6)", display: "flex", gap: 8 }}>
@@ -5762,14 +5763,54 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
                   {item.target ? <span style={{ fontFamily: "monospace", color: "var(--accent)", marginRight: 4 }}>{item.target}</span> : null}
                   {item.query_text?.slice(0, 26)}
                 </button>
-                {hoveredId === (item.id || i) && item.id && (
-                  <button
-                    onClick={e => { e.stopPropagation(); onDeleteHistory(item.id); }}
-                    style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
-                    onMouseEnter={e => e.currentTarget.style.color = "var(--danger)"}
-                    onMouseLeave={e => e.currentTarget.style.color = "var(--text-dimmer)"}
-                    title="Delete this query"
-                  >×</button>
+                {/* Filing and deleting sit together because they are the two
+                    things you do *to* a row rather than with it. Shown on hover
+                    and whenever the menu for this row is open, so the controls
+                    do not vanish the moment the pointer moves onto them. */}
+                {(hoveredId === (item.id || i) || menuFor === item.id) && item.id && (
+                  <span style={{ position: "absolute", right: 3, top: "50%", transform: "translateY(-50%)", display: "inline-flex", alignItems: "center", gap: 1 }}>
+                    <button
+                      onClick={e => { e.stopPropagation(); setMenuFor(menuFor === item.id ? null : item.id); }}
+                      style={{ background: "none", border: "none", color: menuFor === item.id ? "var(--accent)" : "var(--text-dimmer)", cursor: "pointer", fontSize: "0.8rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
+                      title="File this query in a project"
+                    >⋮</button>
+                    <button
+                      onClick={e => { e.stopPropagation(); onDeleteHistory(item.id); }}
+                      style={{ background: "none", border: "none", color: "var(--text-dimmer)", cursor: "pointer", fontSize: "0.75rem", lineHeight: 1, padding: "2px 3px", borderRadius: 3 }}
+                      onMouseEnter={e => e.currentTarget.style.color = "var(--danger)"}
+                      onMouseLeave={e => e.currentTarget.style.color = "var(--text-dimmer)"}
+                      title="Delete this query"
+                    >×</button>
+                  </span>
+                )}
+                {menuFor === item.id && (
+                  <div style={{
+                    position: "absolute", right: 2, top: "calc(100% + 2px)", zIndex: 40,
+                    minWidth: 148, maxWidth: 210, padding: 4, borderRadius: 8,
+                    background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)",
+                    boxShadow: "0 10px 28px rgb(var(--c-shadow) / 0.45)",
+                  }}>
+                    <p style={{ fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-faintest)", margin: "3px 6px 5px" }}>File in</p>
+                    {projects.length === 0 && (
+                      <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", margin: "0 6px 6px", lineHeight: 1.5 }}>
+                        No projects yet — create one below.
+                      </p>
+                    )}
+                    {projects.map(pr => (
+                      <button key={pr.id}
+                        onClick={e => { e.stopPropagation(); onFileQuery(item.id, pr.id); setMenuFor(null); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "0.3rem 0.4rem", borderRadius: 5, fontSize: "0.72rem", color: item.project_id === pr.id ? "var(--accent)" : "var(--text-dim)", background: "none", border: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "rgb(var(--c-surface) / 0.6)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "none"}
+                      >{item.project_id === pr.id ? "✓ " : ""}{pr.name}</button>
+                    ))}
+                    {item.project_id != null && (
+                      <button
+                        onClick={e => { e.stopPropagation(); onFileQuery(item.id, null); setMenuFor(null); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "0.3rem 0.4rem", marginTop: 3, borderTop: "1px solid rgb(var(--c-border) / 0.4)", paddingTop: "0.35rem", borderRadius: 5, fontSize: "0.72rem", color: "var(--text-dimmer)", background: "none", border: "none", borderLeft: "none", borderRight: "none", borderBottom: "none", cursor: "pointer" }}
+                      >Remove from project</button>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
@@ -6188,6 +6229,28 @@ export default function App({ onNavigate }) {
     if (currentUser) loadChatHistory(activeProjectId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId, currentUser]);
+
+  /**
+   * File an existing query into a project, or out of one with `null`.
+   *
+   * Optimistic on the row, then reconciled — the list is re-fetched because a
+   * move can remove the row from the current view entirely (filing something
+   * out of the project you are looking at), and guessing that locally is how
+   * the sidebar ends up disagreeing with the database.
+   */
+  const fileQuery = async (queryId, projectId) => {
+    try {
+      const r = await apiFetch("/projects/queries/assign", {
+        method: "PATCH",
+        body: JSON.stringify({ query_ids: [queryId], project_id: projectId }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      loadChatHistory(activeProjectId);
+      loadProjects();
+    } catch {
+      setNotice("Could not move that query. Check your connection and try again.");
+    }
+  };
 
   const loadSharedQuery = async (token) => {
     try {
@@ -6828,7 +6891,7 @@ export default function App({ onNavigate }) {
               setNotice("Could not delete that project. Check your connection and try again.");
             }
           }}
-          chatHistory={chatHistory} onNewChat={() => { setMessages([]); setSidebarOpen(false); }} onLoadHistory={id => { loadHistory(id); setSidebarOpen(false); }} onDeleteHistory={deleteHistory}
+          chatHistory={chatHistory} onNewChat={() => { setMessages([]); setSidebarOpen(false); }} onLoadHistory={id => { loadHistory(id); setSidebarOpen(false); }} onDeleteHistory={deleteHistory} onFileQuery={fileQuery}
           currentUser={currentUser} open={sidebarOpen} onClose={() => setSidebarOpen(false)}
           collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapsed}
         />

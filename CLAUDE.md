@@ -351,6 +351,20 @@ Two separate limits, enforced in different places:
 - **Anonymous**: `ANON_QUERY_LIMIT = 3`, counted client-side in `localStorage` (`App.jsx`). Advisory only — it gates the sign-in modal, not the API.
 - **Authenticated**: `FREE_QUERY_LIMIT` in [services/billing.py](genomics_backend/services/billing.py), enforced server-side. `user_can_query()` returns 402 with an `upgrade_required` payload the frontend turns into the upgrade modal.
 
+### Projects — filing, and the cascade that used to eat research
+
+**Attribution was fixed at ask-time and invisible.** `project_id` rides on the chat request and lands on the row, so queries were always filed correctly — but `/projects/queries/recent` ignored it, so the sidebar list was identical whichever project was selected, and "All queries" sat at the top of the project list styled like a filter that filtered nothing. The feature was ~80% built and 0% visible.
+
+Three things closed it: `/queries/recent` takes an optional `project_id`; the sidebar names the scope and says so when a project is empty (a selection that makes the panel vanish reads as a bug); and the input shows "Saving to *project*".
+
+**`PATCH /projects/queries/assign`** files existing queries after the fact — `{query_ids: [...], project_id: N | null}`, where `null` unfiles. It takes a list because the reason it exists is a backlog: everything asked before a project existed could never be organised into one. **Both sides are owner-checked.** The queries go through `_owned_by`, and the destination project is verified separately — without that second check a valid id of *someone else's* project would file your rows into it, which is the easy half to forget.
+
+**Filtering happens in `/queries/recent`, not `GET /projects/{id}`**, deliberately: that route returns `ProjectWithQueries` carrying the full `results` payload of every query, and the sidebar needs one line each. Same response shape means one component renders both lists.
+
+**`Project.queries` no longer carries `cascade="all, delete-orphan"`.** It did, so deleting a project destroyed every query in it — tolerable while nothing could be filed after the fact, and a straight data-loss risk the moment queries became movable. Deletion now nulls the FK and the research survives under "All queries". Account deletion is unaffected: it removes the user's queries explicitly *before* it touches projects, so nothing depended on that cascade. A test pins it.
+
+**Drag-and-drop was considered and rejected**, and the reasons are structural rather than taste. HISTORY sits above PROJECTS and both scroll, so a drag crosses a scroll boundary — the hardest case, and worse as history grows. HTML5 drag events do not fire on touch at all, and the mobile sidebar is an overlay drawer where the drop target may be off-screen. Reordering has no meaning here because queries are chronological. Tags (many-to-many) were also offered and declined; `Query.project_id` stays a single nullable FK, so **one query lives in one project** and anything assuming otherwise needs a join table first.
+
 ### Access control
 
 Ownership is always derived from the JWT and **never** from client-supplied input. `database/routes.py` provides two helpers that every project/query route goes through:

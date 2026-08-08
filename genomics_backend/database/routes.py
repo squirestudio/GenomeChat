@@ -199,6 +199,11 @@ def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     _require_owner(project, current_user)
+    # Unfile rather than destroy. The queries outlive the project and show up
+    # under "All queries" — see the note on Project.queries in models.py.
+    db.query(Query).filter(Query.project_id == project_id).update(
+        {Query.project_id: None}, synchronize_session=False
+    )
     db.delete(project)
     db.commit()
 
@@ -243,6 +248,50 @@ def add_query_to_project(
     )
 
 
+class AssignQueries(BaseModel):
+    """Move one or more existing queries into a project, or out of every project."""
+    query_ids: list[int]
+    project_id: Optional[int] = None
+
+
+@router.patch("/queries/assign")
+def assign_queries_to_project(
+    body: AssignQueries,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+):
+    """File existing queries into a project. `project_id: null` unfiles them.
+
+    Attribution used to be fixed at ask-time: whatever project was selected when
+    the question was sent, forever. Anything asked before a project existed
+    could never be organised into one, which is most of what a reader
+    accumulates before they think to make a project at all.
+
+    Both sides are checked against the caller. The queries are filtered by
+    `_owned_by` so someone else's ids are silently skipped rather than moved,
+    and the destination project is verified to belong to the caller too —
+    without that second check, a valid id of *someone else's* project would file
+    your queries into it.
+    """
+    if body.project_id is not None:
+        project = db.query(Project).filter(Project.id == body.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        _require_owner(project, current_user)
+
+    if not body.query_ids:
+        return {"moved": 0, "project_id": body.project_id}
+
+    moved = (
+        db.query(Query)
+        .filter(Query.id.in_(body.query_ids))
+        .filter(_owned_by(Query, current_user))
+        .update({Query.project_id: body.project_id}, synchronize_session=False)
+    )
+    db.commit()
+    return {"moved": moved, "project_id": body.project_id}
+
+
 @router.get("/queries/recent")
 def get_recent_queries(
     limit: int = 30,
@@ -279,6 +328,10 @@ def get_recent_queries(
         stored = q.results if isinstance(q.results, dict) else {}
         result.append({
             "id": q.id,
+            # Needed by the sidebar's file-menu to mark where a query already
+            # lives. Without it every project reads as unselected and "file
+            # here" looks available for the project it is already in.
+            "project_id": q.project_id,
             "query_text": q.query_text,
             "query_type": q.query_type,
             "target": q.target,

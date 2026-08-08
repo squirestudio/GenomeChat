@@ -86,7 +86,16 @@ class Project(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="projects")
-    queries = relationship("Query", back_populates="project", cascade="all, delete-orphan")
+    # **No delete-orphan, deliberately.** This carried `cascade="all,
+    # delete-orphan"`, so deleting a project destroyed every query filed in it —
+    # tolerable while nothing could be filed after the fact, and a real
+    # data-loss risk the moment queries became movable. SQLAlchemy's default on
+    # parent delete is to null the child's FK, which is what we want: the
+    # queries survive and reappear under "All queries".
+    #
+    # Account deletion is unaffected. It removes the user's queries explicitly
+    # before it touches projects, so nothing depended on this cascade.
+    queries = relationship("Query", back_populates="project")
 
 
 class Query(Base):

@@ -587,25 +587,15 @@ A single-letter genotype is **hemizygous**, not homozygous. 23andMe reports one 
 
 Rungs sit at real coordinates so the gaps are literal, and thinning **pins both endpoints** — sampling at `i * length / max` never lands on the final element, so the helix used to stop short of the end of the gene, which is a small lie about where the data runs to. A test caught that.
 
-### Read-aloud — local voices only, and that is a privacy constraint
+### Read-aloud — built, then removed 8 Aug 2026
 
-Opt-in accessibility, **off by default**: speech starting unbidden is hostile in an open-plan office and worse in a waiting room, and this is a page people read about their own health on. Turning it off in Settings removes the header button entirely rather than leaving a dead control.
+Text-to-speech shipped and came straight back out: *"it's just not a good user experience and it's clouding up the other features that are better for this initial launch."* Recorded because the reasoning is worth keeping if it is ever revisited.
 
-**`speechSynthesis` sounds local and often is not.** Chrome ships network-backed Google voices alongside the operating system's, and selecting one sends the utterance text to Google to be synthesised. An answer names the reader's gene and frequently their own genotype, so a remote voice would quietly break the promise that DNA never leaves the browser — in the one place nobody would think to look. `pickVoice` in [speech.js](frontend/src/speech.js) accepts only `localService` voices and **returns null rather than falling back**; the caller must treat null as "speech unavailable" and render no button, never as "use the platform default". A test asserts a remote-only voice list yields null.
+**The privacy constraint is the part to carry forward.** `speechSynthesis` sounds local and often is not — Chrome ships network-backed Google voices alongside the operating system's, and selecting one sends the utterance text to Google to be synthesised. An answer names the reader's gene and, with a DNA file loaded, frequently their genotype. Any future implementation must filter to `localService` voices and treat "no local voice" as *unavailable*, never as "fall back to the default".
 
-**Speech input stays rejected.** `SpeechRecognition` streams microphone audio to Google's servers — the same objection with worse consequences — and dictation is poor at exactly this vocabulary. A misheard rsID is a different variant and nothing downstream can tell.
+**Speech input stays rejected** on stronger grounds: `SpeechRecognition` streams microphone audio to Google, and dictation mangles exactly this vocabulary. A misheard rsID is a different variant and nothing downstream can tell.
 
-**Three transformations exist because the naive version is unusable.** Gene symbols are spelled (`BRCA1` → "B R C A 1", since a synthesiser says "brocka one"); rsIDs are spoken as letters (`rs334` → "r s 334"); and scientific notation is expanded, because "5.58e-04" read literally is "five point five eight e zero four". **Tables are announced, not recited** — a listener cannot hear the difference between a column break and a decimal point.
-
-**Utterances are chunked.** Chrome has cut long ones off mid-sentence for years and the threshold moves between releases, so nothing relies on it; `chunkForSpeech` splits on sentence boundaries, which also makes stopping land somewhere sensible.
-
-**Settings reports which of three states this machine is in**, because "no button appeared" has three causes needing three different answers: no speech API, no voices installed, or voices that are *all* network voices. The last is the surprising one — the reader plainly has voices, so saying there are none reads as a bug. `VoiceStatus` names the chosen voice, offers a Test button, and gives platform-specific install instructions from `installHint`.
-
-**`ReadAloudButton` renders in both header rows, and that is not optional.** `.gc-header-actions-desktop` is hidden outright by a media query on mobile, with `.gc-header-actions-mobile` shown instead — so a control placed in only the desktop row **does not exist on a phone**, whatever the setting says. It shipped that way once and the report was simply "I don't see a speaker icon". Any new header control needs both rows.
-
-**It shows disabled rather than hidden when there is nothing to read.** Gating it on an answer existing meant switching speech on in an empty chat produced no visible change at all, which reads as a broken setting — the same bug from the other direction. A present control that explains why it is inert beats an absent one; the spec was an icon in the corner you can find.
-
-**The voice list is an external store**, read through `useSyncExternalStore`. `getVoices()` is empty on the first call in every browser that fires `voiceschanged`, so asking once at mount concludes speech is unavailable forever — and the snapshot must be cached, because `getVoices()` returns a fresh array each call and a new reference per render is an infinite loop.
+**What made it a poor experience**, concretely, and what any retry has to solve: the control was hard to find (it needs to be in *both* header rows — `.gc-header-actions-desktop` is hidden outright on mobile), it depended on a system voice the reader may not have and cannot be told about in advance, and the output needed a pile of domain fixes to be bearable — gene symbols spelled out, rsIDs read as letters, scientific notation expanded, tables announced rather than recited. That is a lot of machinery for a feature nobody asked for twice.
 
 ### Personal DNA data — the privacy invariant
 

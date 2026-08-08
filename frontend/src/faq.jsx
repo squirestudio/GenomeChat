@@ -250,21 +250,6 @@ export default function FaqPage({ onBack }) {
               record of it does not stop the billing.
             </p>
           </Q>
-          <Q q="If I have answers read aloud, does the text get sent anywhere?">
-            <p>
-              <strong>No.</strong> Read-aloud is off unless you turn it on in
-              Settings, and it uses only voices already installed on your
-              device, so the words are spoken by your own machine.
-            </p>
-            <p>
-              This is worth stating because it is not automatic. Some browsers
-              offer network voices alongside the built-in ones, and choosing one
-              would send the text — which names your gene, and sometimes your
-              own genotype — away to be spoken. MyDNA refuses those voices. If
-              your browser has no local voice, the button simply does not
-              appear.
-            </p>
-          </Q>
           <Q q="Do you sell my data?">
             <p>
               <strong>No.</strong> There is no advertising and no analytics

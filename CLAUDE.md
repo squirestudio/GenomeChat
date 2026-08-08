@@ -369,6 +369,18 @@ Two separate limits, enforced in different places:
 
 **Drag-and-drop was considered and rejected** for structural reasons. HISTORY sits above PROJECTS and both scroll, so a drag crosses a scroll boundary — the hardest case, worse as history grows. HTML5 drag events do not fire on touch at all, and the mobile sidebar is an overlay drawer where the drop target may be off-screen. Reordering has no meaning for chronological rows.
 
+### Referrals — credits without a social graph
+
+"Get up to 150 free credits." `REFERRAL_CREDITS` (50) lands on the referrer when a referee asks their **first question**, capped at `REFERRAL_CAP` (3). Measured rather than guessed: a credit is $0.0128 of model tokens, so the cap costs at most $1.92 per account plus up to $0.26 per referee free tier — about **$2.70 of exposure** for someone farming the maximum. Abuse was expected from the start; the cap is the cost control, not a deterrent.
+
+**Crediting on the first query rather than at signup is what forces the one interesting design problem.** The referrer has to be remembered across the gap between those two events, and a durable record of it is a social graph — in a genomics product a real inference, since people refer family and genetics is familial. So `users.pending_referral_code` holds it and is **nulled the moment `convert_referral` runs, whether or not credit was granted**. Leaving it set on a capped referrer would both retry forever and keep "who introduced this account" on the row for its lifetime. What persists is only `referrals_converted`, a count on the referrer. Nothing links the two accounts afterwards, and a test asserts it.
+
+**Three guards in `attach_pending_referral`, each closing a real hole**: an established account cannot claim a code later (`total_queries` must be zero), a code cannot be swapped once set, and nobody can refer themselves.
+
+**The code travels through OAuth `state`**, which is the parameter that exists to survive that round trip. An endpoint to claim a code after the fact would let an established account backdate one; threading it through sign-in means it cannot outlive the sign-in it arrived with. On the browser side `captureReferral()` puts an arriving `?r=` in `localStorage` and **sends nothing** — so "signed-out visitors are never recorded" holds without a special case, and a click that never becomes an account leaves no trace.
+
+**No social-network share buttons**, and that is a decision rather than an omission: every one of them needs a third-party script, and a tracking script on a page about someone's genome is not a trade worth making. One button copies a plain URL.
+
 ### Access control
 
 Ownership is always derived from the JWT and **never** from client-supplied input. `database/routes.py` provides two helpers that every project/query route goes through:

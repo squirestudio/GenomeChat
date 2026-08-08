@@ -1291,7 +1291,7 @@ function SignInGateModal({ onClose, reason = "queries" }) {
             You've used your {ANON_QUERY_LIMIT} free preview queries. Create a free account to get {20} queries — no credit card required.
           </p>
         )}
-        <a href={`${API}/auth/google`} style={{ display: "block", padding: "0.75rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))", border: "1px solid rgb(var(--c-accent) / 0.35)", cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
+        <a href={signInUrl()} style={{ display: "block", padding: "0.75rem 1rem", borderRadius: 10, background: "linear-gradient(135deg,rgb(var(--c-accent) / 0.15),rgb(var(--c-violet) / 0.15))", border: "1px solid rgb(var(--c-accent) / 0.35)", cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
           <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--accent)" }}>Sign in with Google — it's free</span>
         </a>
       </div>
@@ -1330,6 +1330,85 @@ function PlanBadge({ currentUser, onClick, mobile }) {
   );
 }
 
+const REFERRAL_KEY = "mydna_referral";
+
+/**
+ * Hold an arriving referral code until the visitor signs in.
+ *
+ * **Nothing is sent to the server on arrival**, which is what keeps the promise
+ * that signed-out visitors are never recorded. The code sits in this browser and
+ * is only ever attached to a sign-in, so a click that never becomes an account
+ * leaves no trace anywhere.
+ */
+function captureReferral() {
+  try {
+    const code = new URLSearchParams(window.location.search).get("r");
+    if (code) localStorage.setItem(REFERRAL_KEY, code.slice(0, 16));
+  } catch { /* localStorage throws in Safari private mode; the referral is not worth breaking sign-in over */ }
+}
+
+function pendingReferral() {
+  try { return localStorage.getItem(REFERRAL_KEY) || ""; } catch { return ""; }
+}
+
+/** Sign-in URL, carrying any referral code through OAuth `state`. */
+function signInUrl() {
+  const ref = pendingReferral();
+  return ref ? `${API}/auth/google?ref=${encodeURIComponent(ref)}` : `${API}/auth/google`;
+}
+
+/**
+ * "Get up to 150 free credits" — the referral card in the purchase dialog.
+ *
+ * One button, one link, and no social anything: the link is a plain URL the
+ * reader can paste wherever they like. There is no share-to-network integration
+ * because every one of those needs a third-party script, and a tracking script
+ * on a page about someone's genome is not a trade worth making.
+ *
+ * The link carries a random code that says nothing about its owner, and clicking
+ * it records nothing until the visitor signs in.
+ */
+function ReferralCard({ currentUser }) {
+  const [copied, setCopied] = useState(false);
+  if (!currentUser?.referral_code) return null;
+
+  const cap = currentUser.referral_cap ?? 3;
+  const each = currentUser.referral_credits ?? 50;
+  const done = currentUser.referrals_converted || 0;
+  const maxed = done >= cap;
+  const url = `${window.location.origin}/?r=${currentUser.referral_code}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch { /* clipboard is blocked in some embedded browsers; the link is on screen to copy by hand */ }
+  };
+
+  return (
+    <div style={{ marginTop: 14, padding: "0.85rem 0.9rem", borderRadius: 12, background: "rgb(var(--c-surface) / 0.35)", border: "1px solid rgb(var(--c-border) / 0.4)" }}>
+      <p style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text)", margin: "0 0 4px" }}>
+        {maxed ? `You have earned all ${cap * each} credits` : `Get up to ${cap * each} free credits`}
+      </p>
+      <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", lineHeight: 1.55, margin: "0 0 9px" }}>
+        {maxed
+          ? "Thanks for spreading the word. Your link still works for anyone you send it to."
+          : <>Share MyDNA with a friend. When they sign in and ask their first question, you get <strong style={{ color: "var(--accent)" }}>{each} credits</strong> — up to {cap} friends.</>}
+      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={copy}
+          style={{ fontSize: "0.72rem", fontWeight: 600, padding: "0.4rem 0.7rem", borderRadius: 8, background: copied ? "rgb(var(--c-success) / 0.12)" : "rgb(var(--c-accent) / 0.1)", border: `1px solid ${copied ? "rgb(var(--c-success) / 0.4)" : "rgb(var(--c-accent) / 0.35)"}`, color: copied ? "var(--success)" : "var(--accent)", cursor: "pointer", flexShrink: 0 }}>
+          {copied ? "Link copied" : "Copy your link"}
+        </button>
+        <span style={{ fontSize: "0.68rem", color: "var(--text-faintest)" }}>
+          {done} of {cap} friends joined
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
   const plan = getPlan(currentUser);
   const used = currentUser?.total_queries || 0;
@@ -1355,6 +1434,11 @@ function UpgradeModal({ currentUser, onClose, onOpenSettings, blocked }) {
 
         <div style={{ margin: "1.25rem 0" }}>
           <PurchaseOptions testMode={currentUser?.stripe_test_mode} currentUserHasBilling={currentUser?.has_billing_account} />
+          {/* Under the paid options rather than above them. Someone reading this
+              dialog has already decided they want more queries; offering a free
+              route first would undercut the thing that funds the service, and
+              offering it not at all wastes the one moment it is relevant. */}
+          <ReferralCard currentUser={currentUser} />
         </div>
 
         {/* Only useful to someone who already bought the right to store a key but
@@ -5715,7 +5799,7 @@ function Sidebar({ projects, activeProjectId, onSelectProject, onCreateProject, 
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
         {!currentUser && chatHistory.length === 0 && (
-          <a href={`${API}/auth/google`} style={{ display: "block", margin: "0 0 12px", padding: "8px 10px", background: "rgb(var(--c-accent) / 0.08)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 8, textDecoration: "none", textAlign: "center" }}>
+          <a href={signInUrl()} style={{ display: "block", margin: "0 0 12px", padding: "8px 10px", background: "rgb(var(--c-accent) / 0.08)", border: "1px solid rgb(var(--c-accent) / 0.2)", borderRadius: 8, textDecoration: "none", textAlign: "center" }}>
             <p style={{ fontSize: "0.68rem", color: "var(--accent)", margin: 0 }}>Sign in to save history</p>
           </a>
         )}
@@ -6004,6 +6088,10 @@ export default function App({ onNavigate }) {
   const inputRef = useRef(null);
 
   useEffect(() => {
+    // Before anything else reads the URL: an arriving referral code is kept in
+    // this browser only, and travels no further until the visitor signs in.
+    captureReferral();
+
     const params = new URLSearchParams(window.location.search);
     // Handle OAuth callback token
     const authToken = params.get("token");
@@ -6969,7 +7057,7 @@ export default function App({ onNavigate }) {
                     )}
                   </div>
                 ) : (
-                  <a href={`${API}/auth/google`}
+                  <a href={signInUrl()}
                       style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "var(--text-faint)", background: "rgb(var(--c-surface) / 0.6)", border: "1px solid rgb(var(--c-border) / 0.4)", borderRadius: 8, padding: "0.3rem 0.65rem", textDecoration: "none" }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = "rgb(var(--c-accent) / 0.4)"}
                       onMouseLeave={e => e.currentTarget.style.borderColor = "rgb(var(--c-border) / 0.4)"}
@@ -7005,7 +7093,7 @@ export default function App({ onNavigate }) {
                     )}
                   </div>
                 ) : (
-                  <a href={`${API}/auth/google`} style={{ fontSize: "0.68rem", color: "var(--accent)", textDecoration: "none" }}>Sign in</a>
+                  <a href={signInUrl()} style={{ fontSize: "0.68rem", color: "var(--accent)", textDecoration: "none" }}>Sign in</a>
                 )}
               </div>
             </div>

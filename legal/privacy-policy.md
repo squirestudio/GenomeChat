@@ -1,7 +1,7 @@
 # Privacy Policy
 
-**Last updated:** 4 August 2026
-**Effective:** 4 August 2026
+**Last updated:** 8 August 2026
+**Effective:** 8 August 2026
 
 ---
 
@@ -68,8 +68,16 @@ Sign-in uses Google. We receive, and store:
 | Email address | Identifies your account; the only way to link your history and purchases to you |
 | Name (as Google provides it) | Displayed in the interface |
 | Account created / updated timestamps | Housekeeping |
+| A referral code, and a count of how many people used it | Awards free credits for introducing someone. The code is random and says nothing about you |
 
 We do **not** receive your Google password, contacts, calendar or Drive.
+
+**Referrals do not build a picture of who you know.** If you share your link, we
+record that *a* referral converted and add credits to your account — we do not
+keep a record of who joined through you. When someone signs up through a link,
+the code is held on their account only until their first question, purely so the
+right person can be credited, and is erased at that moment. Nothing afterwards
+connects the two accounts.
 
 ### 2.2 If you are signed in — your questions
 

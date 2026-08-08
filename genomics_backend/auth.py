@@ -90,8 +90,14 @@ def _callback_url(request: Request) -> str:
 
 
 @router.get("/google")
-def google_login(request: Request):
-    """Redirect user to Google's OAuth consent screen."""
+def google_login(request: Request, ref: str = ""):
+    """Redirect user to Google's OAuth consent screen.
+
+    `ref` is an optional referral code, carried through in OAuth `state` — the
+    parameter that exists to survive this round trip. Threading it here rather
+    than offering an endpoint to claim a code later means it cannot outlive the
+    sign-in it arrived with, so an established account cannot backdate one.
+    """
     settings = get_settings()
     if not settings.google_client_id:
         raise HTTPException(status_code=501, detail="Google OAuth not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET")
@@ -105,11 +111,16 @@ def google_login(request: Request):
         f"&access_type=offline"
         f"&prompt=select_account"
     )
+    # Codes are short and urlsafe by construction; anything else is discarded
+    # rather than reflected into the redirect.
+    safe_ref = "".join(c for c in (ref or "") if c.isalnum() or c in "-_")[:16]
+    if safe_ref:
+        params += f"&state={safe_ref}"
     return RedirectResponse(f"{GOOGLE_AUTH_URL}?{params}")
 
 
 @router.get("/google/callback")
-async def google_callback(code: str, request: Request, db: Session = Depends(get_db)):
+async def google_callback(code: str, request: Request, state: str = "", db: Session = Depends(get_db)):
     """Exchange Google auth code for user profile, issue JWT, redirect to frontend."""
     settings = get_settings()
     callback_url = _callback_url(request)
@@ -152,6 +163,12 @@ async def google_callback(code: str, request: Request, db: Session = Depends(get
         db.commit()
         db.refresh(user)
         logger.info(f"New user registered: {email}")
+        # Only a brand-new account can carry a referral. attach_pending_referral
+        # re-checks that regardless, but not calling it for returning users
+        # keeps the intent obvious at the call site.
+        if state:
+            from services.billing import attach_pending_referral
+            attach_pending_referral(user, state, db)
     else:
         if user.name != name:
             user.name = name
@@ -164,11 +181,12 @@ async def google_callback(code: str, request: Request, db: Session = Depends(get
 
 
 @router.get("/me")
-def get_me(user: Optional[User] = Depends(get_current_user)):
+def get_me(user: Optional[User] = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return current user info, or null if not authenticated."""
     if not user:
         return {"user": None}
-    from services.billing import FREE_QUERY_LIMIT, is_test_mode_user, is_unlimited_user
+    from services.billing import (FREE_QUERY_LIMIT, is_test_mode_user, is_unlimited_user,
+                                  ensure_referral_code, REFERRAL_CAP, REFERRAL_CREDITS)
     from services.encryption import try_decrypt_key
     # Reports whether the stored key actually works, not just that a row exists.
     # A user whose key cannot be decrypted is not on BYOK, and the UI must not
@@ -181,6 +199,12 @@ def get_me(user: Optional[User] = Depends(get_current_user)):
         "byok_unlocked": bool(user.byok_unlocked),
         "query_credits": user.query_credits or 0,
         "total_queries": user.total_queries or 0,
+        # Generated on first read rather than at signup — most accounts never
+        # open the referral card, and an unused code is a row nobody needed.
+        "referral_code": ensure_referral_code(user, db),
+        "referrals_converted": user.referrals_converted or 0,
+        "referral_cap": REFERRAL_CAP,
+        "referral_credits": REFERRAL_CREDITS,
         "free_limit": FREE_QUERY_LIMIT,
         "has_stored_key": has_working_key,
         # The one-time right to store a key, separate from the subscription.

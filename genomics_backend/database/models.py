@@ -71,6 +71,24 @@ class User(Base):
     # visitors, who have no account to attach it to.
     dna_consent_at = Column(DateTime, nullable=True)
 
+    # ─── Referrals ───────────────────────────────────────────────────────────
+    # **No referral graph is kept, and that is deliberate.** A table of "A
+    # referred B" is a social graph, and in a genomics product that is a real
+    # inference — people refer family, and genetics is familial. Holding it
+    # beside genetic queries would be a category of data this product does not
+    # otherwise have.
+    #
+    # `referral_code` is random and reveals nothing about its owner.
+    # `referrals_converted` is a count, never a list.
+    # `pending_referral_code` is the one temporary exception: credit lands on the
+    # referee's *first query* rather than at signup, so the referrer has to be
+    # remembered across that gap. It is **nulled the moment credit is granted**,
+    # so the link exists for minutes and is then gone. Nothing durable records
+    # who introduced whom.
+    referral_code = Column(String(16), unique=True, nullable=True, index=True)
+    referrals_converted = Column(Integer, default=0)
+    pending_referral_code = Column(String(16), nullable=True)
+
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
 
@@ -312,6 +330,10 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS byok_purchased BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS dna_consent_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(16)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS referrals_converted INTEGER DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_referral_code VARCHAR(16)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code)",
         # Columns added by ALTER TABLE do not get the index the model declares,
         # so these were never created and every history load and ownership check
         # was a sequential scan. The composite matches how the rows are actually

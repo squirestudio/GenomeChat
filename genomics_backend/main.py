@@ -22,7 +22,7 @@ from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, cli
 from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
 from database.routes import router as projects_router, queries_router
 from auth import router as auth_router, get_current_user, require_user
-from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK, SCAN_CREDITS
+from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK, SCAN_CREDITS, convert_referral
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
 from datetime import datetime
@@ -489,6 +489,16 @@ async def chat_stream(request: Request, body: ChatRequest, db: Session = Depends
             u = stream_db.query(User).filter(User.id == user_id_for_stream).first()
             if u:
                 consume_query(u, stream_db, has_working_key=has_working_key)
+                # A referral converts on the referee's first real question, not
+                # at signup — registering is free and instant, asking something
+                # is the cheapest available evidence a person arrived. This
+                # clears the pending code either way, so it is one-shot and
+                # leaves no record of who introduced whom.
+                if u.pending_referral_code:
+                    try:
+                        convert_referral(u, stream_db)
+                    except Exception:
+                        logger.exception("Referral conversion failed; query already served")
 
         try:
             # Keyed on the answer's shape as well as the question. The cache

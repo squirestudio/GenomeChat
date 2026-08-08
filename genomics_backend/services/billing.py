@@ -1,3 +1,4 @@
+import secrets
 import stripe
 import logging
 from typing import Optional
@@ -21,6 +22,18 @@ CREDITS_PER_PACK = 200
 # the point: price follows cost in both directions. Sections became free by the
 # same rule, because they call no model at all.
 SCAN_CREDITS = 4
+
+# ─── Referrals ────────────────────────────────────────────────────────────────
+# Promoted as "get up to 150 free credits". Measured rather than guessed: a
+# credit is worth $0.0128 of model tokens, so the cap costs at most $1.92 per
+# account, plus up to $0.26 for each referee's free tier if fully consumed —
+# about $2.70 of exposure for someone farming the maximum.
+#
+# Credit lands on the referee's **first query**, not at signup. Registering is
+# free and instant; asking a real question is not, and it is the cheapest
+# available proof that a person rather than a script arrived.
+REFERRAL_CREDITS = 50
+REFERRAL_CAP = 3
 
 
 def is_test_mode_user(user) -> bool:
@@ -289,3 +302,64 @@ def consume_query(user, db, has_working_key: bool = False):
         if (user.query_credits or 0) > 0:
             user.query_credits -= 1
     db.commit()
+
+
+def ensure_referral_code(user, db):
+    """The user's own shareable code, generated on first request rather than at signup.
+
+    Random, and deliberately not derived from anything about the account — a
+    code that encodes an id or an email is a code that leaks one when shared.
+    """
+    if not user.referral_code:
+        for _ in range(5):
+            candidate = secrets.token_urlsafe(6)[:8]
+            if not db.query(type(user)).filter(type(user).referral_code == candidate).first():
+                user.referral_code = candidate
+                db.commit()
+                break
+    return user.referral_code
+
+
+def attach_pending_referral(user, code, db):
+    """Record who to credit, for a brand-new account only.
+
+    Guarded three ways, and each guard closes a real hole: an existing account
+    cannot claim a code later (`total_queries` must be zero), a code cannot be
+    swapped after the fact (`pending_referral_code` must be unset), and nobody
+    can refer themselves.
+    """
+    if not code or user.pending_referral_code or (user.total_queries or 0) > 0:
+        return False
+    if user.referral_code and code == user.referral_code:
+        return False
+    referrer = db.query(type(user)).filter(type(user).referral_code == code).first()
+    if not referrer or referrer.id == user.id:
+        return False
+    user.pending_referral_code = code
+    db.commit()
+    return True
+
+
+def convert_referral(user, db):
+    """Credit the referrer, once, on the referee's first query.
+
+    **The pending code is cleared whichever way this goes** — including when the
+    referrer is already at the cap. Leaving it set would keep a record of who
+    introduced this account for the life of the row, which is exactly the graph
+    this design exists to avoid, and would retry forever against a capped
+    referrer.
+    """
+    code = user.pending_referral_code
+    if not code:
+        return False
+
+    user.pending_referral_code = None
+    referrer = db.query(type(user)).filter(type(user).referral_code == code).first()
+
+    granted = False
+    if referrer and referrer.id != user.id and (referrer.referrals_converted or 0) < REFERRAL_CAP:
+        referrer.query_credits = (referrer.query_credits or 0) + REFERRAL_CREDITS
+        referrer.referrals_converted = (referrer.referrals_converted or 0) + 1
+        granted = True
+    db.commit()
+    return granted

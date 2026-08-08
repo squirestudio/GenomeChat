@@ -25,6 +25,9 @@ from auth import router as auth_router, get_current_user, require_user
 from services.billing import create_checkout_session, create_support_session, SUPPORT_AMOUNTS, verify_webhook, user_can_query, consume_query, is_test_mode_user, is_unlimited_user, get_price_display, create_portal_session, stripe_credentials_for, FREE_QUERY_LIMIT, CREDITS_PER_PACK, SCAN_CREDITS
 from services.encryption import encrypt_key, try_decrypt_key, is_configured as encryption_is_configured
 from database.models import User
+import secrets
+import re
+from services.research import research_findings
 from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
@@ -1255,3 +1258,66 @@ async def delete_user_account(current_user: User = Depends(require_user), db: Se
             if had_subscription else None
         ),
     }
+
+
+# ─── Research mode ────────────────────────────────────────────────────────────
+
+class ResearchUnlock(BaseModel):
+    password: str
+
+
+@app.post("/research/unlock")
+def unlock_research(body: ResearchUnlock, current_user: User = Depends(require_user),
+                    db: Session = Depends(get_db)):
+    """Open research mode for this account.
+
+    Gated by a shared password while the mode is shaped with real researchers.
+    **An unset password means the mode is unreachable**, never open — the empty
+    default must fail closed, because the failure mode of the other choice is
+    shipping open-ended AI analysis to everyone by forgetting a variable.
+
+    `compare_digest` rather than `==` so the comparison does not leak the
+    password's length or prefix through timing. Per-IP rate limits already apply
+    to this route, which is what bounds guessing.
+    """
+    expected = get_settings().research_mode_password
+    if not expected:
+        raise HTTPException(status_code=501, detail="Research mode is not enabled on this server")
+    if not secrets.compare_digest(body.password or "", expected):
+        raise HTTPException(status_code=403, detail="That code is not right")
+
+    current_user.research_unlocked = True
+    db.commit()
+    logger.info(f"Research mode unlocked for user {current_user.id}")
+    return {"research_unlocked": True}
+
+
+@app.get("/research/findings")
+async def research_findings_for_gene(gene: str, current_user: User = Depends(require_user),
+                                     db: Session = Depends(get_db)):
+    """Cross-source findings for one gene.
+
+    **Every finding is computed, not generated.** The model's role in research
+    mode is to explain and prioritise what this returns, never to invent
+    relationships — a researcher acting on a hallucinated one loses a month at
+    the bench. See the note at the top of services/research.py.
+
+    Charged nothing: it runs no model. The pipeline behind it is cached, so
+    asking about a gene already discussed costs one dictionary lookup.
+    """
+    if not current_user.research_unlocked:
+        raise HTTPException(status_code=403, detail="Research mode is not unlocked for this account")
+
+    symbol = (gene or "").strip().upper()
+    if not symbol or not re.fullmatch(r"[A-Z0-9\-]{1,20}", symbol):
+        raise HTTPException(status_code=400, detail="Gene symbol required")
+
+    cache_key_ = f"research:{symbol}"
+    cached = cache.get(cache_key_)
+    if cached:
+        return cached
+
+    pipeline = await run_gene_pipeline(symbol)
+    result = research_findings(pipeline)
+    cache.set(cache_key_, result)
+    return result

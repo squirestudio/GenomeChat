@@ -85,6 +85,10 @@ class User(Base):
     # row until then — a few minutes, but long enough to reach a backup. Credit
     # now happens inside account creation, so **nothing linking two accounts is
     # ever written at all**.
+    # Research mode: open-ended cross-source analysis, gated by a shared
+    # password while it is shaped with real researchers.
+    research_unlocked = Column(Boolean, default=False)
+
     referral_code = Column(String(16), unique=True, nullable=True, index=True)
     referrals_converted = Column(Integer, default=0)
 
@@ -329,6 +333,7 @@ def _run_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS byok_purchased BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS dna_consent_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS research_unlocked BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(16)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS referrals_converted INTEGER DEFAULT 0",
         # Referrals are credited at signup now, so nothing is parked on the row.

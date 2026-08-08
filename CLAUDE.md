@@ -389,6 +389,26 @@ The first version credited on the referee's *first question*, which meant parkin
 
 **SMS is deliberately absent.** The no-recipient form is `sms:&body=` on iOS and `sms:?body=` on Android, the tolerant `sms:?&body=` is not reliable across both, and a button that silently opens an empty message on one of the two big platforms is worse than not offering it.
 
+### Research mode — computed findings, gated, and explicitly not advice
+
+An opt-in mode for researchers, **password-gated while it is shaped with real users**. `RESEARCH_MODE_PASSWORD` is empty by default and **empty means unreachable, never open** — the failure mode of the other choice is shipping open-ended AI analysis to everyone by forgetting an environment variable. Unlocking sets `users.research_unlocked`, so the password admits a person once and access is per-account rather than shared.
+
+**Everything in [services/research.py](genomics_backend/services/research.py) is computed, not generated**, and that is the central design decision rather than a detail. The value of research mode is not that the model may speculate more freely — it is that nobody is joining these 28 sources *against each other*, and the joins produce real signals. A researcher acting on a hallucinated relationship loses a month at the bench, which is a far worse failure than a wrong answer to a curious reader. The model's job downstream is to explain and prioritise these findings, never to invent one.
+
+Five analyses, all pure over the pipeline dict and all tested without network:
+
+| Finding | Join | Why it matters |
+|---|---|---|
+| `frequency_conflict` | ClinVar significance × Orphanet prevalence | A pathogenic call commoner than the disease it supposedly causes. Uses the **upper** bound of the prevalence band, so anything flagged is flagged on the disease's best case |
+| `curator_disagreement` | GenCC submitters | Where the evidence is genuinely unsettled, which is where the publishable work is |
+| `unsupported_assertions` | ClinVar review status | Pathogenic calls with no stated assertion criteria, which render identically to expert-panel calls everywhere including here |
+| `constraint_tension` | gnomAD LOEUF × ClinVar significance | A gene that cannot tolerate loss whose curated variants read benign |
+| `stale_evidence` | ClinGen `classified_on` | A Definitive call from 2015 and one from last year are different claims; nothing sorted on this before |
+
+**`checked` and `skipped` are returned separately, and the interface must not render them alike.** Empty findings with a populated `skipped` means "could not look", which is not "nothing found" — the same distinction the upstream-drift audit exists to preserve. `frequency_conflict` in particular yields nothing when ClinVar carries no per-variant frequency, which is common, and that silence must never be presented as a clean bill.
+
+**Still to build:** the research-mode notice (open-ended, generated, cross-source outputs that are *not* medical advice and must be verified before acting), the frontend mode toggle, and the chart grammar. The long-term shape the founder has in mind is **MyLab.chat** — researchers uploading their own work and notes to cross-reference against the public corpus.
+
 ### Access control
 
 Ownership is always derived from the JWT and **never** from client-supplied input. `database/routes.py` provides two helpers that every project/query route goes through:

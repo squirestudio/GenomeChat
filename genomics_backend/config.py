@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Anonymous callers get this many questions before signing in. The browser
     # shows the prompt at the same number; this is the copy that enforces it.
     anon_query_limit: int = 3
+    # Research mode is gated while it is being shaped with real researchers.
+    # Empty means the mode is unreachable, which is the correct default: an
+    # unset password must never mean "open to everyone".
+    research_mode_password: str = ""
     # Per-IP request ceilings. The expensive figure covers anything that reaches
     # an upstream API or a model; the default covers everything else.
     rate_limit_expensive_per_min: int = 20

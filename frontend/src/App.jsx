@@ -5999,7 +5999,7 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
  *
  * All of it was already fetched and thrown away at the panel.
  */
-function FindingRow({ finding, last, tone }) {
+function FindingRow({ finding, last, tone, gene }) {
   const ev = finding.evidence?.[0] || {};
   const verdicts = ev.verdicts || [];
   // `papers` carries titles; `pmids` is the pre-title shape, kept so an answer
@@ -6072,8 +6072,72 @@ function FindingRow({ finding, last, tone }) {
         </div>
       )}
 
+      {verdicts.some(v => (v.pmids || []).length) && (
+        <EvidenceReader gene={gene} disease={ev.disease} verdicts={verdicts} />
+      )}
+
       <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", margin: "5px 0 0" }}>
         {finding.sources.join(" × ")}{hasDetail ? "" : " · no further detail available"}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Reads the abstracts behind a disagreement and says what each side weighed.
+ *
+ * **An explicit action, because it is the only thing here that costs a model
+ * call.** Everything else on the panel is computed and free; folding this into
+ * every answer would charge for reading nobody asked for. The reader chooses.
+ *
+ * It is also the first place the product reads a paper rather than pointing at
+ * one — every citation before this was an identifier, which is enough to link
+ * and not enough to compare.
+ */
+function EvidenceReader({ gene, disease, verdicts }) {
+  const [state, setState] = useState(null);
+
+  const read = async () => {
+    setState({ loading: true });
+    try {
+      const r = await apiFetch("/research/evidence", {
+        method: "POST",
+        body: JSON.stringify({ gene, disease, verdicts }),
+      });
+      setState(r.ok ? { data: await r.json() } : { error: true });
+    } catch { setState({ error: true }); }
+  };
+
+  if (!state) {
+    return (
+      <button onClick={read}
+        style={{ marginTop: 7, fontSize: "0.68rem", fontWeight: 600, padding: "0.28rem 0.6rem", borderRadius: 7, background: "none", border: "1px solid rgb(var(--c-border) / 0.5)", color: "var(--text-dim)", cursor: "pointer" }}>
+        What did each side read?
+      </button>
+    );
+  }
+  if (state.loading) {
+    return <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 7 }}>Reading the abstracts…</p>;
+  }
+  if (state.error || !state.data?.summary) {
+    return (
+      <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 7 }}>
+        {state.data?.reason || "Could not read those papers just now."}
+      </p>
+    );
+  }
+
+  const { summary, requested, with_abstracts: withAbs } = state.data;
+  return (
+    <div style={{ marginTop: 8, padding: "0.7rem 0.8rem", borderRadius: 9, background: "rgb(var(--c-surface) / 0.4)", border: "1px solid rgb(var(--c-border) / 0.35)" }}>
+      <Markdown content={summary} />
+      <p style={{ fontSize: "0.63rem", color: "var(--text-faintest)", margin: "8px 0 0", lineHeight: 1.5 }}>
+        {/* Which papers were actually readable is part of the finding. A paper
+            cited without an abstract is evidence the model could not weigh, and
+            saying so keeps "not read" distinct from "nothing there". */}
+        Read from {withAbs} abstract{withAbs === 1 ? "" : "s"} of {requested} cited
+        {withAbs < requested ? " — the rest had no abstract available" : ""}. Abstracts only,
+        not full papers. Generated from them and not reviewed by anyone.
       </p>
     </div>
   );
@@ -6118,7 +6182,7 @@ function ResearchFindings({ gene, enabled }) {
 
       <div style={{ padding: "0.7rem 0.85rem" }}>
         {findings.map((f, i) => (
-          <FindingRow key={i} finding={f} last={i === findings.length - 1} tone={tone} />
+          <FindingRow key={i} finding={f} last={i === findings.length - 1} tone={tone} gene={gene} />
         ))}
 
         {findings.length === 0 && checked.length > 0 && (

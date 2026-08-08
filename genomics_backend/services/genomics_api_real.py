@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import re
+import html
 import time
 from typing import Optional
 from models import VariantResult, GeneResult
@@ -3529,6 +3530,77 @@ async def fetch_orphanet_prevalence(gene_symbol: str) -> list[dict]:
     # a disorder with a number is more use than one with only an onset.
     out.sort(key=lambda r: (not r["assessed"], not r["prevalence"], r["disorder"]))
     return out[:15]
+
+
+async def fetch_pubmed_abstracts(pmids: list[str]) -> dict:
+    """PMID -> `{title, journal, year, abstract}` for a bounded set of papers.
+
+    **The abstracts were already arriving and being discarded.** `research_topics`
+    makes this exact call — `efetch?db=pubmed&retmode=xml` — and regexes out only
+    `<DescriptorName>` for MeSH terms. The same response carries `<AbstractText>`,
+    which is what turns "five curators disagree" into "here is what each of them
+    actually read".
+
+    Structured abstracts split into several labelled `<AbstractText Label="...">`
+    elements. They are joined with their labels kept, because "METHODS: 12
+    families" and "RESULTS: 12 families" are different claims and a researcher
+    weighing two papers needs to know which they are looking at.
+
+    Capped at 25 papers. These go into a prompt, and an uncapped set on a
+    well-studied gene would be both expensive and mostly redundant.
+    """
+    clean = [p for p in dict.fromkeys(str(x).strip() for x in (pmids or [])) if p.isdigit()][:25]
+    if not clean:
+        return {}
+
+    out = {}
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            xml = await _get_text(client, f"{NCBI_BASE}/efetch.fcgi", {
+                "db": "pubmed", "id": ",".join(clean), "retmode": "xml",
+            })
+        if not xml:
+            return {}
+
+        # Both wrappers. Curators cite GeneReviews constantly and PubMed returns
+        # those as <PubmedBookArticle>, so matching only <PubmedArticle> silently
+        # drops a chunk of the evidence behind a disagreement — Orphanet's
+        # citation on Caffey disease was one.
+        for article in re.finditer(
+            r"<(PubmedArticle|PubmedBookArticle)>(.*?)</\1>", xml, re.S
+        ):
+            body = article.group(2)
+            pmid_m = re.search(r"<PMID[^>]*>(\d+)</PMID>", body)
+            if not pmid_m:
+                continue
+            pmid = pmid_m.group(1)
+
+            parts = []
+            for seg in re.finditer(r"<AbstractText([^>]*)>(.*?)</AbstractText>", body, re.S):
+                label_m = re.search(r'Label="([^"]+)"', seg.group(1))
+                text = re.sub(r"<[^>]+>", "", seg.group(2))
+                text = html.unescape(text).strip()
+                if not text:
+                    continue
+                parts.append(f"{label_m.group(1)}: {text}" if label_m else text)
+
+            title_m = (re.search(r"<ArticleTitle[^>]*>(.*?)</ArticleTitle>", body, re.S)
+                       or re.search(r"<BookTitle[^>]*>(.*?)</BookTitle>", body, re.S))
+            journal_m = re.search(r"<ISOAbbreviation[^>]*>(.*?)</ISOAbbreviation>", body, re.S)
+            year_m = re.search(r"<PubDate>.*?<Year>(\d{4})</Year>", body, re.S)
+
+            out[pmid] = {
+                "title": html.unescape(re.sub(r"<[^>]+>", "", title_m.group(1))).strip().rstrip(".") if title_m else None,
+                "journal": html.unescape(journal_m.group(1)).strip() if journal_m else None,
+                "year": year_m.group(1) if year_m else None,
+                # No abstract is a real answer, not a failure: older papers and
+                # case reports frequently have none, and saying so is better
+                # than an empty string the model might treat as content.
+                "abstract": " ".join(parts) or None,
+            }
+    except Exception as e:
+        logger.warning("PubMed abstract fetch failed for %d PMIDs: %s", len(clean), e)
+    return out
 
 
 async def fetch_pubmed_titles(pmids: list[str]) -> dict:

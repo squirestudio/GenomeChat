@@ -15,8 +15,8 @@ from sqlalchemy.exc import IntegrityError
 from config import get_settings
 from models import QueryRequest, QueryResponse, BatchQueryRequest, HealthResponse, QueryType
 from services.query_interpreter import interpret_query
-from services.genomics_api_real import run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, fetch_vep_predictions, fetch_pubmed_titles, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
-from services.ai_explainer import explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup, transcribe_pages
+from services.genomics_api_real import fetch_pubmed_abstracts, run_gene_pipeline, run_disease_pipeline, fetch_gene_section, fetch_dbsnp_annotations, fetch_vep_predictions, fetch_pubmed_titles, section_has_data, section_cache_key, EMPTY_SECTION_TTL_HOURS
+from services.ai_explainer import explain_evidence, explain_results, explain_comparison, answer_followup, stream_explanation, stream_followup, transcribe_pages
 from services.cache import cache
 from services.limits import AnonymousAllowance, SharedWindow, SlidingWindow, client_ip, shared_backend_active
 from database.models import create_tables_safe, prune_old_query_payloads, get_db, SessionLocal, Query as QueryModel, ProcessedStripeEvent, Project, AuditLog
@@ -1360,4 +1360,57 @@ async def _attach_paper_titles(result: dict) -> dict:
                 {"pmid": pm, **titles.get(str(pm), {})}
                 for pm in (ev.get("pmids") or [])
             ]
+    return result
+
+
+class EvidenceRequest(BaseModel):
+    gene: str
+    disease: str
+    verdicts: list = []
+
+
+@app.post("/research/evidence")
+async def read_the_evidence(body: EvidenceRequest,
+                            current_user: User = Depends(require_user)):
+    """Read the abstracts behind a disagreement and say what each side weighed.
+
+    **The first place this product reads a paper rather than pointing at one.**
+    Everything before it referenced literature by identifier, which is enough to
+    link and not enough to compare.
+
+    Costs a model call, so it is an explicit action rather than something folded
+    into every answer — the reader chooses to spend it. Not charged a credit
+    while it is being evaluated; that decision waits on a token measurement
+    rather than a guess.
+    """
+    pmids = []
+    for v in body.verdicts or []:
+        pmids.extend((v or {}).get("pmids") or [])
+    pmids = list(dict.fromkeys(str(p) for p in pmids))
+    if not pmids:
+        return {"summary": "", "papers": {}, "reason": "No papers were recorded for this disagreement."}
+
+    key = f"evidence:{body.gene}:{body.disease}"
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    papers = await fetch_pubmed_abstracts(pmids)
+    if not papers:
+        return {"summary": "", "papers": {}, "reason": "Could not reach PubMed for those papers."}
+
+    summary = await explain_evidence(
+        disease=body.disease, gene=body.gene, verdicts=body.verdicts, papers=papers,
+    )
+    with_abstracts = sum(1 for d in papers.values() if d.get("abstract"))
+    result = {
+        "summary": summary,
+        "papers": papers,
+        # Stated rather than implied: a paper cited without an abstract is
+        # evidence the model could not read, and the reader should know which.
+        "resolved": len(papers),
+        "with_abstracts": with_abstracts,
+        "requested": len(pmids),
+    }
+    cache.set(key, result)
     return result

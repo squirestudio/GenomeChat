@@ -721,3 +721,75 @@ def _fallback_explanation(query_type: str, data: dict) -> str:
             f"## Associated Genes\n{bullet_lines}\n\n"
             f"*Add your Anthropic API key for full AI-powered analysis.*"
         )
+
+
+EVIDENCE_SYSTEM = """You are summarising the published evidence behind a
+disagreement between genetic curators. You are given the abstracts of the papers
+each curator cited.
+
+Your job is to say **what each side actually read**, so a reader can see why they
+reached different conclusions.
+
+Rules, and the first is the one that matters:
+
+1. **Use only the abstracts provided.** You have not read the full papers and you
+   know nothing else about them. If an abstract does not say how many families
+   were studied, do not say. If a paper has no abstract here, say it was cited
+   without one rather than guessing what it contained.
+2. Lead with the substance: study design, how many people, what was found. Those
+   are what separate a Definitive call from a Supportive one.
+3. Where the sides cite different papers, say what is different about them. Where
+   they cite the same papers and still disagree, say that too — it is the more
+   interesting case and it means the disagreement is about interpretation.
+4. Do not resolve the disagreement. You are not adjudicating which curator is
+   right; you are showing the reader what each of them was looking at.
+5. No diagnosis, no clinical advice, no recommendation about anyone's health.
+
+Write plainly and briefly — a few short paragraphs. Name papers by their finding,
+not by their PMID."""
+
+
+async def explain_evidence(disease: str, gene: str, verdicts: list, papers: dict,
+                           reading_level: str = "plain", user_api_key: str = None) -> str:
+    """Say what each curator actually read, from the abstracts of what they cited.
+
+    This is the first place the product reads a paper rather than pointing at
+    one. Everything before it referenced literature by identifier — PMID, title,
+    year — which is enough to link and not enough to compare.
+
+    Grounded hard on purpose: the abstracts are supplied and the prompt forbids
+    going beyond them. A confident sentence about a study's cohort size that the
+    abstract never stated is exactly the failure that costs a researcher a month.
+    """
+    settings = get_settings()
+    api_key = user_api_key or settings.anthropic_api_key
+    if not api_key:
+        return ""
+
+    lines = [f"Gene: {gene}", f"Disease: {disease}", "", "What each curator concluded:"]
+    for v in verdicts or []:
+        cited = ", ".join(v.get("pmids") or []) or "no papers recorded"
+        lines.append(f"- {v.get('submitter')} called it {v.get('classification')}"
+                     f" ({v.get('date') or 'undated'}), citing: {cited}")
+
+    lines.append("")
+    lines.append("Abstracts of the cited papers:")
+    for pmid, d in (papers or {}).items():
+        lines.append("")
+        lines.append(f"[{pmid}] {d.get('title') or 'Untitled'}"
+                     f" — {d.get('journal') or 'unknown journal'} {d.get('year') or ''}")
+        lines.append(d.get("abstract") or "(no abstract available for this record)")
+
+    level = READING_LEVEL_INSTRUCTIONS.get(reading_level) or READING_LEVEL_INSTRUCTIONS.get("plain", "")
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    try:
+        response = await client.messages.create(
+            model=EXPLAIN_MODEL,
+            max_tokens=1200,
+            system=f"{EVIDENCE_SYSTEM}\n\n{level}\n\n{NO_DIAGNOSIS_RULES}",
+            messages=[{"role": "user", "content": "\n".join(lines)}],
+        )
+        return response.content[0].text
+    except Exception as e:
+        logger.error(f"Evidence explanation failed: {e}")
+        return ""

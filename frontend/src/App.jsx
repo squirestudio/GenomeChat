@@ -658,7 +658,7 @@ function VoiceStatus({ enabled }) {
         </p>
         <p style={line}>
           {enabled
-            ? "A speaker button appears in the header once there is an answer to read. It will not show on an empty chat, which is why it may look missing."
+            ? "A speaker button is in the header, top right. It stays greyed out until there is an answer to read."
             : "Switch this on to add a speaker button to the header."}
         </p>
         <button onClick={test} disabled={testing}
@@ -6082,6 +6082,56 @@ function Toast({ tone = "success", onDismiss, children }) {
   );
 }
 
+/**
+ * The read-aloud control, in the header.
+ *
+ * **Rendered in both header rows.** It lived only in
+ * `.gc-header-actions-desktop`, which a media query hides outright on mobile —
+ * so on a phone the icon did not exist at all, however the setting was set.
+ *
+ * **Shown disabled rather than hidden when there is nothing to read.** It used
+ * to require an answer to exist, so switching speech on in an empty chat
+ * produced no visible change and read as a broken setting. A control that is
+ * present and explains why it is inert beats one that silently is not there;
+ * the whole point of the spec was an icon in the corner you can find.
+ */
+function ReadAloudButton({ settings, speech, lastAnswer, compact = false }) {
+  if (!settings.speech || !speech.available) return null;
+  const idle = !lastAnswer;
+  const size = compact ? 26 : 30;
+  const label = speech.speaking ? "Stop reading"
+    : idle ? "Ask a question first — this reads the answer aloud"
+    : "Read the latest answer aloud";
+  return (
+    <button
+      onClick={() => { if (idle) return; speech.speaking ? speech.stop() : speech.speak(lastAnswer); }}
+      disabled={idle}
+      aria-label={label}
+      title={label}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: size, height: size, borderRadius: 8, flexShrink: 0,
+        background: speech.speaking ? "rgb(var(--c-accent) / 0.1)" : "none",
+        border: `1px solid ${speech.speaking ? "rgb(var(--c-accent) / 0.35)" : "rgb(var(--c-border) / 0.4)"}`,
+        color: speech.speaking ? "var(--accent)" : idle ? "var(--text-disabled)" : "var(--text-dim)",
+        cursor: idle ? "default" : "pointer", transition: "all 0.15s",
+      }}
+    >
+      {speech.speaking ? (
+        <svg viewBox="0 0 20 20" width="13" height="13" fill="currentColor" aria-hidden="true">
+          <rect x="5" y="5" width="10" height="10" rx="1.5" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 20 20" width={compact ? 13 : 15} height={compact ? 13 : 15} fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+          <path d="M4 8v4h2.5L10 15V5L6.5 8H4z" fill="currentColor" stroke="none" />
+          <path d="M13 7.5a3.5 3.5 0 010 5" strokeLinecap="round" />
+          <path d="M15.2 5.4a6.5 6.5 0 010 9.2" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export default function App({ onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -7193,31 +7243,7 @@ export default function App({ onNavigate }) {
                 >
                   {documents.length ? `${documents.length} document${documents.length === 1 ? "" : "s"}` : "Add documents"}
                 </button>
-                {/* Only rendered when the reader has turned speech on *and* a
-                    local voice exists. Turning it off removes the icon rather
-                    than leaving a dead control, which is what was asked for —
-                    and a machine with no local voice gets no button rather than
-                    a button that silently does nothing. */}
-                {settings.speech && speech.available && lastAnswer && (
-                  <button
-                    onClick={() => speech.speaking ? speech.stop() : speech.speak(lastAnswer)}
-                    aria-label={speech.speaking ? "Stop reading" : "Read the latest answer aloud"}
-                    title={speech.speaking ? "Stop reading" : "Read the latest answer aloud"}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: speech.speaking ? "rgb(var(--c-accent) / 0.1)" : "none", border: `1px solid ${speech.speaking ? "rgb(var(--c-accent) / 0.35)" : "rgb(var(--c-border) / 0.4)"}`, color: speech.speaking ? "var(--accent)" : "var(--text-dim)", cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
-                  >
-                    {speech.speaking ? (
-                      <svg viewBox="0 0 20 20" width="13" height="13" fill="currentColor" aria-hidden="true">
-                        <rect x="5" y="5" width="10" height="10" rx="1.5" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-                        <path d="M4 8v4h2.5L10 15V5L6.5 8H4z" fill="currentColor" stroke="none" />
-                        <path d="M13 7.5a3.5 3.5 0 010 5" strokeLinecap="round" />
-                        <path d="M15.2 5.4a6.5 6.5 0 010 9.2" strokeLinecap="round" />
-                      </svg>
-                    )}
-                  </button>
-                )}
+                <ReadAloudButton settings={settings} speech={speech} lastAnswer={lastAnswer} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                   <span style={{ fontSize: "0.72rem", color: "var(--text-faintest)", textTransform: "capitalize" }}>{apiStatus}</span>
@@ -7261,6 +7287,7 @@ export default function App({ onNavigate }) {
               </div>
               {/* Mobile-only: user avatar on right of title row */}
               <div className="gc-header-actions-mobile" style={{ display: "none", alignItems: "center", gap: 8 }}>
+                <ReadAloudButton settings={settings} speech={speech} lastAnswer={lastAnswer} compact />
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
                 <PlanBadge currentUser={currentUser} onClick={() => setShowUpgrade("buy")} mobile />
                 {currentUser ? (

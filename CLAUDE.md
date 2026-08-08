@@ -599,7 +599,9 @@ Opt-in accessibility, **off by default**: speech starting unbidden is hostile in
 
 **Settings reports which of three states this machine is in**, because "no button appeared" has three causes needing three different answers: no speech API, no voices installed, or voices that are *all* network voices. The last is the surprising one — the reader plainly has voices, so saying there are none reads as a bug. `VoiceStatus` names the chosen voice, offers a Test button, and gives platform-specific install instructions from `installHint`.
 
-**The header button is hidden when there is nothing to read, and that is worth knowing.** A permanently disabled control in the header is clutter, but it means enabling speech on an empty chat produces no visible change — which reads as broken. That is exactly how it was first reported. The Settings status line says so explicitly.
+**`ReadAloudButton` renders in both header rows, and that is not optional.** `.gc-header-actions-desktop` is hidden outright by a media query on mobile, with `.gc-header-actions-mobile` shown instead — so a control placed in only the desktop row **does not exist on a phone**, whatever the setting says. It shipped that way once and the report was simply "I don't see a speaker icon". Any new header control needs both rows.
+
+**It shows disabled rather than hidden when there is nothing to read.** Gating it on an answer existing meant switching speech on in an empty chat produced no visible change at all, which reads as a broken setting — the same bug from the other direction. A present control that explains why it is inert beats an absent one; the spec was an icon in the corner you can find.
 
 **The voice list is an external store**, read through `useSyncExternalStore`. `getVoices()` is empty on the first call in every browser that fires `voiceschanged`, so asking once at mount concludes speech is unavailable forever — and the snapshot must be cached, because `getVoices()` returns a fresh array each call and a new reference per render is an infinite loop.
 

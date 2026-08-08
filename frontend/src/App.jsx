@@ -538,32 +538,56 @@ function SettingSegment({ value, options, onChange }) {
  * personal side of the product has been trained by every other screen to expect
  * conservative, sourced answers, and this is the one place that changes.
  */
-/**
- * Shown the first time an account switches into research mode.
- *
- * **Consent, not decoration.** Every other screen in this product has trained
- * the reader to expect conservative, sourced, hedged answers — and research mode
- * is the one place that changes. Someone arriving from the personal side
- * carrying assumptions from it would be badly served by a footnote.
- *
- * Acknowledged once per account rather than per session: a wall that appears
- * every time is a wall people learn to click through without reading, which is
- * worse than no wall.
- */
 const RESEARCH_ACK_KEY = "mydna_research_ack";
 
-function ResearchNotice({ onAccept, onDecline }) {
+/**
+ * The gate into Research mode: what it is, what it is not, and the access code.
+ *
+ * **One modal doing consent and unlock together, deliberately.** Splitting them
+ * puts the explanation somewhere a reader can skip — and this is the one place
+ * in the product where the rules change. Every other screen trains them to
+ * expect conservative, sourced, hedged answers; someone arriving with those
+ * assumptions intact is badly served by a footnote.
+ *
+ * The toggle that opens this is visible to everyone, so most people who see this
+ * will not have a code. That is why it opens with what the mode *is* rather than
+ * with a password box: a locked door with no sign on it is worse than no door.
+ */
+function ResearchGateModal({ currentUser, onUnlocked, onAccept, onClose }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const unlocked = !!currentUser?.research_unlocked;
+
+  const submit = async () => {
+    if (!code.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await apiFetch("/research/unlock", {
+        method: "POST",
+        body: JSON.stringify({ password: code.trim() }),
+      });
+      if (r.ok) { setCode(""); onUnlocked(); }
+      else if (r.status === 501) setError("Research mode is not enabled on this server yet.");
+      else setError("That code is not right.");
+    } catch { setError("Could not reach the server. Check your connection."); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgb(var(--c-shadow) / 0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-      <div style={{ background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "1.6rem", width: 480, maxWidth: "calc(100vw - 2rem)", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
-        <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: "0 0 0.7rem" }}>
-          Before you turn on Research mode
-        </h2>
+      <div style={{ background: "var(--bg-elevated)", border: "1px solid rgb(var(--c-border) / 0.6)", borderRadius: 16, padding: "1.6rem", width: 500, maxWidth: "calc(100vw - 2rem)", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 64px rgb(var(--c-shadow) / 0.6)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "0.7rem" }}>
+          <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text)", margin: 0 }}>Research mode</h2>
+          <span style={{ fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--warning)", background: "rgb(var(--c-warning) / 0.12)", border: "1px solid rgb(var(--c-warning) / 0.3)", borderRadius: 5, padding: "0.12rem 0.35rem" }}>Beta</span>
+        </div>
 
         <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 1.65, margin: "0 0 0.8rem" }}>
-          Research mode changes what MyDNA does. It joins the source databases
-          against each other and surfaces where they contradict one another, then
-          discusses what it found — openly, and at length.
+          MyDNA normally answers from the source databases one at a time. Research
+          mode joins them <em>against each other</em> and surfaces where they
+          contradict — classifications curators disagree on, pathogenic calls that
+          predate population frequency data, evidence nobody has revisited in a
+          decade — then discusses what it found, openly and at length.
         </p>
 
         <div style={{ padding: "0.8rem 0.9rem", borderRadius: 10, background: "rgb(var(--c-warning) / 0.08)", border: "1px solid rgb(var(--c-warning) / 0.3)", marginBottom: "0.9rem" }}>
@@ -571,11 +595,11 @@ function ResearchNotice({ onAccept, onDecline }) {
             The findings are computed. The reasoning about them is not.
           </p>
           <p style={{ fontSize: "0.76rem", color: "var(--text-faint)", lineHeight: 1.6, margin: 0 }}>
-            Every contradiction it reports is calculated from named sources and
-            can be checked. The interpretation, the suggested directions and
-            anything resembling a hypothesis are <strong>generated</strong>, have
-            been reviewed by nobody, and can be confidently wrong. Treat them as
-            a prompt for your own judgement, never as a result.
+            Every contradiction it reports is calculated from named sources and can
+            be checked. The interpretation, the suggested directions and anything
+            resembling a hypothesis are <strong>generated</strong>, have been
+            reviewed by nobody, and can be confidently wrong. Treat them as a
+            prompt for your own judgement, never as a result.
           </p>
         </div>
 
@@ -586,96 +610,81 @@ function ResearchNotice({ onAccept, onDecline }) {
           <li>Verify anything you intend to act on against the original record.</li>
         </ul>
 
+        {!unlocked && (
+          <div style={{ marginBottom: "0.9rem" }}>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-dim)", margin: "0 0 6px" }}>
+              Research mode is limited while it is being shaped with researchers.
+              Enter your access code to continue.
+            </p>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input type="password" value={code} onChange={e => setCode(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") submit(); }}
+                placeholder="Access code" autoFocus
+                style={{ flex: 1, padding: "0.45rem 0.6rem", borderRadius: 8, fontSize: "0.78rem", background: "rgb(var(--c-deep) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.45)", color: "var(--text)" }} />
+              <button onClick={submit} disabled={busy || !code.trim()}
+                style={{ padding: "0.45rem 0.8rem", borderRadius: 8, fontSize: "0.75rem", fontWeight: 600, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.35)", color: busy || !code.trim() ? "var(--text-disabled)" : "var(--accent)", cursor: busy || !code.trim() ? "default" : "pointer" }}>
+                {busy ? "Checking…" : "Unlock"}
+              </button>
+            </div>
+            {error && <p style={{ fontSize: "0.7rem", color: "var(--danger)", margin: "6px 0 0" }}>{error}</p>}
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onDecline}
+          <button onClick={onClose}
             style={{ padding: "0.5rem 0.9rem", borderRadius: 9, fontSize: "0.76rem", background: "none", border: "1px solid rgb(var(--c-border) / 0.45)", color: "var(--text-muted)", cursor: "pointer" }}>
-            Not now
+            {unlocked ? "Not now" : "Cancel"}
           </button>
-          <button onClick={onAccept}
-            style={{ padding: "0.5rem 0.9rem", borderRadius: 9, fontSize: "0.76rem", fontWeight: 600, background: "var(--accent-deep)", border: "none", color: "white", cursor: "pointer" }}>
-            I understand — turn it on
-          </button>
+          {unlocked && (
+            <button onClick={onAccept}
+              style={{ padding: "0.5rem 0.9rem", borderRadius: 9, fontSize: "0.76rem", fontWeight: 600, background: "var(--accent-deep)", border: "none", color: "white", cursor: "pointer" }}>
+              I understand — turn it on
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
+/**
+ * The mode toggle. Visible to everyone; the gate is behind selecting Research.
+ */
 function ResearchSection({ currentUser, settings, set, onUserRefresh }) {
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [showNotice, setShowNotice] = useState(false);
-  const unlocked = !!currentUser?.research_unlocked;
-
-  const unlock = async () => {
-    if (!code.trim()) return;
-    setBusy(true); setError(null);
-    try {
-      const r = await apiFetch("/research/unlock", {
-        method: "POST",
-        body: JSON.stringify({ password: code.trim() }),
-      });
-      if (r.ok) { setCode(""); onUserRefresh(); }
-      else if (r.status === 501) setError("Research mode is not enabled on this server.");
-      else setError("That code is not right.");
-    } catch { setError("Could not reach the server. Check your connection."); }
-    finally { setBusy(false); }
-  };
-
-  const hint = { fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 };
-
+  const [showGate, setShowGate] = useState(false);
   if (!currentUser) return null;
 
-  if (!unlocked) {
-    return (
-      <Section label="Research Mode" hint="For researchers and lab staff — requires an access code">
-        <div style={{ display: "flex", gap: 6 }}>
-          <input type="password" value={code} onChange={e => setCode(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") unlock(); }}
-            placeholder="Access code"
-            style={{ flex: 1, padding: "0.4rem 0.55rem", borderRadius: 8, fontSize: "0.75rem", background: "rgb(var(--c-deep) / 0.5)", border: "1px solid rgb(var(--c-border) / 0.4)", color: "var(--text)" }} />
-          <button onClick={unlock} disabled={busy || !code.trim()}
-            style={{ padding: "0.4rem 0.7rem", borderRadius: 8, fontSize: "0.72rem", fontWeight: 600, background: "rgb(var(--c-accent) / 0.1)", border: "1px solid rgb(var(--c-accent) / 0.35)", color: busy || !code.trim() ? "var(--text-disabled)" : "var(--accent)", cursor: busy || !code.trim() ? "default" : "pointer" }}>
-            {busy ? "Checking…" : "Unlock"}
-          </button>
-        </div>
-        {error && <p style={{ ...hint, color: "var(--danger)" }}>{error}</p>}
-        <p style={hint}>
-          Research mode surfaces contradictions between the source databases —
-          classifications that disagree, calls that predate the frequency data,
-          evidence that has not been revisited in years. It is not part of the
-          normal experience and is not needed to use MyDNA.
-        </p>
-      </Section>
-    );
-  }
+  const enable = () => {
+    try { localStorage.setItem(RESEARCH_ACK_KEY, "1"); } catch { /* private mode; the notice simply shows again */ }
+    setShowGate(false);
+    set("researchMode", true);
+  };
 
   return (
-    <Section label="Research Mode" hint="Cross-source analysis — findings are computed, commentary is generated">
-      {showNotice && (
-        <ResearchNotice
-          onAccept={() => {
-            try { localStorage.setItem(RESEARCH_ACK_KEY, "1"); } catch { /* private mode; the notice simply shows again */ }
-            setShowNotice(false);
-            set("researchMode", true);
-          }}
-          onDecline={() => setShowNotice(false)}
+    <Section label="Mode" hint="Research mode adds cross-source findings and open-ended analysis">
+      {showGate && (
+        <ResearchGateModal
+          currentUser={currentUser}
+          onUnlocked={() => { onUserRefresh(); enable(); }}
+          onAccept={enable}
+          onClose={() => setShowGate(false)}
         />
       )}
-      <SettingSegment value={settings.researchMode ? "on" : "off"}
-        options={[{ value: "off", label: "Personal" }, { value: "on", label: "Research" }]}
+      <SettingSegment value={settings.researchMode ? "research" : "mydna"}
+        options={[{ value: "mydna", label: "MyDNA" }, { value: "research", label: "Research (Beta)" }]}
         onChange={v => {
-          if (v !== "on") { set("researchMode", false); return; }
+          if (v !== "research") { set("researchMode", false); return; }
+          // Unlocked *and* already acknowledged is the only path that skips the
+          // gate. A wall shown every time is one people learn to click through.
           let acked = false;
           try { acked = localStorage.getItem(RESEARCH_ACK_KEY) === "1"; } catch { /* private mode */ }
-          if (acked) set("researchMode", true);
-          else setShowNotice(true);
+          if (currentUser.research_unlocked && acked) set("researchMode", true);
+          else setShowGate(true);
         }} />
-      <p style={hint}>
+      <p style={{ fontSize: "0.68rem", color: "var(--text-faintest)", marginTop: 6, lineHeight: 1.5 }}>
         {settings.researchMode
-          ? "Answers include contradictions found between the source databases, and the commentary on them is open-ended. Findings are computed and every one names its sources; the reasoning about them is generated and has not been reviewed by anyone. Verify before acting on it. Not medical advice, and not for clinical decisions."
-          : "MyDNA behaves normally. Switch to Research to add cross-source findings and open-ended analysis to answers."}
+          ? "Answers carry contradictions found between the source databases. Findings are computed and name their sources; the commentary on them is generated and reviewed by nobody. Not medical advice."
+          : "MyDNA behaves normally — one question, one sourced answer."}
       </p>
     </Section>
   );
@@ -5895,6 +5904,13 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
           />
         )}
 
+        {/* Research mode only, and gated on the answer having a gene — a
+            conversational follow-up has nothing to cross-check. */}
+        <ResearchFindings
+          gene={msg.data?.gene_symbol || msg.target}
+          enabled={!!settings?.researchMode}
+        />
+
         <MessageFooter msg={msg} />
       </div>
     </div>
@@ -5910,6 +5926,88 @@ function AssistantMessage({ msg, dnaData, settings, onLoadSection, onToggleSecti
  * patched; see the note in database/routes.py. Export PDF still covers sharing a
  * finding deliberately, and puts the reader in control of where it goes.
  */
+/**
+ * Cross-source findings for the gene in an answer. Research mode only.
+ *
+ * Fetched after the answer lands rather than folded into the stream: it runs no
+ * model, costs nothing, and keeping it off the streaming path means a failure
+ * here can never damage an answer the reader already paid for.
+ *
+ * **`skipped` is rendered, not hidden.** An analysis whose inputs were missing
+ * is not an analysis that found nothing, and collapsing the two is the exact
+ * mistake the upstream-drift audit exists to prevent — a clean panel would
+ * otherwise read as a clean bill of health on checks that never ran.
+ */
+function ResearchFindings({ gene, enabled }) {
+  const [state, setState] = useState(null);
+  const key = enabled && gene ? gene : null;
+
+  // The result carries the gene it belongs to, so "still loading" is derived by
+  // comparing rather than set synchronously — a setState in the effect body
+  // cascades renders, and the lint rule that catches it is right.
+  useEffect(() => {
+    if (!key) return;
+    let cancelled = false;
+    apiFetch(`/research/findings?gene=${encodeURIComponent(key)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setState({ gene: key, data: d }); })
+      .catch(() => { if (!cancelled) setState({ gene: key, error: true }); });
+    return () => { cancelled = true; };
+  }, [key]);
+
+  if (!key) return null;
+  if (!state || state.gene !== key) {
+    return <p style={{ fontSize: "0.72rem", color: "var(--text-faintest)", marginTop: 12 }}>Cross-checking sources…</p>;
+  }
+  if (state.error || !state.data) return null;
+
+  const { findings = [], checked = [], skipped = [] } = state.data || {};
+  const tone = { high: "var(--danger)", medium: "var(--warning)", low: "var(--text-dimmer)" };
+
+  return (
+    <div style={{ marginTop: 16, borderRadius: 12, border: "1px solid rgb(var(--c-warning) / 0.28)", background: "rgb(var(--c-warning) / 0.05)", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.85rem", borderBottom: "1px solid rgb(var(--c-warning) / 0.18)" }}>
+        <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--warning)" }}>
+          Cross-source findings · {gene}
+        </span>
+        <span style={{ fontSize: "0.65rem", color: "var(--text-faintest)" }}>
+          {findings.length === 0 ? "none found" : `${findings.length} to look at`}
+        </span>
+      </div>
+
+      <div style={{ padding: "0.7rem 0.85rem" }}>
+        {findings.map((f, i) => (
+          <div key={i} style={{ marginBottom: i === findings.length - 1 ? 0 : 12 }}>
+            <p style={{ fontSize: "0.75rem", fontWeight: 600, color: tone[f.severity] || "var(--text-muted)", margin: "0 0 3px" }}>
+              {f.headline}
+            </p>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.6, margin: 0 }}>
+              {f.detail}
+            </p>
+            <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", margin: "4px 0 0" }}>
+              {f.sources.join(" × ")}
+            </p>
+          </div>
+        ))}
+
+        {findings.length === 0 && checked.length > 0 && (
+          <p style={{ fontSize: "0.72rem", color: "var(--text-faint)", lineHeight: 1.6, margin: 0 }}>
+            Nothing contradictory found across {checked.length} check{checked.length === 1 ? "" : "s"}.
+          </p>
+        )}
+
+        {skipped.length > 0 && (
+          <p style={{ fontSize: "0.65rem", color: "var(--text-faintest)", lineHeight: 1.55, margin: "10px 0 0", paddingTop: 8, borderTop: "1px solid rgb(var(--c-border) / 0.25)" }}>
+            {/* Not the same as "found nothing", and must not read as it. */}
+            Could not check: {skipped.join(", ").replace(/_/g, " ")} — the source data for
+            {skipped.length === 1 ? " it" : " those"} was not available for this gene.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageFooter({ msg }) {
   if (!msg.sources?.length) return null;
   return (

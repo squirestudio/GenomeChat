@@ -300,6 +300,12 @@ Cost is a 26 MB TSV parsed into a gene-keyed index and held resident, which is w
 
 The remaining links are attribution rather than exits — AlphaFold and Reactome are interactive artefacts, PMC is full text — but any new panel should be built on the same question: is the reader being sent away for something we already have?
 
+**The model writes `<details>`/`<summary>` and the renderer now understands them.** It reaches for collapsibles whenever an answer has many repeating parts — 23 personal variants, each with four lines about it — because markdown has none and it wants one. Without a case for it the tags printed as literal text and the content underneath looked broken, which is how a reader found it.
+
+**Parsed, never injected.** Only those two tags are understood and their text goes through the normal inline renderer, so this adds a structure the model can use with no path from model output to `dangerouslySetInnerHTML`. Any *other* lone tag — an improvised `<div>`, a `<br/>` — is dropped rather than printed, because a literal `<div>` in an answer reads as a bug and tells the reader nothing.
+
+Parsing lives in [markdown-parse.js](frontend/src/markdown-parse.js) rather than the component: it can then be tested without rendering, which is this repo's rule, and a `.jsx` file exporting non-components breaks fast refresh for the whole tree. An unterminated block returns what it found rather than swallowing the rest of the answer — answers stream, so rendering mid-structure is normal.
+
 **A markdown table may have blank lines between its rows.** The model writes them both ways, and `parseTable` originally required the delimiter to be the very next line, so a real population-frequency table rendered as eight lines of raw pipes. It now skips blanks between the header, the delimiter and the rows, and stops at the first non-blank line without a pipe so following prose is not swallowed.
 
 **The pictogram grid is chosen by spread, and the last dot is part-filled.** `sharedPictogramScale` used to pick the coarsest grid on which the *rarest group registered one dot* — a visibility test, in a panel that exists to compare. For a gene whose ancestry groups ran 1 in 720 to 1 in 1,000 it chose the thousand-grid, where all seven round to exactly one dot: seven identical pictures for seven different numbers, sitting directly above a bar chart that showed the differences fine. It now requires the spread between the most and least common group to cover at least `MIN_SPREAD_DOTS` (3), so the same case picks 10,000 and draws 13/13/12/10/10/10/10.

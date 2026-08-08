@@ -265,3 +265,39 @@ body {
   outline-offset: 2px;
   border-radius: 3px;
 }
+
+/* Collapsible sections inside an answer.
+   The model reaches for <details>/<summary> whenever an answer has many
+   repeating parts — 23 variants each with four lines about them — because
+   markdown has no collapsible and it wants one. markdown.jsx parses those two
+   tags into real elements; this is what they look like. */
+.md-details {
+  border: 1px solid rgb(var(--c-border) / 0.35);
+  border-radius: 9px;
+  margin: 0.5rem 0;
+  background: rgb(var(--c-surface) / 0.25);
+}
+.md-details > summary {
+  cursor: pointer;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.83rem;
+  color: var(--text-secondary);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.md-details > summary::-webkit-details-marker { display: none; }
+.md-details > summary::before {
+  content: "▸";
+  color: var(--text-dimmer);
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+}
+.md-details[open] > summary::before { transform: rotate(90deg); }
+.md-details > summary:hover { color: var(--accent); }
+.md-details-body {
+  padding: 0 0.7rem 0.6rem;
+  border-top: 1px solid rgb(var(--c-border) / 0.25);
+  padding-top: 0.5rem;
+}

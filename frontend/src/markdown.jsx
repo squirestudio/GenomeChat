@@ -7,10 +7,12 @@
  *
  * Hand-rolled rather than a library because the output is inline-styled to the
  * theme tokens, and because the subset that actually appears — headings, lists,
- * tables, bold, code, links — is small and known.
+ * tables, bold, code, links — is small and known. Parsing that needs no
+ * rendering lives in `markdown-parse.js` so it can be tested on its own.
  */
 import { parseTable, isNumeric } from "./table";
 import { linkifyGenes } from "./genes";
+import { parseDetails, isStrayTag } from "./markdown-parse";
 
 /**
  * Gene symbols as buttons that put the symbol in the input box.
@@ -60,7 +62,6 @@ function renderInline(text, gene) {
   return parts;
 }
 
-
 function Markdown({ content, gene }) {
   if (!content) return null;
   const lines = content.split("\n");
@@ -82,6 +83,22 @@ function Markdown({ content, gene }) {
           {renderInline(line.slice(3), gene)}
         </h2>
       );
+    } else if (/^\s*<details\b/i.test(line)) {
+      // **Parsed, never injected.** Only these two tags are understood and the
+      // text inside goes through the normal renderer, so this adds a structure
+      // the model can use without a path from model output to innerHTML.
+      const d = parseDetails(lines, i);
+      i = d.endsAt;
+      elements.push(
+        <details key={`d${i}`} className="md-details">
+          <summary>{renderInline(d.summary || "Details", gene)}</summary>
+          <div className="md-details-body"><Markdown content={d.body.join("\n")} gene={gene} /></div>
+        </details>
+      );
+      continue;
+    } else if (isStrayTag(line)) {
+      i++;
+      continue;
     } else if (line.startsWith("### ")) {
       elements.push(
         <h3 key={i} style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", margin: "0.875rem 0 0.25rem" }}>
